@@ -1,0 +1,66 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.StingListView"
+             x:CompileBindings="False">
+  <StackPanel Spacing="10">
+
+    <TextBlock Text="STING List" Classes="h1"/>
+
+    <DockPanel LastChildFill="True">
+      <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" Spacing="10">
+        <TextBox Watermark="Search reg / fleet / client..."
+                 Width="320"
+                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+
+        <CheckBox Content="Show Archived"
+                  IsChecked="{Binding ShowArchived}"/>
+
+        <ComboBox Width="200"
+                  ItemsSource="{Binding Presets}"
+                  SelectedItem="{Binding SelectedPreset}"/>
+      </StackPanel>
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
+      <Button Content="Start Removal" Command="{Binding StartRemovalCommand}"
+        Classes="primary"
+        IsEnabled="{Binding CanStartRemoval}"/>
+        <Button Content="Mark Removed" Command="{Binding MarkRemovedCommand}"
+                IsEnabled="{Binding CanArchive}"/>
+        <Button Content="Archive" Command="{Binding ArchiveCommand}"
+                IsEnabled="{Binding CanArchive}"/>
+      </StackPanel>
+    </DockPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Button Content="⏮" Command="{Binding FirstPageCommand}" ToolTip.Tip="First page"/>
+      <Button Content="◀" Command="{Binding PrevPageCommand}" ToolTip.Tip="Previous page"/>
+      <TextBlock Text="{Binding PageNumber}" VerticalAlignment="Center" Width="40" TextAlignment="Center"/>
+      <Button Content="▶" Command="{Binding NextPageCommand}" ToolTip.Tip="Next page"/>
+      <TextBlock Text="{Binding PageSize}" Margin="20,0,0,0" VerticalAlignment="Center" Classes="muted"/>
+    </StackPanel>
+
+    <DataGrid AutoGenerateColumns="False"
+              ItemsSource="{Binding Rows}"
+              SelectedItem="{Binding SelectedRow}"
+              IsReadOnly="True"
+              GridLinesVisibility="All"
+              Height="520">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="1.5*"/>
+        <DataGridTextColumn Header="Reg." Binding="{Binding Registration}" Width="1*"/>
+        <DataGridTextColumn Header="Fleet" Binding="{Binding FleetNumber}" Width="0.9*"/>
+        <DataGridTextColumn Header="Make" Binding="{Binding Make}" Width="0.9*"/>
+        <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="1*"/>
+        <DataGridTextColumn Header="Colour" Binding="{Binding Colour}" Width="0.9*"/>
+        <DataGridTextColumn Header="VIN" Binding="{Binding VinNumber}" Width="1.5*"/>
+        <DataGridTextColumn Header="IMEI" Binding="{Binding Imei}" Width="1.2*"/>
+        <DataGridTextColumn Header="Serial #" Binding="{Binding SerialNumber}" Width="1.2*"/>
+        <DataGridTextColumn Header="ICCID" Binding="{Binding Iccid}" Width="1.3*"/>
+        <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="1.5*"/>
+        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.8*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+
+  </StackPanel>
+</UserControl>

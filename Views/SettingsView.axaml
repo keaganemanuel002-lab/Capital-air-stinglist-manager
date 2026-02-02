@@ -1,0 +1,95 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.SettingsView"
+             x:CompileBindings="False">
+  <Border Padding="12" Classes="surface">
+    <StackPanel Spacing="12">
+      <TextBlock Text="Settings" Classes="h1"/>
+
+      <StackPanel Width="420">
+        <TextBlock Text="Operator name (used for audit log)" Classes="muted"/>
+        <TextBox Text="{Binding OperatorName}" />
+      </StackPanel>
+
+      <StackPanel Width="420">
+        <TextBlock Text="Role" Classes="muted"/>
+        <ComboBox ItemsSource="{Binding RoleOptions}" SelectedItem="{Binding Role}"/>
+      </StackPanel>
+
+      <StackPanel Orientation="Horizontal" Spacing="30">
+        <StackPanel Width="200">
+          <TextBlock Text="Default Install Fee (Ex VAT)" Classes="muted"/>
+          <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding DefaultInstallFeeExVat}"/>
+        </StackPanel>
+
+        <StackPanel Width="200">
+          <TextBlock Text="Default Removal Fee (Ex VAT)" Classes="muted"/>
+          <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding DefaultRemovalFeeExVat}"/>
+        </StackPanel>
+      </StackPanel>
+
+      <StackPanel Width="520" Spacing="6">
+        <TextBlock Text="VAT &amp; Package Pricing" Classes="h2" Margin="0,8,0,0"/>
+        
+        <StackPanel Width="200">
+          <TextBlock Text="VAT Rate (%)" Classes="muted"/>
+          <NumericUpDown Minimum="0" Maximum="100" Increment="0.1" Value="{Binding VatRate}"/>
+        </StackPanel>
+
+        <TextBlock Text="Package Base Prices (Ex VAT)" Classes="muted" Margin="0,8,0,0"/>
+        <StackPanel Orientation="Horizontal" Spacing="30">
+          <StackPanel Width="150">
+            <TextBlock Text="STING Base" Classes="muted"/>
+            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingBaseExVat}"/>
+          </StackPanel>
+          <StackPanel Width="150">
+            <TextBlock Text="STING Plus Base" Classes="muted"/>
+            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingPlusBaseExVat}"/>
+          </StackPanel>
+          <StackPanel Width="150">
+            <TextBlock Text="STING FM Base" Classes="muted"/>
+            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingFmBaseExVat}"/>
+          </StackPanel>
+        </StackPanel>
+
+        <TextBlock Text="Add-on Prices (Ex VAT)" Classes="muted" Margin="0,8,0,0"/>
+        <StackPanel Orientation="Horizontal" Spacing="30">
+          <StackPanel Width="150">
+            <TextBlock Text="Panic Button Add-on" Classes="muted"/>
+            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding PanicButtonAddonExVat}"/>
+          </StackPanel>
+          <StackPanel Width="150">
+            <TextBlock Text="App Live Tracking Add-on" Classes="muted"/>
+            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding AppLiveTrackingAddonExVat}"/>
+          </StackPanel>
+        </StackPanel>
+      </StackPanel>
+
+      <StackPanel Width="520" Spacing="6">
+        <TextBlock Text="Data location" Classes="muted"/>
+        <CheckBox Content="Use shared data location (multi-user)" IsChecked="{Binding UseSharedData}"/>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBox Width="360" Text="{Binding SharedBaseDir}"/>
+          <Button Content="Browse" Command="{Binding BrowseSharedBaseDirCommand}"/>
+        </StackPanel>
+        <TextBlock Text="Restart required after changing data location." Classes="muted"/>
+      </StackPanel>
+
+      <CheckBox Content="Auto-backup on startup (once per day)" IsChecked="{Binding AutoBackupOnStartup}"/>
+
+      <StackPanel Width="520" Spacing="6">
+        <TextBlock Text="Teltonika FOTA API Integration" Classes="h2" Margin="0,8,0,0"/>
+        <TextBlock Text="Teltonika API Key (for fetching device IMEI, Serial, ICCID)" Classes="muted"/>
+        <TextBox Text="{Binding TeltonikaApiKey}" 
+                 Watermark="Enter your Teltonika FOTA API key"
+                 PasswordChar="•"/>
+        <TextBlock Text="Get your API key from Teltonika FOTA Web platform settings." 
+                   Classes="muted" 
+                   FontSize="11"/>
+      </StackPanel>
+
+      <Button Content="Save" Width="120" Command="{Binding SaveCommand}" Classes="primary"/>
+      <TextBlock Text="(Settings auto-save when changed)" Classes="muted" FontSize="11"/>
+    </StackPanel>
+  </Border>
+</UserControl>

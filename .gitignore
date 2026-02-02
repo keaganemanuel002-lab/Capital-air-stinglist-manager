@@ -1,0 +1,37 @@
+# Build results
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+publish/
+
+# IDE
+.vs/
+.vscode/
+*.user
+*.sln.iml
+*.suo
+
+# Database
+*.db
+*.sqlite
+*.db-shm
+*.db-wal
+
+# Dependencies
+packages/
+node_modules/
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+appsettings.*.json
+
+# OS
+.DS_Store
+Thumbs.db

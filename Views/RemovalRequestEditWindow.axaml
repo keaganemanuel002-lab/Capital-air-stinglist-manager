@@ -1,0 +1,61 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.RemovalRequestEditWindow"
+        x:CompileBindings="False"
+        Width="560" Height="480"
+        WindowStartupLocation="CenterOwner"
+        Title="Removal Request">
+  <StackPanel Margin="16" Spacing="12">
+    <TextBlock Text="Removal Request" Classes="h2"/>
+
+    <StackPanel>
+      <TextBlock Text="Client (from STING List)" Classes="muted"/>
+      <ComboBox ItemsSource="{Binding AvailableClients}"
+                SelectedItem="{Binding Client}"
+                IsEditable="True"/>
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Width="260">
+        <TextBlock Text="Registration (from STING List)" Classes="muted"/>
+        <ComboBox ItemsSource="{Binding AvailableRegistrations}"
+                  SelectedItem="{Binding Registration}"
+                  IsEditable="True"/>
+      </StackPanel>
+      <StackPanel Width="260">
+        <TextBlock Text="Fleet Number (from STING List)" Classes="muted"/>
+        <ComboBox ItemsSource="{Binding AvailableFleetNumbers}"
+                  SelectedItem="{Binding FleetNumber}"
+                  IsEditable="True"/>
+      </StackPanel>
+    </StackPanel>
+
+    <StackPanel>
+      <TextBlock Text="Make &amp; Model" Classes="muted"/>
+      <TextBox Text="{Binding MakeModel}"/>
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Width="260">
+        <TextBlock Text="Date Request Received" Classes="muted"/>
+        <DatePicker SelectedDate="{Binding DateReceived}"/>
+      </StackPanel>
+      <StackPanel Width="260">
+        <TextBlock Text="Reason" Classes="muted"/>
+        <TextBox Text="{Binding Reason}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <StackPanel>
+      <TextBlock Text="Notes" Classes="muted"/>
+      <TextBox Text="{Binding Notes}" AcceptsReturn="True" Height="80"/>
+    </StackPanel>
+
+    <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed"/>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+      <Button Content="Save" Command="{Binding SaveCommand}" Classes="primary"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

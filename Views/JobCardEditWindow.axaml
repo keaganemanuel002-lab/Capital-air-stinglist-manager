@@ -1,0 +1,127 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.JobCardEditWindow"
+        x:CompileBindings="False"
+        Width="560" Height="900"
+        WindowStartupLocation="CenterOwner"
+        Title="Edit Job Card">
+
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="12">
+
+    <TextBlock Text="Edit Job Card" Classes="h2"/>
+
+    <StackPanel>
+      <TextBlock Text="Company" Classes="muted"/>
+      <TextBox Text="{Binding Company}" IsReadOnly="True"/>
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Width="220">
+        <TextBlock Text="Registration" Classes="muted"/>
+        <TextBox Text="{Binding Registration}"/>
+      </StackPanel>
+
+      <StackPanel Width="220">
+        <TextBlock Text="Fleet Number" Classes="muted"/>
+        <TextBox Text="{Binding FleetNumber}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Width="165">
+        <TextBlock Text="Make" Classes="muted"/>
+        <TextBox x:Name="MakeTextBox" Text="{Binding Make, UpdateSourceTrigger=PropertyChanged}"/>
+        <ListBox x:Name="MakesListBox"
+                 ItemsSource="{Binding FilteredMakes}" 
+                 IsVisible="{Binding ShowMakesList}"
+                 MaxHeight="120"
+                 Margin="0,2,0,0"
+                 HorizontalAlignment="Left"
+                 Width="165"/>
+      </StackPanel>
+      <StackPanel Width="165">
+        <TextBlock Text="Model" Classes="muted"/>
+        <TextBox x:Name="ModelTextBox" Text="{Binding Model, UpdateSourceTrigger=PropertyChanged}"/>
+        <ListBox x:Name="ModelsListBox"
+                 ItemsSource="{Binding FilteredModels}"
+                 IsVisible="{Binding ShowModelsList}"
+                 MaxHeight="120"
+                 Margin="0,2,0,0"
+                 HorizontalAlignment="Left"
+                 Width="165"/>
+      </StackPanel>
+      <StackPanel Width="165">
+        <TextBlock Text="Colour" Classes="muted"/>
+        <TextBox Text="{Binding Colour}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <StackPanel>
+      <TextBlock Text="VIN (Vehicle Identification Number)" Classes="muted"/>
+      <TextBox Text="{Binding VinNumber}"/>
+    </StackPanel>
+
+    <Separator Margin="0,8"/>
+
+    <TextBlock Text="Tracking Unit Information" Classes="h2"/>
+    
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Width="252">
+        <TextBlock Text="Tracking Unit Make" Classes="muted"/>
+        <TextBox Text="{Binding TrackingUnitMake}" Watermark="e.g. Teltonika, Concox"/>
+      </StackPanel>
+      <StackPanel Width="252">
+        <TextBlock Text="IMEI Number" Classes="muted"/>
+        <TextBox Text="{Binding Imei}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel Width="165">
+        <TextBlock Text="Serial Number" Classes="muted"/>
+        <TextBox Text="{Binding SerialNumber}"/>
+      </StackPanel>
+      <StackPanel Width="165">
+        <TextBlock Text="ICCID" Classes="muted"/>
+        <TextBox Text="{Binding Iccid}"/>
+      </StackPanel>
+      <StackPanel Width="165">
+        <TextBlock Text="SIM Number" Classes="muted"/>
+        <TextBox Text="{Binding SimNumber}"/>
+      </StackPanel>
+    </StackPanel>
+
+    <Border Classes="card" Margin="0,8,0,0">
+      <StackPanel Spacing="8">
+        <DockPanel>
+          <TextBlock Text="Teltonika FOTA Integration" 
+                     FontWeight="SemiBold" 
+                     FontSize="12"
+                     DockPanel.Dock="Left"/>
+          <Button Content="Fetch Device Info" 
+                  Command="{Binding FetchFromTeltonikaCommand}"
+                  IsEnabled="{Binding !IsFetching}"
+                  HorizontalAlignment="Right"
+                  DockPanel.Dock="Right"/>
+        </DockPanel>
+
+        <TextBlock Text="Auto-populate IMEI, Serial Number, and ICCID from Teltonika FOTA service" 
+                   FontSize="11"
+                   Classes="muted"/>
+
+        <TextBlock Text="{Binding StatusMessage}" 
+                   Foreground="Green"
+                   FontSize="12"
+                   Opacity="0.9"/>
+      </StackPanel>
+    </Border>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+      <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+      <Button Content="Save" Command="{Binding SaveCommand}" Classes="primary"/>
+    </StackPanel>
+
+    </StackPanel>
+  </ScrollViewer>
+</Window>

@@ -1,0 +1,79 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="using:StingListManager.ViewModels"
+        mc:Ignorable="d"
+        x:Class="StingListManager.Views.MainWindow"
+        x:CompileBindings="False"
+        Width="1100" Height="700"
+        MinWidth="1000" MinHeight="650"
+        Title="Capital Air (Pty) Ltd">
+
+  <Window.KeyBindings>
+    <KeyBinding Gesture="Ctrl+F" Command="{Binding GoSearchCommand}"/>
+    <KeyBinding Gesture="Ctrl+E" Command="{Binding GoExportCommand}"/>
+    <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveSettingsCommand}"/>
+  </Window.KeyBindings>
+
+  <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="260,*">
+
+    <!-- Top bar -->
+        <Border Grid.Row="0" Grid.ColumnSpan="2" Padding="16" Classes="topbar">
+      <DockPanel>
+      <TextBlock Text="Capital Air (Pty) Ltd"
+           Classes="h2"
+           DockPanel.Dock="Left"/>
+      <Button Content="Products"
+        Command="{Binding OpenProductCatalogCommand}"
+        DockPanel.Dock="Right"
+        Classes="primary"
+        Margin="10,0,0,0"/>
+      <Button Content="Import Excel"
+        Command="{Binding ImportExcelCommand}"
+        DockPanel.Dock="Right"
+        IsVisible="{Binding CanImportExcel}"
+        Margin="10,0,0,0"/>
+      <TextBlock Text="Quotes → Install → Job Cards → Billing"
+           Classes="muted"
+           VerticalAlignment="Center"
+           DockPanel.Dock="Right"/>
+      </DockPanel>
+    </Border>
+
+    <!-- Left nav -->
+    <Border Grid.Row="1" Grid.Column="0" Classes="sidebar">
+      <StackPanel Margin="12" Spacing="8">
+        <TextBlock Text="Navigation" Classes="h2" Margin="6,10,0,6"/>
+        <ListBox SelectedIndex="{Binding NavIndex}"
+                 Classes="nav">
+          <ListBoxItem>Search</ListBoxItem>
+          <ListBoxItem>Dashboard</ListBoxItem>
+          <ListBoxItem>Quotes</ListBoxItem>
+          <ListBoxItem>Installations</ListBoxItem>
+          <ListBoxItem>Job Cards</ListBoxItem>
+          <ListBoxItem>STING List</ListBoxItem>
+          <ListBoxItem>Removals / Cancellations</ListBoxItem>
+          <ListBoxItem>Monthly Export</ListBoxItem>
+          <ListBoxItem>Settings</ListBoxItem>
+        </ListBox>
+      </StackPanel>
+    </Border>
+
+    <!-- Main content area -->
+    <Border Grid.Row="1" Grid.Column="1" Padding="20">
+      <ContentControl Content="{Binding CurrentPage}"/>
+    </Border>
+
+    <!-- Status bar -->
+    <Border Grid.Row="2" Grid.ColumnSpan="2"
+            Padding="10"
+            Classes="statusbar">
+      <DockPanel>
+        <TextBlock Text="{Binding StatusMessage}" Classes="muted" />
+        <TextBlock Text="{Binding StatusTime}" Classes="muted" DockPanel.Dock="Right"/>
+      </DockPanel>
+    </Border>
+
+  </Grid>
+</Window>

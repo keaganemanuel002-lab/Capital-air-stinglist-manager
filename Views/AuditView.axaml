@@ -1,0 +1,31 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.AuditView"
+             x:CompileBindings="False">
+
+    <Border Padding="12" Classes="surface">
+        <Grid RowDefinitions="Auto,*">
+            <!-- Toolbar -->
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Command="{Binding RefreshCommand}" Classes="primary">Refresh</Button>
+            </StackPanel>
+
+            <!-- Audit Log DataGrid -->
+            <DataGrid Grid.Row="1" 
+                      ItemsSource="{Binding Rows}"
+                      IsReadOnly="True"
+                      AutoGenerateColumns="False"
+                      Margin="0,12,0,0">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="At" Binding="{Binding At}" Width="*"/>
+                    <DataGridTextColumn Header="Actor" Binding="{Binding Actor}" Width="120"/>
+                    <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="150"/>
+                    <DataGridTextColumn Header="Entity" Binding="{Binding EntityType}" Width="100"/>
+                    <DataGridTextColumn Header="Reg" Binding="{Binding Registration}" Width="100"/>
+                    <DataGridTextColumn Header="Details" Binding="{Binding Details}" Width="200"/>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
+    </Border>
+
+</UserControl>

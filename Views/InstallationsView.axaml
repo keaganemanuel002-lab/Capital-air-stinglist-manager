@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.InstallationsView"
+             x:CompileBindings="False">
+  <StackPanel Spacing="12">
+    <TextBlock Text="Installations / Scheduling" Classes="h1"/>
+
+    <DockPanel LastChildFill="True">
+      <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" Spacing="12">
+        <CheckBox Content="Open only" IsChecked="{Binding ShowOpenOnly}"/>
+        <CheckBox Content="Today only" IsChecked="{Binding ShowTodayOnly}"/>
+      </StackPanel>
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button Content="Set Schedule" Command="{Binding SetScheduleCommand}" Classes="primary"/>
+        <Button Content="Clear Schedule" Command="{Binding ClearScheduleCommand}"/>
+        <Button Content="Refresh" Command="{Binding LoadCommand}"/>
+      </StackPanel>
+    </DockPanel>
+
+    <DataGrid AutoGenerateColumns="False"
+              ItemsSource="{Binding Rows}"
+              SelectedItem="{Binding SelectedRow}"
+              IsReadOnly="True"
+              GridLinesVisibility="All"
+              Height="520">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Scheduled" Binding="{Binding ScheduledFor}" Width="1.4*"/>
+        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
+        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
+        <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2*"/>
+        <DataGridTextColumn Header="Reg" Binding="{Binding Registration}" Width="1.2*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+  </StackPanel>
+</UserControl>

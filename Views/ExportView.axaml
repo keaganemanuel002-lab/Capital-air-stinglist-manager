@@ -1,0 +1,34 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.ExportView"
+             x:CompileBindings="False">
+  <StackPanel Spacing="12">
+    <TextBlock Text="Monthly Export" Classes="h1"/>
+
+    <TextBlock Text="Generates an Excel file with two tabs: Billing List + Cancellations (Removed this month), or export only cancellation requests."
+           Classes="muted"/>
+
+    <StackPanel Orientation="Horizontal" Spacing="10">
+      <StackPanel>
+        <TextBlock Text="Year" Classes="muted"/>
+        <NumericUpDown Minimum="2020" Maximum="2100" Value="{Binding Year}" Width="120"/>
+      </StackPanel>
+
+      <StackPanel>
+        <TextBlock Text="Month" Classes="muted"/>
+        <NumericUpDown Minimum="1" Maximum="12" Value="{Binding Month}" Width="120"/>
+      </StackPanel>
+    </StackPanel>
+
+        <Button Content="Export to Excel"
+          Classes="primary"
+            Width="180"
+            Command="{Binding ExportMonthlyCommand}"
+            IsEnabled="{Binding CanExport}"/>
+
+    <Button Content="Export Cancellations Only"
+            Width="220"
+            Command="{Binding ExportCancellationsCommand}"
+            IsEnabled="{Binding CanExport}"/>
+  </StackPanel>
+</UserControl>

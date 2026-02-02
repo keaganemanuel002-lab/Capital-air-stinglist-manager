@@ -1,0 +1,135 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.DashboardView"
+             x:CompileBindings="False">
+  <ScrollViewer>
+    <StackPanel Spacing="12">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Left">
+          <TextBlock Text="Dashboard" Classes="h1"/>
+          <TextBlock Text="Operational overview" Classes="muted"/>
+        </StackPanel>
+        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Spacing="8">
+          <ComboBox Width="140" ItemsSource="{Binding TimeRanges}" SelectedItem="{Binding SelectedTimeRange}"/>
+          <TextBlock Text="{Binding RangeLabel}" VerticalAlignment="Center" Opacity="0.7"/>
+          <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
+        </StackPanel>
+      </DockPanel>
+
+      <!-- KPI Tiles -->
+      <ItemsControl ItemsSource="{Binding Kpis}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate>
+            <Border Width="210" Margin="5" Classes="card">
+              <StackPanel>
+                <TextBlock Text="{Binding Title}" Classes="muted"/>
+                <TextBlock Text="{Binding Value}" FontSize="18" FontWeight="SemiBold"/>
+                <TextBlock Text="{Binding SubValue}" Classes="muted" FontSize="11"/>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+
+      <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="14" RowSpacing="12">
+        <!-- Trends -->
+        <Border Grid.Column="0" Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Trends (Quotes vs Job Cards)" FontWeight="SemiBold"/>
+            <ItemsControl ItemsSource="{Binding Trends}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Grid ColumnDefinitions="60,*,*" Margin="0,2">
+                    <TextBlock Grid.Column="0" Text="{Binding Label}" Opacity="0.6"/>
+                    <Border Grid.Column="1" Height="8" Background="#4C8BF5" Width="{Binding QuoteBarWidth}" CornerRadius="3"/>
+                    <Border Grid.Column="2" Height="8" Background="#34A853" Width="{Binding JobBarWidth}" CornerRadius="3" Margin="6,0,0,0"/>
+                  </Grid>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="■ Quotes" Foreground="#4C8BF5"/>
+              <TextBlock Text="■ Job Cards" Foreground="#34A853"/>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+
+        <!-- Status Breakdown -->
+        <Border Grid.Column="1" Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Status Breakdown" FontWeight="SemiBold"/>
+
+            <TextBlock Text="Quotes" Classes="muted"/>
+            <ItemsControl ItemsSource="{Binding QuoteStatusBreakdown}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Margin="0,2">
+                    <DockPanel>
+                      <TextBlock Text="{Binding Label}" DockPanel.Dock="Left"/>
+                      <TextBlock Text="{Binding Count}" DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <ProgressBar Minimum="0" Maximum="{Binding Total}" Value="{Binding Count}" Height="6"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <TextBlock Text="Job Cards" Classes="muted" Margin="0,8,0,0"/>
+            <ItemsControl ItemsSource="{Binding JobStatusBreakdown}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Margin="0,2">
+                    <DockPanel>
+                      <TextBlock Text="{Binding Label}" DockPanel.Dock="Left"/>
+                      <TextBlock Text="{Binding Count}" DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <ProgressBar Minimum="0" Maximum="{Binding Total}" Value="{Binding Count}" Height="6"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+
+        <!-- Top Clients -->
+        <Border Grid.Column="0" Grid.Row="1" Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Top Clients" FontWeight="SemiBold"/>
+            <DataGrid ItemsSource="{Binding TopClients}" IsReadOnly="True" Height="180">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Client" Binding="{Binding Client}" Width="2*"/>
+                <DataGridTextColumn Header="Quotes" Binding="{Binding Count}" Width="*"/>
+                <DataGridTextColumn Header="Total (Inc VAT)" Binding="{Binding TotalIncVat, StringFormat='R{0:0.00}'}" Width="*"/>
+              </DataGrid.Columns>
+            </DataGrid>
+          </StackPanel>
+        </Border>
+
+        <!-- Recent Activity -->
+        <Border Grid.Column="1" Grid.Row="1" Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Recent Activity" FontWeight="SemiBold"/>
+            <ItemsControl ItemsSource="{Binding RecentActivity}">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Margin="0,4">
+                    <DockPanel>
+                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" DockPanel.Dock="Left"/>
+                      <TextBlock Text="{Binding When}" Classes="muted" DockPanel.Dock="Right"/>
+                    </DockPanel>
+                    <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </StackPanel>
+        </Border>
+      </Grid>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

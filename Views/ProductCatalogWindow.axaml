@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.ProductCatalogWindow"
+        x:CompileBindings="False"
+        Width="800" Height="520"
+        WindowStartupLocation="CenterOwner"
+        Title="Product Catalog">
+
+  <StackPanel Margin="16" Spacing="12">
+    <TextBlock Text="Product Catalog" Classes="h2"/>
+
+    <DataGrid ItemsSource="{Binding Products}" SelectedItem="{Binding SelectedProduct}" Height="340">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="120"/>
+        <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="180"/>
+        <DataGridTextColumn Header="Price (Ex VAT)" Binding="{Binding BasePriceExVat}" Width="120"/>
+        <DataGridCheckBoxColumn Header="VAT Exempt" Binding="{Binding IsVatExempt}" Width="90"/>
+        <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="220"/>
+      </DataGrid.Columns>
+    </DataGrid>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Button Content="Add" Command="{Binding AddCommand}" Width="90" Classes="primary"/>
+      <Button Content="Remove" Command="{Binding RemoveCommand}" Width="90"/>
+      <Button Content="Save" Command="{Binding SaveCommand}" Width="90"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

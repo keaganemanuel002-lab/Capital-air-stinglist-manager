@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.SearchView"
+             x:CompileBindings="False">
+  <StackPanel Spacing="12">
+
+    <TextBlock Text="Search" Classes="h1"/>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <TextBox Width="520"
+               Text="{Binding Query}"
+               Watermark="Search reg, client, vehicle..."
+               KeyUp="OnKeyUp"/>
+      <Button Content="Search" Command="{Binding RunSearchCommand}" Classes="primary"/>
+    </StackPanel>
+
+    <DataGrid AutoGenerateColumns="False"
+              ItemsSource="{Binding Results}"
+              SelectedItem="{Binding Selected}"
+              IsReadOnly="True"
+              GridLinesVisibility="All"
+              Height="480">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
+        <DataGridTextColumn Header="Title" Binding="{Binding Title}" Width="2.2*"/>
+        <DataGridTextColumn Header="Details" Binding="{Binding Subtitle}" Width="3*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+
+    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button Content="Open" Command="{Binding OpenSelectedCommand}" Classes="primary"/>
+      <Button Content="Start Removal" Command="{Binding StartRemovalSelectedCommand}"/>
+      <Button Content="Documents" Command="{Binding OpenDocsSelectedCommand}"/>
+    </StackPanel>
+
+  </StackPanel>
+</UserControl>

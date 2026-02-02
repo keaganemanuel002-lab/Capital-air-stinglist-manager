@@ -1,0 +1,90 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.QuoteEditWindow"
+        x:CompileBindings="False"
+        Width="900" Height="900"
+        WindowStartupLocation="CenterOwner"
+        Title="Quote">
+
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="12">
+      <TextBlock Text="Quote" Classes="h2"/>
+
+      <!-- QUOTE TYPE -->
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <StackPanel Width="260">
+          <TextBlock Text="Quote Type" Classes="muted"/>
+          <ComboBox SelectedIndex="{Binding TypeIndex}">
+            <ComboBoxItem Content="Install"/>
+            <ComboBoxItem Content="Removal"/>
+          </ComboBox>
+        </StackPanel>
+      </StackPanel>
+
+      <!-- COMPANY -->
+      <StackPanel>
+        <TextBlock Text="Company" Classes="muted"/>
+        <TextBox Text="{Binding Company}" />
+      </StackPanel>
+
+
+      <!-- LINE ITEMS SECTION -->
+      <StackPanel Margin="0,12,0,0">
+        <TextBlock Text="Line Items" FontWeight="SemiBold" Classes="muted" Margin="0,0,0,8"/>
+        <DataGrid ItemsSource="{Binding LineItems}" SelectedItem="{Binding SelectedLineItem}" Height="250">
+          <DataGrid.Columns>
+            <DataGridTemplateColumn Header="Product" Width="180">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <ComboBox ItemsSource="{Binding DataContext.Products, RelativeSource={RelativeSource AncestorType=Window}}"
+                            SelectedItem="{Binding SelectedProduct}"
+                            DisplayMemberBinding="{Binding Name}"
+                            IsEditable="True"
+                            Text="{Binding ProductName}"/>
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="Qty" Binding="{Binding Quantity}" Width="50"/>
+            <DataGridTextColumn Header="Unit Price" Binding="{Binding UnitPriceExVat, StringFormat='R{0:0.00}'}" Width="110"/>
+            <DataGridTextColumn Header="Line Total" Binding="{Binding LineTotalExVat, StringFormat='R{0:0.00}'}" IsReadOnly="True" Width="110"/>
+          </DataGrid.Columns>
+        </DataGrid>
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+          <Button Content="Add Line Item" Command="{Binding AddLineItemCommand}" Width="140" Classes="primary"/>
+          <Button Content="Remove Selected" Command="{Binding RemoveLineItemCommand}" CommandParameter="{Binding SelectedLineItem}" Width="140" IsEnabled="{Binding SelectedLineItem, Converter={x:Static ObjectConverters.IsNotNull}}"/>
+        </StackPanel>
+      </StackPanel>
+
+      <!-- TOTALS SECTION -->
+      <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,16,0,0" HorizontalAlignment="Right">
+        <StackPanel Width="160">
+          <TextBlock Text="Subtotal (Ex VAT)" Classes="muted" FontSize="12"/>
+          <TextBlock Text="{Binding SubtotalExVat, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
+        </StackPanel>
+        <StackPanel Width="130">
+          <TextBlock Text="VAT (15%)" Classes="muted" FontSize="12"/>
+          <TextBlock Text="{Binding VatAmount, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
+        </StackPanel>
+        <StackPanel Width="160">
+          <TextBlock Text="Total (Inc VAT)" Classes="muted" FontSize="12"/>
+          <TextBlock Text="{Binding TotalIncVat, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
+        </StackPanel>
+      </StackPanel>
+
+      <!-- NOTES -->
+      <StackPanel Margin="0,12,0,0">
+        <TextBlock Text="Notes" Classes="muted"/>
+        <TextBox Text="{Binding Notes}" AcceptsReturn="True" Height="80"/>
+      </StackPanel>
+
+      <!-- ERROR MESSAGE -->
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed" />
+
+      <!-- BUTTONS -->
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
+        <Button Content="Cancel" Command="{Binding CancelCommand}" Width="100"/>
+        <Button Content="Save" Command="{Binding SaveCommand}" Width="100" Classes="primary"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>
