@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.ClientsView"
+             x:CompileBindings="False">
+  <StackPanel Spacing="12">
+    <TextBlock Text="Clients" Classes="h1"/>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <TextBox Width="240" Watermark="Search client..." Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+      <Button Content="New" Command="{Binding NewClientCommand}"/>
+      <Button Content="Save" Command="{Binding SaveCommand}" Classes="primary"/>
+      <Button Content="Delete" Command="{Binding DeleteCommand}"/>
+      <Button Content="Refresh" Command="{Binding LoadCommand}"/>
+    </StackPanel>
+
+    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+      <DataGrid Grid.Column="0"
+                AutoGenerateColumns="False"
+                ItemsSource="{Binding Rows}"
+                SelectedItem="{Binding SelectedRow}"
+                IsReadOnly="True"
+                GridLinesVisibility="All"
+                Height="520">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Client" Binding="{Binding Name}" Width="2*"/>
+          <DataGridTextColumn Header="Contact" Binding="{Binding ContactPerson}" Width="1.5*"/>
+          <DataGridTextColumn Header="Phone" Binding="{Binding PhoneNumber}" Width="1.2*"/>
+          <DataGridTextColumn Header="Email" Binding="{Binding EmailAddress}" Width="2*"/>
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <StackPanel Grid.Column="1" Spacing="8">
+        <TextBlock Text="Client Details" FontWeight="SemiBold"/>
+
+        <StackPanel>
+          <TextBlock Text="Client Name" Classes="muted"/>
+          <TextBox Text="{Binding Name}" />
+        </StackPanel>
+
+        <StackPanel>
+          <TextBlock Text="Contact Person" Classes="muted"/>
+          <TextBox Text="{Binding ContactPerson}" />
+        </StackPanel>
+
+        <StackPanel>
+          <TextBlock Text="Phone Number" Classes="muted"/>
+          <TextBox Text="{Binding PhoneNumber}" />
+        </StackPanel>
+
+        <StackPanel>
+          <TextBlock Text="Email Address" Classes="muted"/>
+          <TextBox Text="{Binding EmailAddress}" />
+        </StackPanel>
+
+        <StackPanel>
+          <TextBlock Text="Company Address" Classes="muted"/>
+          <TextBox Text="{Binding Address}" AcceptsReturn="True" Height="80" />
+        </StackPanel>
+      </StackPanel>
+    </Grid>
+  </StackPanel>
+</UserControl>

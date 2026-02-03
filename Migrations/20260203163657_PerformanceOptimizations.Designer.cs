@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using StingListManager.Data;
 
@@ -10,9 +11,11 @@ using StingListManager.Data;
 namespace StingListManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260203163657_PerformanceOptimizations")]
+    partial class PerformanceOptimizations
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -219,66 +222,6 @@ namespace StingListManager.Migrations
                     b.ToTable("CancellationEntries");
                 });
 
-            modelBuilder.Entity("StingListManager.Data.Entities.Client", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Address")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ContactPerson")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("EmailAddress")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PhoneNumber")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Clients");
-                });
-
-            modelBuilder.Entity("StingListManager.Data.Entities.ClientQuoteSummary", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Company")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("HasLiveTracking")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("StingCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("StingFmCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<int>("StingPlusCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("ClientQuoteSummaries");
-                });
-
             modelBuilder.Entity("StingListManager.Data.Entities.JobCard", b =>
                 {
                     b.Property<int>("Id")
@@ -306,9 +249,6 @@ namespace StingListManager.Migrations
 
                     b.Property<string>("Imei")
                         .HasColumnType("TEXT");
-
-                    b.Property<int>("JobCardNumber")
-                        .HasColumnType("INTEGER");
 
                     b.Property<string>("Make")
                         .HasColumnType("TEXT");

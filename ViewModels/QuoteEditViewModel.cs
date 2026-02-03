@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
@@ -102,7 +103,6 @@ namespace StingListManager.ViewModels
         [ObservableProperty]
         private string fleetNumber = "";
 
-
         [ObservableProperty]
         private string notes = "";
 
@@ -121,8 +121,12 @@ namespace StingListManager.ViewModels
         [ObservableProperty]
         private QuoteLineItemRow? selectedLineItem;
 
+        [ObservableProperty]
+        private Client? selectedClient;
+
         public ObservableCollection<QuoteLineItemRow> LineItems { get; } = new();
         public ObservableCollection<ProductCatalogItem> Products { get; } = new();
+        public ObservableCollection<Client> Clients { get; } = new();
 
         public bool IsRemovalQuote => TypeIndex == 1;
 
@@ -134,6 +138,8 @@ namespace StingListManager.ViewModels
             _pricingService = pricingService;
             _catalogService = new ProductCatalogService(_appState.Settings);
 
+            LoadClients();
+
             foreach (var product in _catalogService.LoadCatalog())
             {
                 Products.Add(product);
@@ -142,6 +148,24 @@ namespace StingListManager.ViewModels
             if (quoteId is not null)
             {
                 LoadQuote(quoteId.Value);
+            }
+        }
+
+        private void LoadClients()
+        {
+            Clients.Clear();
+            using var db = new AppDbContext();
+            foreach (var client in db.Clients.AsNoTracking().OrderBy(c => c.Name).ToList())
+            {
+                Clients.Add(client);
+            }
+        }
+
+        partial void OnSelectedClientChanged(Client? value)
+        {
+            if (value != null)
+            {
+                Company = value.Name;
             }
         }
 
@@ -159,6 +183,7 @@ namespace StingListManager.ViewModels
 
                 TypeIndex = quote.Type == QuoteType.Removal ? 1 : 0;
                 Company = quote.Company ?? "";
+                SelectedClient = Clients.FirstOrDefault(c => string.Equals(c.Name, Company, StringComparison.OrdinalIgnoreCase));
                 Registration = quote.Registration ?? "";
                 FleetNumber = quote.FleetNumber ?? "";
                 Notes = quote.Notes ?? "";
@@ -194,8 +219,9 @@ namespace StingListManager.ViewModels
             }
         }
 
-        [RelayCommand]
-        private void Cancel() => _close();
+
+
+
 
         [RelayCommand]
         private void AddLineItem()

@@ -1,10 +1,14 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.EntityFrameworkCore;
 using StingListManager.Data;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
@@ -29,6 +33,7 @@ public partial class StingListRow : ObservableObject
     public string? Notes { get; set; }
     public string Status { get; set; } = "Active";
     public bool IsArchived { get; set; }
+    public DateTime ActiveFrom { get; set; }
 }
 
 public partial class StingListViewModel : PagedViewModelBase
@@ -38,16 +43,26 @@ public partial class StingListViewModel : PagedViewModelBase
 
     public ObservableCollection<StingListRow> Rows { get; } = new();
     public ObservableCollection<FilterPreset> Presets { get; } = new();
+    public List<string> StatusOptions { get; } = new();
 
     [ObservableProperty] private StingListRow? selectedRow;
     [ObservableProperty] private bool showArchived;
     [ObservableProperty] private string? searchText;
     [ObservableProperty] private FilterPreset? selectedPreset;
+    [ObservableProperty] private string selectedStatus = "Any";
+    [ObservableProperty] private string? companyFilter;
+    [ObservableProperty] private string? registrationFilter;
+    [ObservableProperty] private DateTimeOffset? startDate;
+    [ObservableProperty] private DateTimeOffset? endDate;
 
-    public StingListViewModel(Window window, AppState appState)
+    public StingListViewModel(Window window, AppState appState, DateTime? startDate = null, DateTime? endDate = null, string? statusFilter = null)
     {
         _window = window;
         _appState = appState;
+
+        StatusOptions.AddRange(new[] { "Any", BillingStatus.Active.ToString(), BillingStatus.Removed.ToString() });
+        SelectedStatus = string.IsNullOrWhiteSpace(statusFilter) ? "Any" : statusFilter;
+        SetDefaultDateRange(startDate, endDate);
 
         // Load presets
         Presets.Clear();
@@ -69,6 +84,11 @@ public partial class StingListViewModel : PagedViewModelBase
     partial void OnShowArchivedChanged(bool value) => FirstPageCommand.Execute(null);
     partial void OnSearchTextChanged(string? value) => FirstPageCommand.Execute(null);
     partial void OnSelectedRowChanged(StingListRow? value) => OnPropertyChanged(nameof(CanStartRemoval));
+    partial void OnSelectedStatusChanged(string value) => FirstPageCommand.Execute(null);
+    partial void OnCompanyFilterChanged(string? value) => FirstPageCommand.Execute(null);
+    partial void OnRegistrationFilterChanged(string? value) => FirstPageCommand.Execute(null);
+    partial void OnStartDateChanged(DateTimeOffset? value) => FirstPageCommand.Execute(null);
+    partial void OnEndDateChanged(DateTimeOffset? value) => FirstPageCommand.Execute(null);
     partial void OnSelectedPresetChanged(FilterPreset? value)
     {
         if (value is not null)
@@ -85,10 +105,28 @@ public partial class StingListViewModel : PagedViewModelBase
     {
         using var db = new AppDbContext();
 
-        var q = db.BillingEntries.AsQueryable();
+        var q = db.BillingEntries.AsNoTracking().AsQueryable();
 
         if (!ShowArchived)
             q = q.Where(b => b.ArchivedAt == null);
+
+        if (!string.Equals(SelectedStatus, "Any", StringComparison.OrdinalIgnoreCase)
+            && Enum.TryParse<BillingStatus>(SelectedStatus, out var status))
+        {
+            q = q.Where(b => b.Status == status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(CompanyFilter))
+        {
+            var s = CompanyFilter.Trim();
+            q = q.Where(x => x.Company.Contains(s));
+        }
+
+        if (!string.IsNullOrWhiteSpace(RegistrationFilter))
+        {
+            var s = RegistrationFilter.Trim();
+            q = q.Where(x => x.Registration.Contains(s));
+        }
 
         if (!string.IsNullOrWhiteSpace(SearchText))
         {
@@ -99,20 +137,25 @@ public partial class StingListViewModel : PagedViewModelBase
                 (x.FleetNumber != null && x.FleetNumber.Contains(s)));
         }
 
+        if (StartDate != null)
+        {
+            var start = StartDate.Value.Date;
+            q = q.Where(b => b.ActiveFrom >= start);
+        }
+
+        if (EndDate != null)
+        {
+            var endExclusive = EndDate.Value.Date.AddDays(1);
+            q = q.Where(b => b.ActiveFrom < endExclusive);
+        }
+
         q = q.OrderByDescending(b => b.ActiveFrom);
 
         var items = q.Skip(Skip).Take(PageSize).ToList();
 
-        var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sting_debug.log");
-        var logMsg = $"[LoadPage] Loaded {items.Count} items from BillingEntries";
-        System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
-
         Rows.Clear();
         foreach (var x in items)
         {
-            logMsg = $"[LoadPage] BillingEntry {x.Id}: Company={x.Company}, Reg={x.Registration}, Make='{x.Make}', Model='{x.Model}', Imei='{x.Imei}', Iccid='{x.Iccid}'";
-            System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
-
             Rows.Add(new StingListRow
             {
                 Id = x.Id,
@@ -130,7 +173,8 @@ public partial class StingListViewModel : PagedViewModelBase
                 SimNumber = x.SimNumber,
                 Notes = x.Notes,
                 Status = x.Status.ToString(),
-                IsArchived = x.ArchivedAt != null
+                IsArchived = x.ArchivedAt != null,
+                ActiveFrom = x.ActiveFrom
             });
         }
 
@@ -144,6 +188,32 @@ public partial class StingListViewModel : PagedViewModelBase
         
         // Notify that CanStartRemoval may have changed
         OnPropertyChanged(nameof(CanStartRemoval));
+    }
+
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        SelectedStatus = "Any";
+        CompanyFilter = null;
+        RegistrationFilter = null;
+        SearchText = null;
+        ShowArchived = false;
+        SetDefaultDateRange(null, null);
+        FirstPageCommand.Execute(null);
+    }
+
+    private void SetDefaultDateRange(DateTime? start, DateTime? end)
+    {
+        if (start != null || end != null)
+        {
+            StartDate = start != null ? new DateTimeOffset(start.Value.Date) : null;
+            EndDate = end != null ? new DateTimeOffset(end.Value.Date) : null;
+            return;
+        }
+
+        var today = DateTime.Today;
+        StartDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1));
+        EndDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1));
     }
 
     [RelayCommand]
@@ -280,5 +350,27 @@ public partial class StingListViewModel : PagedViewModelBase
         System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
         
         _appState.SetStatus("Removal quote created with linked cancellation request. Navigate to Quotes to approve.");
+    }
+
+    [RelayCommand]
+    private async Task ExportToExcel()
+    {
+        var file = await _window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save STING List Export",
+            SuggestedFileName = $"STING List {DateTime.Now:yyyy-MM-dd}.xlsx",
+            FileTypeChoices =
+            [
+                new FilePickerFileType("Excel file") { Patterns = ["*.xlsx"] }
+            ]
+        });
+
+        if (file is null) return;
+
+        var path = file.Path.LocalPath;
+        var exporter = new ExcelExportService();
+        exporter.ExportStingList(path);
+
+        _appState.SetStatus($"STING list exported: {Path.GetFileName(path)}");
     }
 }

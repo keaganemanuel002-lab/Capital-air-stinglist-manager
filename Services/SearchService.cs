@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Microsoft.EntityFrameworkCore;
 using StingListManager.Data;
 using StingListManager.Data.Entities;
 
@@ -45,6 +46,7 @@ public class SearchService
 
         // BillingEntries (fast, most important)
         var billing = db.BillingEntries
+            .AsNoTracking()
             .Where(b =>
                 b.ArchivedAt == null &&
                 (b.RegistrationNorm.Contains(up) ||
@@ -64,6 +66,7 @@ public class SearchService
 
         // Quotes
         var quotes = db.Quotes
+            .AsNoTracking()
             .Where(q =>
                 q.Registration.Contains(input) ||
                 q.Company.Contains(input))
@@ -86,6 +89,7 @@ public class SearchService
 
         // JobCards
         var jobs = db.JobCards
+            .AsNoTracking()
             .Where(j =>
                 j.Registration.Contains(input) ||
                 j.Company.Contains(input))
@@ -104,6 +108,7 @@ public class SearchService
 
         // Cancellations
         var cancels = db.CancellationEntries
+            .AsNoTracking()
             .Where(c =>
                 c.Registration.Contains(input) ||
                 c.Client.Contains(input) ||

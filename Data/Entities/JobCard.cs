@@ -9,6 +9,7 @@ public class JobCard
 {
     public int Id { get; set; }
 
+    public int JobCardNumber { get; set; }
     public JobType Type { get; set; }
     public JobStatus Status { get; set; } = JobStatus.Open;
 

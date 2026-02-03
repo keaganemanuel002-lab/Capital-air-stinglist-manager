@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
@@ -39,33 +40,116 @@ public partial class QuotesViewModel : ViewModelBase
 
     [ObservableProperty] 
     private QuoteRow? selectedRow;
+    
+    [ObservableProperty]
+    private int pageNumber = 1;
+    
+    [ObservableProperty]
+    private int pageSize = 100;
+    
+    [ObservableProperty]
+    private int totalCount = 0;
+
+    public List<string> StatusOptions { get; } = new();
+    public List<string> TypeOptions { get; } = new();
+
+    [ObservableProperty] private string selectedStatus = "All";
+    [ObservableProperty] private string selectedType = "All";
+    [ObservableProperty] private string? companyFilter;
+    [ObservableProperty] private string? registrationFilter;
+    [ObservableProperty] private DateTimeOffset? startDate;
+    [ObservableProperty] private DateTimeOffset? endDate;
+    
+    public int TotalPages => (TotalCount + PageSize - 1) / PageSize;
+    public bool CanNextPage => PageNumber < TotalPages;
+    public bool CanPrevPage => PageNumber > 1;
 
     partial void OnSelectedRowChanged(QuoteRow? value)
     {
         OnPropertyChanged(nameof(CanApproveSelectedQuote));
         OnPropertyChanged(nameof(HasSelectedRow));
     }
+    
+    partial void OnPageNumberChanged(int value)
+    {
+        Load();
+    }
 
-    public QuotesViewModel(Window window, AppState appState, Action goJobCards)
+    public QuotesViewModel(Window window, AppState appState, Action goJobCards, DateTime? startDate = null, DateTime? endDate = null)
     {
         _window = window;
         _appState = appState;
         _goJobCards = goJobCards;
+        StatusOptions.Add("All");
+        StatusOptions.AddRange(Enum.GetNames(typeof(QuoteStatus)));
+        TypeOptions.Add("All");
+        TypeOptions.AddRange(Enum.GetNames(typeof(QuoteType)));
+        SetDefaultDateRange(startDate, endDate);
         Load();
     }
 
     public bool CanApproveQuotes => _appState.CanApproveQuotes;
     public bool CanExport => _appState.CanExport;
 
+    partial void OnSelectedStatusChanged(string value) => ApplyFilters();
+    partial void OnSelectedTypeChanged(string value) => ApplyFilters();
+    partial void OnCompanyFilterChanged(string? value) => ApplyFilters();
+    partial void OnRegistrationFilterChanged(string? value) => ApplyFilters();
+    partial void OnStartDateChanged(DateTimeOffset? value) => ApplyFilters();
+    partial void OnEndDateChanged(DateTimeOffset? value) => ApplyFilters();
+
     [RelayCommand]
     private void Load()
     {
         using var db = new AppDbContext();
-        var items = db.Quotes
-            .Include(q => q.LineItems)
-            .OrderByDescending(q => q.CreatedAt)
-            .ToList();
+        int skip = (PageNumber - 1) * PageSize;
 
+        var query = db.Quotes.AsNoTracking();
+
+        if (!string.Equals(SelectedStatus, "All", StringComparison.OrdinalIgnoreCase)
+            && Enum.TryParse<QuoteStatus>(SelectedStatus, out var status))
+        {
+            query = query.Where(q => q.Status == status);
+        }
+
+        if (!string.Equals(SelectedType, "All", StringComparison.OrdinalIgnoreCase)
+            && Enum.TryParse<QuoteType>(SelectedType, out var type))
+        {
+            query = query.Where(q => q.Type == type);
+        }
+
+        if (!string.IsNullOrWhiteSpace(CompanyFilter))
+        {
+            var s = CompanyFilter.Trim();
+            query = query.Where(q => q.Company.Contains(s));
+        }
+
+        if (!string.IsNullOrWhiteSpace(RegistrationFilter))
+        {
+            var s = RegistrationFilter.Trim();
+            query = query.Where(q => q.Registration != null && q.Registration.Contains(s));
+        }
+
+        if (StartDate != null)
+        {
+            var start = StartDate.Value.Date;
+            query = query.Where(q => q.CreatedAt >= start);
+        }
+
+        if (EndDate != null)
+        {
+            var endExclusive = EndDate.Value.Date.AddDays(1);
+            query = query.Where(q => q.CreatedAt < endExclusive);
+        }
+
+        TotalCount = query.Count();
+
+        var items = query
+            .OrderByDescending(q => q.CreatedAt)
+            .Skip(skip)
+            .Take(PageSize)
+            .ToList();
+        
         var pricingService = new QuotePricingService(_appState.Settings);
 
         Rows.Clear();
@@ -91,6 +175,42 @@ public partial class QuotesViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void ClearFilters()
+    {
+        SelectedStatus = "All";
+        SelectedType = "All";
+        CompanyFilter = null;
+        RegistrationFilter = null;
+        SetDefaultDateRange(null, null);
+        ApplyFilters();
+    }
+
+    private void ApplyFilters()
+    {
+        if (PageNumber != 1)
+        {
+            PageNumber = 1;
+            return;
+        }
+
+        Load();
+    }
+
+    private void SetDefaultDateRange(DateTime? start, DateTime? end)
+    {
+        if (start != null || end != null)
+        {
+            StartDate = start != null ? new DateTimeOffset(start.Value.Date) : null;
+            EndDate = end != null ? new DateTimeOffset(end.Value.Date) : null;
+            return;
+        }
+
+        var today = DateTime.Today;
+        StartDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1));
+        EndDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1));
+    }
+
+    [RelayCommand]
     private async Task AddQuote()
     {
         var dlg = new StingListManager.Views.QuoteEditWindow();
@@ -98,6 +218,20 @@ public partial class QuotesViewModel : ViewModelBase
         dlg.DataContext = new QuoteEditViewModel(() => dlg.Close(), null, _appState, pricingService);
         await dlg.ShowDialog(_window);
         Load();
+    }
+
+    [RelayCommand]
+    private void NextPage()
+    {
+        if (PageNumber < TotalPages)
+            PageNumber++;
+    }
+
+    [RelayCommand]
+    private void PrevPage()
+    {
+        if (PageNumber > 1)
+            PageNumber--;
     }
 
     [RelayCommand]

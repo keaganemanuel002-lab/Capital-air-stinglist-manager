@@ -16,7 +16,19 @@ public class DashboardKpi
     public string Title { get; set; } = "";
     public string Value { get; set; } = "";
     public string? SubValue { get; set; }
+    public string Target { get; set; } = "";
 }
+
+public enum DashboardNavTarget
+{
+    Quotes,
+    QuoteValue,
+    JobCards,
+    RemovalRequests,
+    ActiveBilling
+}
+
+public record DashboardNavRequest(DashboardNavTarget Target, DateTime StartDate, DateTime EndDate);
 
 public class TrendPoint
 {
@@ -51,6 +63,7 @@ public class ActivityItem
 public partial class DashboardViewModel : ViewModelBase
 {
     private readonly AppState _appState;
+    private readonly Action<DashboardNavRequest>? _navigate;
 
     public ObservableCollection<DashboardKpi> Kpis { get; } = new();
     public ObservableCollection<TrendPoint> Trends { get; } = new();
@@ -67,9 +80,10 @@ public partial class DashboardViewModel : ViewModelBase
     [ObservableProperty]
     private string rangeLabel = "";
 
-    public DashboardViewModel(AppState appState)
+    public DashboardViewModel(AppState appState, Action<DashboardNavRequest>? navigate = null)
     {
         _appState = appState;
+        _navigate = navigate;
         Load();
     }
 
@@ -77,6 +91,16 @@ public partial class DashboardViewModel : ViewModelBase
 
     [RelayCommand]
     private void Refresh() => Load();
+
+    [RelayCommand]
+    private void KpiClick(string target)
+    {
+        if (!Enum.TryParse<DashboardNavTarget>(target, out var navTarget))
+            return;
+
+        var (start, end) = GetRange("Last 30 days");
+        _navigate?.Invoke(new DashboardNavRequest(navTarget, start, end.AddDays(-1)));
+    }
 
     private void Load()
     {
@@ -87,30 +111,35 @@ public partial class DashboardViewModel : ViewModelBase
         var pricing = new QuotePricingService(_appState.Settings);
 
         var quotes = db.Quotes
+            .AsNoTracking()
             .Include(q => q.LineItems)
             .Where(q => q.CreatedAt >= start && q.CreatedAt < end)
             .ToList();
 
         var jobs = db.JobCards
+            .AsNoTracking()
             .Where(j => j.CreatedAt >= start && j.CreatedAt < end)
             .ToList();
 
         var removals = db.CancellationEntries
+            .AsNoTracking()
             .Where(c => c.DateRequestReceived != null && c.DateRequestReceived >= start && c.DateRequestReceived < end)
             .ToList();
 
-        var activeBillingCount = db.BillingEntries.Count(b => b.Status == BillingStatus.Active && b.ArchivedAt == null);
+        var activeBillingCount = db.BillingEntries
+            .AsNoTracking()
+            .Count(b => b.Status == BillingStatus.Active && b.ArchivedAt == null);
 
         var quoteTotals = quotes.Select(pricing.CalculatePrice).ToList();
         var quoteTotalInc = quoteTotals.Sum(x => x.AmountIncVat);
         var quoteTotalVat = quoteTotals.Sum(x => x.VatAmount);
 
         Kpis.Clear();
-        Kpis.Add(new DashboardKpi { Title = "Quotes", Value = quotes.Count.ToString(), SubValue = $"Approved {quotes.Count(q => q.Status == QuoteStatus.Approved)}" });
-        Kpis.Add(new DashboardKpi { Title = "Quote Value (Inc VAT)", Value = $"R{quoteTotalInc:0.00}", SubValue = $"VAT R{quoteTotalVat:0.00}" });
-        Kpis.Add(new DashboardKpi { Title = "Job Cards", Value = jobs.Count.ToString(), SubValue = $"Completed {jobs.Count(j => j.Status == JobStatus.Completed)}" });
-        Kpis.Add(new DashboardKpi { Title = "Removal Requests", Value = removals.Count.ToString(), SubValue = "This range" });
-        Kpis.Add(new DashboardKpi { Title = "Active Billing", Value = activeBillingCount.ToString(), SubValue = "Current" });
+        Kpis.Add(new DashboardKpi { Title = "Quotes", Value = quotes.Count.ToString(), SubValue = $"Approved {quotes.Count(q => q.Status == QuoteStatus.Approved)}", Target = DashboardNavTarget.Quotes.ToString() });
+        Kpis.Add(new DashboardKpi { Title = "Quote Value (Inc VAT)", Value = $"R{quoteTotalInc:0.00}", SubValue = $"VAT R{quoteTotalVat:0.00}", Target = DashboardNavTarget.QuoteValue.ToString() });
+        Kpis.Add(new DashboardKpi { Title = "Job Cards", Value = jobs.Count.ToString(), SubValue = $"Completed {jobs.Count(j => j.Status == JobStatus.Completed)}", Target = DashboardNavTarget.JobCards.ToString() });
+        Kpis.Add(new DashboardKpi { Title = "Removal Requests", Value = removals.Count.ToString(), SubValue = "This range", Target = DashboardNavTarget.RemovalRequests.ToString() });
+        Kpis.Add(new DashboardKpi { Title = "Active Billing", Value = activeBillingCount.ToString(), SubValue = "Current", Target = DashboardNavTarget.ActiveBilling.ToString() });
 
         BuildTrends(quotes, jobs, start, end);
         BuildStatusBreakdowns(quotes, jobs);

@@ -56,4 +56,5 @@ public partial class AppState : ObservableObject
     public bool CanCompleteJobs => Role is "Admin" or "Ops" or "Tech";
     public bool CanExport => Role is "Admin" or "Ops";
     public bool CanArchive => Role is "Admin" or "Ops";
+    public bool IsAdmin => Role == "Admin";
 }

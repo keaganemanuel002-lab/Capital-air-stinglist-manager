@@ -24,7 +24,10 @@
       <!-- COMPANY -->
       <StackPanel>
         <TextBlock Text="Company" Classes="muted"/>
-        <TextBox Text="{Binding Company}" />
+        <ComboBox ItemsSource="{Binding Clients}"
+                  SelectedItem="{Binding SelectedClient}"
+                  DisplayMemberBinding="{Binding Name}"
+                  IsEditable="False"/>
       </StackPanel>
 
 

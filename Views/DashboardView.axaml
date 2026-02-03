@@ -25,13 +25,17 @@
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
           <DataTemplate>
-            <Border Width="210" Margin="5" Classes="card">
+            <Button Width="210"
+                    Margin="5"
+                    Classes="card"
+                    Command="{Binding DataContext.KpiClickCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                    CommandParameter="{Binding Target}">
               <StackPanel>
                 <TextBlock Text="{Binding Title}" Classes="muted"/>
                 <TextBlock Text="{Binding Value}" FontSize="18" FontWeight="SemiBold"/>
                 <TextBlock Text="{Binding SubValue}" Classes="muted" FontSize="11"/>
               </StackPanel>
-            </Border>
+            </Button>
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>

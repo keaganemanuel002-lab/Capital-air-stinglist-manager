@@ -14,6 +14,8 @@ public class AppDbContext : DbContext
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
     public DbSet<Attachment> Attachments => Set<Attachment>();
     public DbSet<QuoteLineItem> QuoteLineItems => Set<QuoteLineItem>();
+    public DbSet<ClientQuoteSummary> ClientQuoteSummaries => Set<ClientQuoteSummary>();
+    public DbSet<Client> Clients => Set<Client>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder options)
     {
@@ -51,9 +53,22 @@ public class AppDbContext : DbContext
     {
         // Fast search indexes
         modelBuilder.Entity<BillingEntry>().HasIndex(b => b.RegistrationNorm);
+        modelBuilder.Entity<BillingEntry>().HasIndex(b => b.Company);
+        modelBuilder.Entity<BillingEntry>().HasIndex(b => b.ArchivedAt);
+        modelBuilder.Entity<BillingEntry>().HasIndex(b => b.ActiveFrom);
+        
         modelBuilder.Entity<JobCard>().HasIndex(j => j.Registration);
+        modelBuilder.Entity<JobCard>().HasIndex(j => j.Company);
+        modelBuilder.Entity<JobCard>().HasIndex(j => j.CreatedAt);
+        modelBuilder.Entity<JobCard>().HasIndex(j => j.Status);
+        
         modelBuilder.Entity<Quote>().HasIndex(q => q.Registration);
+        modelBuilder.Entity<Quote>().HasIndex(q => q.Company);
+        modelBuilder.Entity<Quote>().HasIndex(q => q.CreatedAt);
+        modelBuilder.Entity<Quote>().HasIndex(q => q.Status);
+        
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.Registration);
+        modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.DateRequestReceived);
         
         // Quote relationships
         modelBuilder.Entity<Quote>()

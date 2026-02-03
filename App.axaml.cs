@@ -8,6 +8,7 @@ using System.Linq;
 using Avalonia.Markup.Xaml;
 using System.IO;
 using Microsoft.EntityFrameworkCore;
+using System.Collections.Generic;
 using StingListManager.Data;
 using StingListManager.ViewModels;
 using StingListManager.Views;
@@ -81,6 +82,7 @@ public partial class App : Application
                 {
                     AppDbContext.ConfigureSqlitePragmas(db);
                     db.Database.Migrate();
+                    BackfillClients(db);
                 }
 
                 RunAutoBackupIfDue();
@@ -160,6 +162,39 @@ public partial class App : Application
         catch
         {
             // Swallow on startup; user can run manual backup later if needed
+        }
+    }
+
+    private static void BackfillClients(AppDbContext db)
+    {
+        var existing = db.Clients.AsNoTracking().Select(c => c.Name).ToList();
+        var existingSet = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
+
+        var names = db.Quotes.AsNoTracking().Select(q => q.Company)
+            .Concat(db.JobCards.AsNoTracking().Select(j => j.Company))
+            .Concat(db.BillingEntries.AsNoTracking().Select(b => b.Company))
+            .ToList();
+
+        foreach (var name in names)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+
+            var trimmed = name.Trim();
+            if (existingSet.Contains(trimmed))
+                continue;
+
+            db.Clients.Add(new Data.Entities.Client
+            {
+                Name = trimmed,
+                CreatedAt = DateTime.UtcNow
+            });
+            existingSet.Add(trimmed);
+        }
+
+        if (db.ChangeTracker.HasChanges())
+        {
+            db.SaveChanges();
         }
     }
 

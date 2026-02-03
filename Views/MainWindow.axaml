@@ -52,8 +52,10 @@
           <ListBoxItem>Quotes</ListBoxItem>
           <ListBoxItem>Installations</ListBoxItem>
           <ListBoxItem>Job Cards</ListBoxItem>
-          <ListBoxItem>STING List</ListBoxItem>
           <ListBoxItem>Removals / Cancellations</ListBoxItem>
+          <ListBoxItem>STING List</ListBoxItem>
+          <ListBoxItem>Billing List</ListBoxItem>
+          <ListBoxItem>Clients</ListBoxItem>
           <ListBoxItem>Monthly Export</ListBoxItem>
           <ListBoxItem>Settings</ListBoxItem>
         </ListBox>

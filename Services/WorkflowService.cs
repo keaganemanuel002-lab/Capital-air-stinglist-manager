@@ -14,7 +14,7 @@ public class WorkflowService
         {
             using var db = new AppDbContext();
 
-            var quote = db.Quotes.FirstOrDefault(q => q.Id == quoteId);
+            var quote = db.Quotes.Include(q => q.LineItems).FirstOrDefault(q => q.Id == quoteId);
             if (quote is null) return (0, "Quote not found.");
 
             var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sting_debug.log");
@@ -56,47 +56,77 @@ public class WorkflowService
             logMsg = $"[ApproveQuote] Setting quote status to Approved";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
 
-            // Create matching job card
-            var job = new JobCard
+            // Calculate total units from line items (STING, STING PLUS, STING FM only)
+            int totalUnits = 0;
+            if (quote.LineItems.Count > 0)
             {
-                QuoteId = quote.Id,
-                Type = quote.Type == QuoteType.Install ? JobType.Install : JobType.Removal,
-                Status = JobStatus.Open,
-                Company = quote.Company,
-                Registration = quote.Registration ?? "",
-                FleetNumber = quote.FleetNumber,
-                Make = quote.Make,
-                Model = quote.Model,
-                Colour = quote.Colour,
-                VinNumber = quote.VinNumber,
-                TrackingUnitMake = quote.TrackingUnitMake,
-                Imei = quote.Imei,
-                SerialNumber = quote.SerialNumber,
-                Iccid = quote.Iccid,
-                SimNumber = quote.SimNumber,
-                ScheduledFor = scheduleDate,
-                Notes = quote.Notes
-            };
+                foreach (var item in quote.LineItems)
+                {
+                    if (IsProductTypeUnit(item.ProductType))
+                    {
+                        totalUnits += item.Quantity > 0 ? item.Quantity : 1;
+                    }
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(quote.ProductType) && IsProductTypeUnit(quote.ProductType))
+            {
+                totalUnits = 1;
+            }
 
-            logMsg = $"[ApproveQuote] JobCard created. Copying fields:";
-            System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
-            
-            logMsg = $"[ApproveQuote] JobCard vehicle: Make='{job.Make}', Model='{job.Model}', Colour='{job.Colour}', VinNumber='{job.VinNumber}'";
-            System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
-            
-            logMsg = $"[ApproveQuote] JobCard device: TrackingUnitMake='{job.TrackingUnitMake}', Imei='{job.Imei}', SerialNumber='{job.SerialNumber}', Iccid='{job.Iccid}', SimNumber='{job.SimNumber}'";
+            // If no units found, default to 1 job card
+            if (totalUnits == 0)
+                totalUnits = 1;
+
+            logMsg = $"[ApproveQuote] Total units calculated: {totalUnits}";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
 
-            db.JobCards.Add(job);
-            logMsg = $"[ApproveQuote] Saving quote and job card...";
+            // Create job cards for each unit
+            int firstJobId = 0;
+            for (int i = 0; i < totalUnits; i++)
+            {
+                var job = new JobCard
+                {
+                    QuoteId = quote.Id,
+                    Type = quote.Type == QuoteType.Install ? JobType.Install : JobType.Removal,
+                    Status = JobStatus.Open,
+                    Company = quote.Company,
+                    Registration = quote.Registration ?? "",
+                    FleetNumber = quote.FleetNumber,
+                    Make = quote.Make,
+                    Model = quote.Model,
+                    Colour = quote.Colour,
+                    VinNumber = quote.VinNumber,
+                    TrackingUnitMake = quote.TrackingUnitMake,
+                    Imei = quote.Imei,
+                    SerialNumber = quote.SerialNumber,
+                    Iccid = quote.Iccid,
+                    SimNumber = quote.SimNumber,
+                    ScheduledFor = scheduleDate,
+                    Notes = quote.Notes
+                };
+
+                // Assign next job card number
+                var maxJobCardNumber = db.JobCards.Any() ? db.JobCards.Max(x => x.JobCardNumber) : 0;
+                job.JobCardNumber = maxJobCardNumber + 1;
+
+                logMsg = $"[ApproveQuote] JobCard {i + 1}/{totalUnits} created. JobCardNumber={job.JobCardNumber}";
+                System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
+
+                db.JobCards.Add(job);
+                
+                if (i == 0)
+                    firstJobId = job.Id;
+            }
+
+            logMsg = $"[ApproveQuote] Saving quote and {totalUnits} job cards...";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
             
             var saved = db.SaveChanges();
-            logMsg = $"[ApproveQuote] SaveChanges returned: {saved}, JobId={job.Id}";
+            logMsg = $"[ApproveQuote] SaveChanges returned: {saved}, FirstJobId={firstJobId}";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
 
             // Log this approval
-            new AuditService().Log(actor, "QUOTE_APPROVE", "Quote", quote.Id, quote.Registration, $"Quote {quote.Type}");
+            new AuditService().Log(actor, "QUOTE_APPROVE", "Quote", quote.Id, quote.Registration, $"Quote {quote.Type} - Created {totalUnits} job cards");
 
             // Link cancellation workflow if this is a removal quote
             if (quote.Type == QuoteType.Removal)
@@ -105,15 +135,15 @@ public class WorkflowService
                 if (cancel != null)
                 {
                     cancel.Status = CancellationStatus.JobCreated;
-                    cancel.JobCardId = job.Id;
+                    cancel.JobCardId = firstJobId;
                     db.SaveChanges();
                 }
             }
 
-            logMsg = $"[ApproveQuote] Quote {quoteId} approved successfully, JobId={job.Id}";
+            logMsg = $"[ApproveQuote] Quote {quoteId} approved successfully, Created {totalUnits} job cards";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
             
-            return (job.Id, "");
+            return (firstJobId, "");
         }
         catch (Exception ex)
         {
@@ -122,6 +152,18 @@ public class WorkflowService
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
             return (0, $"Error approving quote: {ex.Message}");
         }
+    }
+
+    private static bool IsProductTypeUnit(string? productType)
+    {
+        if (string.IsNullOrWhiteSpace(productType))
+            return false;
+
+        var type = productType.Trim();
+        return type.IndexOf("STING FM", StringComparison.OrdinalIgnoreCase) >= 0
+            || type.IndexOf("STING PLUS", StringComparison.OrdinalIgnoreCase) >= 0
+            || type.IndexOf("STING+", StringComparison.OrdinalIgnoreCase) >= 0
+            || type.IndexOf("STING", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     public (bool ok, string message) CompleteJobCard(int jobCardId, string actor)

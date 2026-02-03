@@ -17,12 +17,30 @@
           <Button Content="Refresh" Command="{Binding LoadCommand}"/>
         </StackPanel>
 
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Button Content="◀" Command="{Binding PrevPageCommand}" IsEnabled="{Binding CanPrevPage}" ToolTip.Tip="Previous page"/>
+      <TextBlock Text="{Binding PageNumber}" VerticalAlignment="Center" Width="40" TextAlignment="Center"/>
+      <Button Content="▶" Command="{Binding NextPageCommand}" IsEnabled="{Binding CanNextPage}" ToolTip.Tip="Next page"/>
+      <TextBlock Text="{Binding TotalCount, StringFormat='Total: {0}'}" Margin="20,0,0,0" VerticalAlignment="Center" Classes="muted"/>
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <ComboBox Width="140" ItemsSource="{Binding StatusOptions}" SelectedItem="{Binding SelectedStatus}"/>
+      <ComboBox Width="140" ItemsSource="{Binding TypeOptions}" SelectedItem="{Binding SelectedType}"/>
+      <TextBox Width="200" Watermark="Company..." Text="{Binding CompanyFilter, UpdateSourceTrigger=PropertyChanged}"/>
+      <TextBox Width="160" Watermark="Reg..." Text="{Binding RegistrationFilter, UpdateSourceTrigger=PropertyChanged}"/>
+      <DatePicker Width="140" SelectedDate="{Binding StartDate}"/>
+      <DatePicker Width="140" SelectedDate="{Binding EndDate}"/>
+      <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}"/>
+    </StackPanel>
+
     <DataGrid AutoGenerateColumns="False"
               ItemsSource="{Binding Rows}"
               SelectedItem="{Binding SelectedRow}"
               IsReadOnly="True"
               GridLinesVisibility="All"
-              Height="520">
+              Height="520"
+              DoubleTapped="Grid_DoubleTapped">
       <DataGrid.Columns>
         <DataGridTextColumn Header="#" Binding="{Binding QuoteNumber}" Width="0.7*"/>
         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>

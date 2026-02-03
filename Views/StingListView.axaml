@@ -22,6 +22,7 @@
 
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
+      <Button Content="Export to Excel" Command="{Binding ExportToExcelCommand}"/>
       <Button Content="Start Removal" Command="{Binding StartRemovalCommand}"
         Classes="primary"
         IsEnabled="{Binding CanStartRemoval}"/>
@@ -31,6 +32,15 @@
                 IsEnabled="{Binding CanArchive}"/>
       </StackPanel>
     </DockPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <ComboBox Width="140" ItemsSource="{Binding StatusOptions}" SelectedItem="{Binding SelectedStatus}"/>
+      <TextBox Width="200" Watermark="Company..." Text="{Binding CompanyFilter, UpdateSourceTrigger=PropertyChanged}"/>
+      <TextBox Width="160" Watermark="Reg..." Text="{Binding RegistrationFilter, UpdateSourceTrigger=PropertyChanged}"/>
+      <DatePicker Width="140" SelectedDate="{Binding StartDate}"/>
+      <DatePicker Width="140" SelectedDate="{Binding EndDate}"/>
+      <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}"/>
+    </StackPanel>
 
     <StackPanel Orientation="Horizontal" Spacing="8">
       <Button Content="⏮" Command="{Binding FirstPageCommand}" ToolTip.Tip="First page"/>
@@ -59,6 +69,7 @@
         <DataGridTextColumn Header="ICCID" Binding="{Binding Iccid}" Width="1.3*"/>
         <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="1.5*"/>
         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.8*"/>
+        <DataGridTextColumn Header="Active From" Binding="{Binding ActiveFrom, StringFormat=yyyy-MM-dd HH:mm}" Width="1.5*"/>
       </DataGrid.Columns>
     </DataGrid>
 

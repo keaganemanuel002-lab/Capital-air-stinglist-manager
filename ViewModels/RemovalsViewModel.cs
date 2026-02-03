@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -32,19 +33,68 @@ public partial class RemovalsViewModel : ViewModelBase
 
     [ObservableProperty] private RemovalRow? selectedRow;
 
-    public RemovalsViewModel(Window window, AppState appState)
+    public List<string> StatusOptions { get; } = new();
+
+    [ObservableProperty] private string selectedStatus = "All";
+    [ObservableProperty] private string? clientFilter;
+    [ObservableProperty] private string? registrationFilter;
+    [ObservableProperty] private DateTimeOffset? startDate;
+    [ObservableProperty] private DateTimeOffset? endDate;
+
+    public RemovalsViewModel(Window window, AppState appState, DateTime? startDate = null, DateTime? endDate = null)
     {
         _window = window;
         _appState = appState;
+        StatusOptions.Add("All");
+        StatusOptions.AddRange(Enum.GetNames(typeof(CancellationStatus)));
+        SetDefaultDateRange(startDate, endDate);
         Load();
     }
+
+    partial void OnSelectedStatusChanged(string value) => Load();
+    partial void OnClientFilterChanged(string? value) => Load();
+    partial void OnRegistrationFilterChanged(string? value) => Load();
+    partial void OnStartDateChanged(DateTimeOffset? value) => Load();
+    partial void OnEndDateChanged(DateTimeOffset? value) => Load();
 
     [RelayCommand]
     private void Load()
     {
         using var db = new AppDbContext();
 
-        var items = db.CancellationEntries
+        var query = db.CancellationEntries.AsQueryable();
+
+        if (!string.Equals(SelectedStatus, "All", StringComparison.OrdinalIgnoreCase)
+            && Enum.TryParse<CancellationStatus>(SelectedStatus, out var status))
+        {
+            query = query.Where(c => c.Status == status);
+        }
+
+        if (!string.IsNullOrWhiteSpace(ClientFilter))
+        {
+            var s = ClientFilter.Trim();
+            query = query.Where(c => c.Client.Contains(s));
+        }
+
+        if (!string.IsNullOrWhiteSpace(RegistrationFilter))
+        {
+            var s = RegistrationFilter.Trim();
+            query = query.Where(c => c.Registration.Contains(s));
+        }
+
+        if (StartDate != null)
+        {
+            var start = StartDate.Value.Date;
+            query = query.Where(c => c.DateRequestReceived != null && c.DateRequestReceived >= start);
+        }
+
+        if (EndDate != null)
+        {
+            var endExclusive = EndDate.Value.Date.AddDays(1);
+            query = query.Where(c => c.DateRequestReceived != null && c.DateRequestReceived < endExclusive);
+        }
+
+        var items = query
             .OrderByDescending(c => c.DateRequestReceived)
             .ThenByDescending(c => c.Id)
             .ToList();
@@ -66,6 +116,30 @@ public partial class RemovalsViewModel : ViewModelBase
         }
 
         _appState.SetStatus($"Loaded {Rows.Count} removal requests.");
+    }
+
+    [RelayCommand]
+    private void ClearFilters()
+    {
+        SelectedStatus = "All";
+        ClientFilter = null;
+        RegistrationFilter = null;
+        SetDefaultDateRange(null, null);
+        Load();
+    }
+
+    private void SetDefaultDateRange(DateTime? start, DateTime? end)
+    {
+        if (start != null || end != null)
+        {
+            StartDate = start != null ? new DateTimeOffset(start.Value.Date) : null;
+            EndDate = end != null ? new DateTimeOffset(end.Value.Date) : null;
+            return;
+        }
+
+        var today = DateTime.Today;
+        StartDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1));
+        EndDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1));
     }
 
     [RelayCommand]

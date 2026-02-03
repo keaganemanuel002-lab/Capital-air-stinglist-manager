@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using StingListManager.Data;
+using StingListManager.Data.Entities;
 using StingListManager.Services;
 
 namespace StingListManager.ViewModels;
@@ -14,9 +15,11 @@ public partial class JobCardEditViewModel : ViewModelBase
 {
     private readonly int _jobCardId;
     private readonly Action _close;
+    private readonly AppState _appState;
     private readonly VehicleDataService _vehicleService = new();
     private bool _suppressMakeFilter;
     private bool _suppressModelFilter;
+    private JobStatus _currentStatus;
 
     [ObservableProperty] private string company = "";
     [ObservableProperty] private string registration = "";
@@ -34,6 +37,8 @@ public partial class JobCardEditViewModel : ViewModelBase
     [ObservableProperty] private bool isFetching;
     [ObservableProperty] private bool showMakesList;
     [ObservableProperty] private bool showModelsList;
+    [ObservableProperty] private bool isEditable = true;
+    [ObservableProperty] private string editableWarning = "";
 
     public ObservableCollection<string> AvailableMakes { get; } = new();
     public ObservableCollection<string> AvailableModels { get; } = new();
@@ -125,10 +130,11 @@ public partial class JobCardEditViewModel : ViewModelBase
         ShowModelsList = false;
     }
 
-    public JobCardEditViewModel(int jobCardId, Action close)
+    public JobCardEditViewModel(int jobCardId, Action close, AppState appState)
     {
         _jobCardId = jobCardId;
         _close = close;
+        _appState = appState;
 
         // Load all available makes
         RefreshAvailableMakes();
@@ -140,6 +146,15 @@ public partial class JobCardEditViewModel : ViewModelBase
         
         if (job != null)
         {
+            _currentStatus = job.Status;
+            
+            // Check if job is completed and user is not admin
+            if (job.Status == JobStatus.Completed && !_appState.IsAdmin)
+            {
+                IsEditable = false;
+                EditableWarning = "This job card is completed and can only be edited by administrators.";
+            }
+
             var logMsg = $"[JobCardEditViewModel] Loaded JobCard {jobCardId}: Make={job.Make}, Model={job.Model}, Imei={job.Imei}, Iccid={job.Iccid}, SerialNumber={job.SerialNumber}";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
             
@@ -250,6 +265,12 @@ public partial class JobCardEditViewModel : ViewModelBase
     [RelayCommand]
     private void Save()
     {
+        if (!IsEditable)
+        {
+            _appState.SetStatus("Cannot edit completed job cards unless you are an administrator.");
+            return;
+        }
+
         using var db = new AppDbContext();
         var job = db.JobCards.Find(_jobCardId);
         if (job == null) { _close(); return; }

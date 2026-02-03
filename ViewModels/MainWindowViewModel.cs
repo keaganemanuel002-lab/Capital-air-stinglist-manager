@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using StingListManager.Data.Entities;
 using StingListManager.Services;
 using StingListManager.Views;
 using StingListManager.ViewModels;
@@ -55,14 +56,16 @@ public partial class MainWindowViewModel : ViewModelBase
         switch (value)
         {
             case 0: CurrentPage = new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult); break;
-            case 1: CurrentPage = new DashboardViewModel(_appState); break;
+            case 1: CurrentPage = new DashboardViewModel(_appState, NavigateFromDashboard); break;
             case 2: CurrentPage = new QuotesViewModel(_window, _appState, NavigateToJobCards); break;
             case 3: CurrentPage = new InstallationsViewModel(_window, _appState); break;
             case 4: CurrentPage = new JobCardsViewModel(_window, _appState); break;
-            case 5: CurrentPage = new StingListViewModel(_window, _appState); break;
-            case 6: CurrentPage = new RemovalsViewModel(_window, _appState); break;
-            case 7: CurrentPage = new ExportViewModel(_window, _appState); break;
-            case 8: CurrentPage = new SettingsViewModel(_window, _appState); break;
+            case 5: CurrentPage = new RemovalsViewModel(_window, _appState); break;
+            case 6: CurrentPage = new StingListViewModel(_window, _appState); break;
+            case 7: CurrentPage = new BillingListViewModel(_window, _appState); break;
+            case 8: CurrentPage = new ClientsViewModel(_appState); break;
+            case 9: CurrentPage = new ExportViewModel(_window, _appState); break;
+            case 10: CurrentPage = new SettingsViewModel(_window, _appState); break;
         }
     }
 
@@ -72,12 +75,36 @@ public partial class MainWindowViewModel : ViewModelBase
         CurrentPage = new JobCardsViewModel(_window, _appState);
     }
 
+    private void NavigateFromDashboard(DashboardNavRequest request)
+    {
+        switch (request.Target)
+        {
+            case DashboardNavTarget.Quotes:
+            case DashboardNavTarget.QuoteValue:
+                NavIndex = 2;
+                CurrentPage = new QuotesViewModel(_window, _appState, NavigateToJobCards, request.StartDate, request.EndDate);
+                break;
+            case DashboardNavTarget.JobCards:
+                NavIndex = 4;
+                CurrentPage = new JobCardsViewModel(_window, _appState, request.StartDate, request.EndDate);
+                break;
+            case DashboardNavTarget.RemovalRequests:
+                NavIndex = 5;
+                CurrentPage = new RemovalsViewModel(_window, _appState, request.StartDate, request.EndDate);
+                break;
+            case DashboardNavTarget.ActiveBilling:
+                NavIndex = 6;
+                CurrentPage = new StingListViewModel(_window, _appState, request.StartDate, request.EndDate, BillingStatus.Active.ToString());
+                break;
+        }
+    }
+
     private void OpenResult(Services.SearchResult result)
     {
         switch (result.Type)
         {
             case Services.SearchResultType.BillingEntry:
-                NavIndex = 5; // STING List
+                NavIndex = 6; // STING List
                 break;
             case Services.SearchResultType.Quote:
                 NavIndex = 2; // Quotes
@@ -86,7 +113,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 NavIndex = 4; // Job Cards
                 break;
             case Services.SearchResultType.Cancellation:
-                NavIndex = 6; // Removals
+                NavIndex = 5; // Removals
                 break;
         }
     }
@@ -154,7 +181,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private void GoSearch() => NavIndex = 0;
 
     [RelayCommand]
-    private void GoExport() => NavIndex = 7;
+    private void GoExport() => NavIndex = 9;
 
     [RelayCommand]
     private void SaveSettings()
@@ -188,7 +215,7 @@ public partial class MainWindowViewModel : ViewModelBase
         importer.ImportBillingAndCancellations(path, _appState.OperatorName);
 
         _appState.SetStatus($"Imported: {Path.GetFileName(path)}");
-        NavIndex = 5; // Go to STING List
+        NavIndex = 6; // Go to STING List
     }
 
     [RelayCommand]
