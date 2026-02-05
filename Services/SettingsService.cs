@@ -27,6 +27,7 @@ public class AppSettings
     public bool AutoBackupOnStartup { get; set; } = true;
     public DateTime? LastAutoBackupDate { get; set; } = null;
     public string? TeltonikaApiKey { get; set; } = null;
+    public string? WialonApiToken { get; set; } = null;
     public List<FilterPreset> StingPresets { get; set; } = new();
 }
 

@@ -17,6 +17,7 @@ namespace StingListManager.ViewModels;
 
 public partial class BillingListRow : ObservableObject
 {
+    public int Id { get; set; }
     public string RowLabel { get; set; } = "";
     public string Company { get; set; } = "";
     public string Registration { get; set; } = "";
@@ -36,6 +37,8 @@ public partial class BillingListViewModel : ViewModelBase
     private readonly AppState _appState;
 
     public ObservableCollection<BillingListRow> Rows { get; } = new();
+
+    [ObservableProperty] private BillingListRow? selectedRow;
 
     public BillingListViewModel(Window window, AppState appState)
     {
@@ -69,6 +72,7 @@ public partial class BillingListViewModel : ViewModelBase
             {
                 Rows.Add(new BillingListRow
                 {
+                    Id = entry.Id,
                     RowLabel = rowNumber.ToString(),
                     Company = entry.Company,
                     Registration = entry.Registration,
@@ -88,6 +92,7 @@ public partial class BillingListViewModel : ViewModelBase
             // Total row: display entry count for each product type, use entry count for live tracking
             Rows.Add(new BillingListRow
             {
+                Id = 0,
                 RowLabel = "TOTAL",
                 Company = group.Key,
                 Registration = "",
@@ -222,6 +227,16 @@ public partial class BillingListViewModel : ViewModelBase
         var unit = string.IsNullOrWhiteSpace(entry.TrackingUnitMake) ? "-" : entry.TrackingUnitMake.Trim();
         var serial = string.IsNullOrWhiteSpace(entry.SerialNumber) ? "-" : entry.SerialNumber.Trim();
         return $"{unit} - {serial}";
+    }
+
+    [RelayCommand]
+    private async Task ViewDetails()
+    {
+        if (SelectedRow is null || SelectedRow.IsTotalRow) return;
+
+        var dlg = new StingListManager.Views.InstallationDetailsWindow();
+        dlg.DataContext = new InstallationDetailsViewModel(() => dlg.Close(), SelectedRow.Id, _appState);
+        await dlg.ShowDialog(_window);
     }
 
     [RelayCommand]

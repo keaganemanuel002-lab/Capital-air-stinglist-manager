@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
@@ -37,6 +39,9 @@ public partial class JobCardsViewModel : ViewModelBase
     public ObservableCollection<JobCardRow> Rows { get; } = new();
 
     [ObservableProperty] private JobCardRow? selectedRow;
+    [ObservableProperty] private List<JobCardRow>? selectedRows;
+
+    public bool HasSelectedRows => SelectedRows != null && SelectedRows.Count > 0;
 
     public List<string> StatusOptions { get; } = new();
     public List<string> TypeOptions { get; } = new();
@@ -58,6 +63,11 @@ public partial class JobCardsViewModel : ViewModelBase
         TypeOptions.AddRange(Enum.GetNames(typeof(JobType)));
         SetDefaultDateRange(startDate, endDate);
         Load();
+    }
+
+    partial void OnSelectedRowsChanged(List<JobCardRow>? value)
+    {
+        OnPropertyChanged(nameof(HasSelectedRows));
     }
 
     public bool CanCompleteJobs => _appState.CanCompleteJobs;
@@ -201,5 +211,68 @@ public partial class JobCardsViewModel : ViewModelBase
 
         wnd.Content = view;
         await wnd.ShowDialog(_window);
+    }
+
+    [RelayCommand]
+    private async Task ExportSelectedToPdf()
+    {
+        if (SelectedRows == null || SelectedRows.Count == 0)
+        {
+            _appState.SetStatus("Please select one or more job cards to export.");
+            return;
+        }
+
+        try
+        {
+            using var db = new AppDbContext();
+            
+            var selectedIds = SelectedRows.Select(r => r.Id).ToList();
+            var jobCards = db.JobCards
+                .Where(j => selectedIds.Contains(j.Id))
+                .OrderBy(j => j.JobCardNumber)
+                .ToList();
+
+            if (jobCards.Count == 0)
+            {
+                _appState.SetStatus("No job cards found.");
+                return;
+            }
+
+            var pdfService = new JobCardPdfService();
+            byte[] pdfBytes;
+
+            if (jobCards.Count == 1)
+            {
+                pdfBytes = pdfService.BuildJobCardPdf(jobCards[0]);
+            }
+            else
+            {
+                pdfBytes = pdfService.BuildMultipleJobCardsPdf(jobCards);
+            }
+
+            var suggestedFileName = jobCards.Count == 1
+                ? $"JobCard_{jobCards[0].JobCardNumber}_{jobCards[0].Registration}.pdf"
+                : $"JobCards_{jobCards.Count}_items_{DateTime.Now:yyyyMMdd}.pdf";
+
+            var file = await _window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Save Job Card PDF",
+                SuggestedFileName = suggestedFileName,
+                FileTypeChoices = new[]
+                {
+                    new FilePickerFileType("PDF") { Patterns = new[] { "*.pdf" } }
+                }
+            });
+
+            if (file is null) return;
+
+            await File.WriteAllBytesAsync(file.Path.LocalPath, pdfBytes);
+
+            _appState.SetStatus($"Exported {jobCards.Count} job card(s) to PDF: {Path.GetFileName(file.Path.LocalPath)}");
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Error exporting PDF: {ex.Message}");
+        }
     }
 }

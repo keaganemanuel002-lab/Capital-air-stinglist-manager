@@ -58,6 +58,7 @@
           <ListBoxItem>Clients</ListBoxItem>
           <ListBoxItem>Monthly Export</ListBoxItem>
           <ListBoxItem>Settings</ListBoxItem>
+          <ListBoxItem>Wialon Reports</ListBoxItem>
         </ListBox>
       </StackPanel>
     </Border>

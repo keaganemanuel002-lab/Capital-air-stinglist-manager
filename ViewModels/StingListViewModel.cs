@@ -353,6 +353,16 @@ public partial class StingListViewModel : PagedViewModelBase
     }
 
     [RelayCommand]
+    private async Task ViewDetails()
+    {
+        if (SelectedRow is null) return;
+
+        var dlg = new StingListManager.Views.InstallationDetailsWindow();
+        dlg.DataContext = new InstallationDetailsViewModel(() => dlg.Close(), SelectedRow.Id, _appState);
+        await dlg.ShowDialog(_window);
+    }
+
+    [RelayCommand]
     private async Task ExportToExcel()
     {
         var file = await _window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions

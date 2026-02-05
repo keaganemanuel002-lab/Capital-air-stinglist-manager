@@ -59,20 +59,22 @@
       </StackPanel>
 
       <!-- TOTALS SECTION -->
-      <StackPanel Orientation="Horizontal" Spacing="20" Margin="0,16,0,0" HorizontalAlignment="Right">
-        <StackPanel Width="160">
-          <TextBlock Text="Subtotal (Ex VAT)" Classes="muted" FontSize="12"/>
-          <TextBlock Text="{Binding SubtotalExVat, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
+      <Border Background="#F5F5F5" CornerRadius="4" Padding="12" Margin="0,16,0,0">
+        <StackPanel Orientation="Horizontal" Spacing="20" HorizontalAlignment="Right">
+          <StackPanel Width="160">
+            <TextBlock Text="Subtotal (Ex VAT)" Classes="muted" FontSize="12"/>
+            <TextBlock Text="{Binding SubtotalExVat, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
+          </StackPanel>
+          <StackPanel Width="130">
+            <TextBlock Text="VAT (15%)" Classes="muted" FontSize="12"/>
+            <TextBlock Text="{Binding VatAmount, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
+          </StackPanel>
+          <StackPanel Width="160">
+            <TextBlock Text="Total (Inc VAT)" Classes="muted" FontSize="12"/>
+            <TextBlock Text="{Binding TotalIncVat, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
+          </StackPanel>
         </StackPanel>
-        <StackPanel Width="130">
-          <TextBlock Text="VAT (15%)" Classes="muted" FontSize="12"/>
-          <TextBlock Text="{Binding VatAmount, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
-        </StackPanel>
-        <StackPanel Width="160">
-          <TextBlock Text="Total (Inc VAT)" Classes="muted" FontSize="12"/>
-          <TextBlock Text="{Binding TotalIncVat, StringFormat='R{0:0.00}'}" FontSize="16" FontWeight="SemiBold"/>
-        </StackPanel>
-      </StackPanel>
+      </Border>
 
       <!-- NOTES -->
       <StackPanel Margin="0,12,0,0">

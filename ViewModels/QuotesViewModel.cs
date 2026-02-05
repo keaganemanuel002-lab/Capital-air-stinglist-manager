@@ -346,6 +346,16 @@ public partial class QuotesViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task ViewDetails()
+    {
+        if (SelectedRow is null) return;
+
+        var dlg = new StingListManager.Views.QuoteDetailsWindow();
+        dlg.DataContext = new QuoteDetailsViewModel(() => dlg.Close(), SelectedRow.Id, _appState);
+        await dlg.ShowDialog(_window);
+    }
+
+    [RelayCommand]
     private void ApproveSelected()
     {
         if (SelectedRow is null)

@@ -12,9 +12,11 @@
 
     <DataGrid AutoGenerateColumns="False"
               ItemsSource="{Binding Rows}"
+              SelectedItem="{Binding SelectedRow}"
               IsReadOnly="True"
               GridLinesVisibility="All"
-              Height="520">
+              Height="520"
+              DoubleTapped="Grid_DoubleTapped">
       <DataGrid.Columns>
       <DataGridTextColumn Header="#" Binding="{Binding RowLabel}" Width="0.8*"/>
         <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2*"/>

@@ -9,6 +9,7 @@
       <Button Content="Edit Selected" Command="{Binding EditSelectedCommand}" Classes="primary"/>
       <Button Content="Complete Selected" Command="{Binding CompleteSelectedCommand}"
               IsEnabled="{Binding CanCompleteJobs}"/>
+      <Button Content="Export Selected to PDF" Command="{Binding ExportSelectedToPdfCommand}" IsEnabled="{Binding HasSelectedRows}"/>
       <Button Content="Documents" Command="{Binding OpenDocumentsCommand}"/>
       <Button Content="Refresh" Command="{Binding LoadCommand}"/>
     </StackPanel>
@@ -26,10 +27,12 @@
     <DataGrid AutoGenerateColumns="False"
               ItemsSource="{Binding Rows}"
               SelectedItem="{Binding SelectedRow}"
+              SelectionMode="Extended"
               IsReadOnly="True"
               GridLinesVisibility="All"
               Height="520"
-              DoubleTapped="Grid_DoubleTapped">
+              DoubleTapped="Grid_DoubleTapped"
+              SelectionChanged="Grid_SelectionChanged">
       <DataGrid.Columns>
         <DataGridTextColumn Header="#" Binding="{Binding JobCardNumber}" Width="0.7*"/>
         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>

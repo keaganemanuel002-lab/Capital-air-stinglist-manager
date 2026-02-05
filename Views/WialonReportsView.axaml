@@ -1,0 +1,144 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.WialonReportsView"
+             x:CompileBindings="False">
+  <StackPanel Spacing="12">
+    <TextBlock Text="Wialon Reports" Classes="h1"/>
+
+    <!-- CONNECTION SECTION -->
+    <Border Classes="card">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Wialon Connection" FontWeight="SemiBold" FontSize="14"/>
+        
+        <StackPanel IsVisible="{Binding !IsConnected}" Spacing="8">
+          <StackPanel Spacing="4">
+            <TextBlock Text="API Token" Classes="muted"/>
+            <TextBox Text="{Binding WialonToken}" 
+                     Watermark="Enter your Wialon API token..." 
+                     Height="36"/>
+          </StackPanel>
+          
+          <Button Content="Connect to Wialon" 
+                  Command="{Binding ConnectToWialonCommand}"
+                  IsEnabled="{Binding !IsLoading}"
+                  Classes="primary"
+                  Width="150"/>
+        </StackPanel>
+
+        <StackPanel IsVisible="{Binding IsConnected}" Spacing="8">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <TextBlock Text="✓ Connected to Wialon" Foreground="Green" FontWeight="SemiBold"/>
+            <Button Content="Disconnect" 
+                    Command="{Binding DisconnectCommand}"
+                    Width="100"/>
+          </StackPanel>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- REPORT GENERATION SECTION -->
+    <Border Classes="card" IsVisible="{Binding IsConnected}">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Generate Report" FontWeight="SemiBold" FontSize="14"/>
+        
+        <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
+          <StackPanel Grid.Column="0" Spacing="4">
+            <TextBlock Text="Report Type" Classes="muted" FontSize="11"/>
+            <ComboBox ItemsSource="{Binding ReportTypes}" 
+                     SelectedItem="{Binding SelectedReportType}"/>
+          </StackPanel>
+
+          <StackPanel Grid.Column="1" Spacing="4">
+            <TextBlock Text="Start Date" Classes="muted" FontSize="11"/>
+            <DatePicker SelectedDate="{Binding StartDate}"/>
+          </StackPanel>
+
+          <StackPanel Grid.Column="2" Spacing="4">
+            <TextBlock Text="End Date" Classes="muted" FontSize="11"/>
+            <DatePicker SelectedDate="{Binding EndDate}"/>
+          </StackPanel>
+
+          <StackPanel Grid.Column="3" Spacing="4" VerticalAlignment="Bottom">
+            <Button Content="Generate" 
+                    Command="{Binding GenerateReportCommand}"
+                    IsEnabled="{Binding !IsLoading}"
+                    Classes="primary"
+                    Height="36"/>
+          </StackPanel>
+        </Grid>
+      </StackPanel>
+    </Border>
+
+    <!-- REPORTS LIST SECTION -->
+    <Border Classes="card" IsVisible="{Binding IsConnected}">
+      <StackPanel Spacing="8">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBlock Text="Available Reports" FontWeight="SemiBold" FontSize="14"/>
+          <Button Content="Refresh" 
+                  Command="{Binding LoadReportsCommand}"
+                  IsEnabled="{Binding !IsLoading}"
+                  Width="100"/>
+        </StackPanel>
+
+        <!-- CLIENT FILTER -->
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4">
+          <TextBlock Text="Filter by Client:" VerticalAlignment="Center" Classes="muted"/>
+          <ComboBox ItemsSource="{Binding AvailableClients}"
+                    SelectedItem="{Binding SelectedClient}"
+                    MinWidth="200"/>
+        </StackPanel>
+
+        <ProgressBar IsIndeterminate="True" 
+                     IsVisible="{Binding IsLoading}"
+                     Height="4"
+                     Margin="0,8"/>
+
+        <!-- PROGRESS INDICATOR -->
+        <StackPanel IsVisible="{Binding IsLoadingMore}" Orientation="Horizontal" Spacing="8" Margin="0,4">
+          <TextBlock Text="Loading vehicles..." Classes="muted"/>
+          <TextBlock Text="{Binding ProgressCount}" Classes="muted"/>
+          <TextBlock Text="/" Classes="muted"/>
+          <TextBlock Text="{Binding ProgressTotal}" Classes="muted"/>
+        </StackPanel>
+
+        <DataGrid ItemsSource="{Binding Reports}" 
+                  IsReadOnly="True"
+                  GridLinesVisibility="All"
+                  Height="400">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Vehicle Name" Binding="{Binding Name}" Width="2*"/>
+            <DataGridTextColumn Header="Client/Account" Binding="{Binding Client}" Width="1.5*"/>
+            <DataGridTextColumn Header="Location" Binding="{Binding Location}" Width="1.5*"/>
+            <DataGridTextColumn Header="Last Update" Binding="{Binding LastUpdateAt, StringFormat=yyyy-MM-dd HH:mm}" Width="1.5*"/>
+            <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
+            <DataGridTextColumn Header="Created Date" Binding="{Binding CreatedAt, StringFormat=yyyy-MM-dd}" Width="1.2*"/>
+          </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel IsVisible="{Binding Reports.Count}" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+          <TextBlock Text="{Binding Reports.Count, StringFormat='Total: {0} vehicles'}" 
+                     Classes="muted"
+                     VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <StackPanel IsVisible="{Binding !Reports.Count}" Spacing="4">
+          <TextBlock Text="No vehicles available" Classes="muted"/>
+          <TextBlock Text="Click Refresh to load vehicles from Wialon." 
+                     Classes="muted" 
+                     FontSize="11"
+                     Opacity="0.7"/>
+        </StackPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- NOT CONNECTED MESSAGE -->
+    <Border Classes="card" IsVisible="{Binding !IsConnected}">
+      <StackPanel Spacing="4">
+        <TextBlock Text="Not Connected" FontWeight="SemiBold" FontSize="14"/>
+        <TextBlock Text="Connect to your Wialon account above to access GPS tracking data and generate reports." 
+                   Classes="muted"
+                   TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>

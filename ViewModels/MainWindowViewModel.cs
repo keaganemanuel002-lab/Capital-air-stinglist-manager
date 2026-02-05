@@ -66,6 +66,7 @@ public partial class MainWindowViewModel : ViewModelBase
             case 8: CurrentPage = new ClientsViewModel(_appState); break;
             case 9: CurrentPage = new ExportViewModel(_window, _appState); break;
             case 10: CurrentPage = new SettingsViewModel(_window, _appState); break;
+            case 11: CurrentPage = new WialonReportsViewModel(_window, _appState); break;
         }
     }
 

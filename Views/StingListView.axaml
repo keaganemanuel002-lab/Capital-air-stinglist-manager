@@ -55,7 +55,8 @@
               SelectedItem="{Binding SelectedRow}"
               IsReadOnly="True"
               GridLinesVisibility="All"
-              Height="520">
+              Height="520"
+              DoubleTapped="Grid_DoubleTapped">
       <DataGrid.Columns>
         <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="1.5*"/>
         <DataGridTextColumn Header="Reg." Binding="{Binding Registration}" Width="1*"/>

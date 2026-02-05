@@ -1,0 +1,160 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.QuoteDetailsWindow"
+        x:CompileBindings="False"
+        Width="850" Height="700"
+        WindowStartupLocation="CenterOwner"
+        Title="Quote Details">
+
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="16">
+      <TextBlock Text="{Binding Title}" Classes="h2"/>
+
+      <!-- QUOTE DETAILS SECTION -->
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Quote Details" FontWeight="SemiBold" FontSize="16"/>
+          
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Quote Number:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding QuoteNumber}"/>
+            
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Type:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding QuoteType}"/>
+            
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Status:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding QuoteStatus}"/>
+            
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Company:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Company}"/>
+            
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Registration:" Classes="muted"/>
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding Registration}"/>
+            
+            <TextBlock Grid.Row="5" Grid.Column="0" Text="Created:" Classes="muted"/>
+            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding CreatedAt, StringFormat='yyyy-MM-dd HH:mm'}"/>
+          </Grid>
+          
+          <Separator Margin="0,8"/>
+          
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Fleet Number:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding FleetNumber}"/>
+            
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Vehicle:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding VehicleDescription}"/>
+            
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="VIN:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding VinNumber}"/>
+            
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Tracking Unit:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding TrackingUnitMake}"/>
+          </Grid>
+          
+          <Separator Margin="0,8"/>
+          
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="IMEI:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Imei}"/>
+            
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Serial Number:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SerialNumber}"/>
+            
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="ICCID:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Iccid}"/>
+            
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="SIM Number:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SimNumber}"/>
+          </Grid>
+
+          <StackPanel IsVisible="{Binding HasNotes}">
+            <TextBlock Text="Notes:" Classes="muted" Margin="0,8,0,4"/>
+            <Border Background="#F5F5F5" CornerRadius="4" Padding="8">
+              <TextBlock Text="{Binding Notes}" TextWrapping="Wrap"/>
+            </Border>
+          </StackPanel>
+        </StackPanel>
+      </Border>
+
+      <!-- LINE ITEMS SECTION -->
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Line Items" FontWeight="SemiBold" FontSize="16"/>
+          <DataGrid ItemsSource="{Binding LineItems}" IsReadOnly="True" Height="180">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Product" Binding="{Binding ProductName}" Width="2*"/>
+              <DataGridTextColumn Header="Code" Binding="{Binding ProductCode}" Width="1*"/>
+              <DataGridTextColumn Header="Qty" Binding="{Binding Quantity}" Width="0.5*"/>
+              <DataGridTextColumn Header="Unit Price" Binding="{Binding UnitPriceExVat, StringFormat='R{0:0.00}'}" Width="1*"/>
+              <DataGridTextColumn Header="Total" Binding="{Binding LineTotalExVat, StringFormat='R{0:0.00}'}" Width="1*"/>
+            </DataGrid.Columns>
+          </DataGrid>
+
+          <Border Background="#F5F5F5" CornerRadius="4" Padding="12" HorizontalAlignment="Right">
+            <StackPanel Orientation="Horizontal" Spacing="20">
+              <StackPanel Width="140">
+                <TextBlock Text="Subtotal (Ex VAT)" Classes="muted" FontSize="12"/>
+                <TextBlock Text="{Binding SubtotalExVat, StringFormat='R{0:0.00}'}" FontSize="14" FontWeight="SemiBold"/>
+              </StackPanel>
+              <StackPanel Width="110">
+                <TextBlock Text="VAT (15%)" Classes="muted" FontSize="12"/>
+                <TextBlock Text="{Binding VatAmount, StringFormat='R{0:0.00}'}" FontSize="14" FontWeight="SemiBold"/>
+              </StackPanel>
+              <StackPanel Width="140">
+                <TextBlock Text="Total (Inc VAT)" Classes="muted" FontSize="12"/>
+                <TextBlock Text="{Binding TotalIncVat, StringFormat='R{0:0.00}'}" FontSize="14" FontWeight="SemiBold"/>
+              </StackPanel>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Border>
+
+      <!-- JOB CARD SECTION -->
+      <Border Classes="card" IsVisible="{Binding HasJobCard}">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Job Card" FontWeight="SemiBold" FontSize="16"/>
+          
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Job Card Number:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding JobCardNumber}"/>
+            
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Type:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding JobType}"/>
+            
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Status:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding JobStatus}"/>
+            
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Created:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding JobCreatedAt, StringFormat='yyyy-MM-dd HH:mm'}"/>
+            
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Completed:" Classes="muted"/>
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding JobCompletedAt, StringFormat='yyyy-MM-dd HH:mm'}"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- INSTALLATION SCHEDULE SECTION -->
+      <Border Classes="card" IsVisible="{Binding HasSchedule}">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Installation Schedule" FontWeight="SemiBold" FontSize="16"/>
+          
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Scheduled For:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding ScheduledFor, StringFormat='yyyy-MM-dd HH:mm'}" FontSize="14" FontWeight="SemiBold"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- NO JOB CARD MESSAGE -->
+      <Border Classes="card" IsVisible="{Binding !HasJobCard}">
+        <StackPanel Spacing="4">
+          <TextBlock Text="No Job Card" FontWeight="SemiBold" FontSize="16"/>
+          <TextBlock Text="This quote has not been approved yet. A job card will be created upon approval." Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+
+      <!-- CLOSE BUTTON -->
+      <Button Content="Close" Command="{Binding CloseCommand}" Width="100" HorizontalAlignment="Right" Classes="primary"/>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

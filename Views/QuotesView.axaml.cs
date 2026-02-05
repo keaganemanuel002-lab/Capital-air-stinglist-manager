@@ -10,9 +10,9 @@ public partial class QuotesView : UserControl
 
     private void Grid_DoubleTapped(object? sender, RoutedEventArgs e)
     {
-        if (DataContext is QuotesViewModel viewModel && viewModel.EditSelectedCommand.CanExecute(null))
+        if (DataContext is QuotesViewModel viewModel && viewModel.ViewDetailsCommand.CanExecute(null))
         {
-            viewModel.EditSelectedCommand.Execute(null);
+            viewModel.ViewDetailsCommand.Execute(null);
         }
     }
 }

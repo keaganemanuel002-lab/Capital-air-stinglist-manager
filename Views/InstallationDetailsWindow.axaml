@@ -1,0 +1,120 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.InstallationDetailsWindow"
+        x:CompileBindings="False"
+        Width="850" Height="700"
+        WindowStartupLocation="CenterOwner"
+        Title="Installation Details">
+
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="16">
+      <TextBlock Text="{Binding Title}" Classes="h2"/>
+
+      <!-- VEHICLE AND TRACKING UNIT DETAILS -->
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Vehicle &amp; Tracking Unit Information" FontWeight="SemiBold" FontSize="16"/>
+          
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Company:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Company}"/>
+            
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Registration:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Registration}"/>
+            
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Fleet Number:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding FleetNumber}"/>
+            
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Vehicle:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding VehicleDescription}"/>
+            
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="VIN:" Classes="muted"/>
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding VinNumber}"/>
+          </Grid>
+          
+          <Separator Margin="0,8"/>
+          
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Tracking Unit:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TrackingUnitMake}"/>
+            
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="IMEI:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Imei}"/>
+            
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Serial Number:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SerialNumber}"/>
+            
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="ICCID:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Iccid}"/>
+            
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="SIM Number:" Classes="muted"/>
+            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding SimNumber}"/>
+          </Grid>
+
+          <StackPanel IsVisible="{Binding HasNotes}">
+            <TextBlock Text="Notes:" Classes="muted" Margin="0,8,0,4"/>
+            <Border Background="#F5F5F5" CornerRadius="4" Padding="8">
+              <TextBlock Text="{Binding Notes}" TextWrapping="Wrap"/>
+            </Border>
+          </StackPanel>
+
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto" ColumnSpacing="10" RowSpacing="8" Margin="0,8,0,0">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Status:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Status}"/>
+            
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Active From:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding ActiveFrom, StringFormat='yyyy-MM-dd HH:mm'}"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- RELATED QUOTES -->
+      <Border Classes="card" IsVisible="{Binding HasRelatedQuotes}">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Related Quotes" FontWeight="SemiBold" FontSize="16"/>
+          <DataGrid ItemsSource="{Binding RelatedQuotes}" IsReadOnly="True" Height="150">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="Quote #" Binding="{Binding QuoteNumber}" Width="0.8*"/>
+              <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
+              <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
+              <DataGridTextColumn Header="Amount" Binding="{Binding AmountIncVat, StringFormat='R{0:0.00}'}" Width="1.2*"/>
+              <DataGridTextColumn Header="Created" Binding="{Binding CreatedAt, StringFormat='yyyy-MM-dd'}" Width="1.2*"/>
+            </DataGrid.Columns>
+          </DataGrid>
+        </StackPanel>
+      </Border>
+
+      <!-- INSTALLATION JOB CARD -->
+      <Border Classes="card" IsVisible="{Binding HasInstallJobCard}">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Installation Job Card" FontWeight="SemiBold" FontSize="16"/>
+          
+          <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Job Card #:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstallJobCardNumber}"/>
+            
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Status:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding InstallJobStatus}"/>
+            
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Scheduled:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding InstallScheduledFor, StringFormat='yyyy-MM-dd HH:mm'}"/>
+            
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Completed:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding InstallCompletedAt, StringFormat='yyyy-MM-dd HH:mm'}"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
+      <!-- NO RECORDS MESSAGE -->
+      <Border Classes="card" IsVisible="{Binding !HasRelatedQuotes}">
+        <StackPanel Spacing="4">
+          <TextBlock Text="No Related Quotes" FontWeight="SemiBold" FontSize="14"/>
+          <TextBlock Text="This installation does not have any associated quotes in the system." Classes="muted" TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+
+      <!-- CLOSE BUTTON -->
+      <Button Content="Close" Command="{Binding CloseCommand}" Width="100" HorizontalAlignment="Right" Classes="primary"/>
+    </StackPanel>
+  </ScrollViewer>
+</Window>
