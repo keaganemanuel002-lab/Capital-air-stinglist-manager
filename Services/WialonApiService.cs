@@ -15,6 +15,8 @@ public class WialonReport
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public string Client { get; set; } = "";
+    public string? Make { get; set; }
+    public string? Model { get; set; }
     public DateTime CreatedAt { get; set; }
     public string Location { get; set; } = "";
     public DateTime? LastUpdateAt { get; set; }
@@ -34,6 +36,12 @@ public class WialonApiService
     private int _userId;  // User ID needed for geocoding API
     public string? LastError { get; private set; }
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _geocodeCache = new();
+    private readonly Dictionary<int, (string? Make, string? Model)> _unitProfileCache = new();
+    private static bool _profileFieldsSampleLogged;
+    private static bool _unitProfileFieldsSampleLogged;
+    private static bool _unitProfileSampleLogged;
+    private static readonly object GeocodeLogLock = new();
+    private static readonly string GeocodeLogPath = Path.Combine(AppContext.BaseDirectory, "wialon_geocode.log");
 
     static WialonApiService()
     {
@@ -156,6 +164,11 @@ public class WialonApiService
                 
                 if (!string.IsNullOrEmpty(_sessionId))
                 {
+                    if (_userId == 0)
+                    {
+                        await FetchUserIdAsync();
+                    }
+
                     System.Diagnostics.Debug.WriteLine($"Wialon Login Successful. Session ID: {_sessionId}, User ID: {_userId}");
                     return true;
                 }
@@ -290,7 +303,7 @@ public class WialonApiService
                     sortType = "sys_name"
                 },
                 force = 1,
-                flags = 9221,  // 1 (basic) + 4 (billing) + 1024 (last position) + 8192 (custom fields/properties)
+                flags = 9479,  // 1 (basic) + 2 (properties) + 4 (billing) + 256 (profile fields) + 1024 (last position) + 8192 (custom fields/properties)
                 from = from,
                 to = from + batchSize   // Load in batches
             };
@@ -448,27 +461,39 @@ public class WialonApiService
                         var location = "";
                         double? latValue = null;
                         double? lonValue = null;
-                    if (item.TryGetProperty("pos", out var posElement) && posElement.ValueKind == JsonValueKind.Object)
-                    {
-                        if (posElement.TryGetProperty("y", out var latElement) &&
-                            posElement.TryGetProperty("x", out var lonElement) &&
-                            latElement.TryGetDouble(out var lat) &&
-                            lonElement.TryGetDouble(out var lon))
+                        if (item.TryGetProperty("pos", out var posElement) && posElement.ValueKind == JsonValueKind.Object)
                         {
-                            latValue = lat;
-                            lonValue = lon;
-                        }
-                    }
+                            if (posElement.TryGetProperty("a", out var addressElement) && addressElement.ValueKind == JsonValueKind.String)
+                            {
+                                var address = addressElement.GetString();
+                                if (!string.IsNullOrWhiteSpace(address))
+                                {
+                                    location = address;
+                                }
+                            }
 
-                    // Set initial location to coordinates - geocoding will update this if successful
-                    if (latValue.HasValue && lonValue.HasValue)
-                    {
-                        location = $"{latValue:F4}, {lonValue:F4}";  // Show coordinates as fallback
-                    }
-                    else
-                    {
-                        location = "Unknown";
-                    }
+                            if (posElement.TryGetProperty("y", out var latElement) &&
+                                posElement.TryGetProperty("x", out var lonElement) &&
+                                latElement.TryGetDouble(out var lat) &&
+                                lonElement.TryGetDouble(out var lon))
+                            {
+                                latValue = lat;
+                                lonValue = lon;
+                            }
+                        }
+
+                        // Set initial location to coordinates - geocoding will update this if successful
+                        if (string.IsNullOrWhiteSpace(location))
+                        {
+                            if (latValue.HasValue && lonValue.HasValue)
+                            {
+                                location = FormattableString.Invariant($"{latValue:F4}, {lonValue:F4}");  // Show coordinates as fallback
+                            }
+                            else
+                            {
+                                location = "Unknown";
+                            }
+                        }
 
                     // Get last update time (prefer last message, fallback to position time)
                     DateTime? lastUpdateAt = null;
@@ -502,11 +527,25 @@ public class WialonApiService
                         createdAt = DateTimeOffset.FromUnixTimeSeconds(unixTime).DateTime;
                     }
                     
+                    var make = GetCustomFieldValue(item,
+                        "make", "vehicle_make", "vehicle make", "car_make", "truck_make", "brand", "manufacturer");
+                    var model = GetCustomFieldValue(item,
+                        "model", "vehicle_model", "vehicle model", "car_model", "truck_model", "type");
+
+                    if (string.IsNullOrWhiteSpace(make) || string.IsNullOrWhiteSpace(model))
+                    {
+                        var profile = await GetMakeModelFromUnitProfileAsync(id);
+                        make = string.IsNullOrWhiteSpace(make) ? profile.Make : make;
+                        model = string.IsNullOrWhiteSpace(model) ? profile.Model : model;
+                    }
+
                     reports.Add(new WialonReport
                     {
                         Id = id,
                         Name = name ?? "Unknown Vehicle",
                         Client = client,
+                        Make = make,
+                        Model = model,
                         CreatedAt = createdAt,
                         Location = location,
                         LastUpdateAt = lastUpdateAt,
@@ -530,82 +569,179 @@ public class WialonApiService
 
     public async Task<string?> ResolveAddressAsync(double lat, double lon)
     {
-        // Check cache first
-        var cacheKey = $"{lat:F4},{lon:F4}";
+        var cacheKey = FormattableString.Invariant($"{lat:F4},{lon:F4}");
         if (_geocodeCache.TryGetValue(cacheKey, out var cached))
         {
             Console.WriteLine($"[GEOCODE] Cache hit for {cacheKey}: {cached}");
             return cached;
         }
 
+        if (_userId == 0 && !string.IsNullOrEmpty(_sessionId))
+        {
+            await FetchUserIdAsync();
+        }
+
+        if (_userId == 0)
+        {
+            AppendGeocodeLog("Wialon geocode skipped: userId=0");
+        }
+
+        var wialonAddress = await ResolveAddressFromWialonAsync(lat, lon);
+        if (!string.IsNullOrWhiteSpace(wialonAddress))
+        {
+            _geocodeCache.TryAdd(cacheKey, wialonAddress);
+            return wialonAddress;
+        }
+
         try
         {
-            Console.WriteLine($"[GEOCODE] Geocoding {lat},{lon}");
-
-            // Use OpenStreetMap Nominatim API (free, no API key needed)
-            var url = $"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}";
-
+            var latStr = lat.ToString("0.######", CultureInfo.InvariantCulture);
+            var lonStr = lon.ToString("0.######", CultureInfo.InvariantCulture);
+            var url = $"https://nominatim.openstreetmap.org/reverse?format=json&lat={latStr}&lon={lonStr}&zoom=18&addressdetails=1&accept-language=en";
+            Console.WriteLine($"[GEOCODE] Geocoding {latStr},{lonStr}");
             Console.WriteLine($"[GEOCODE] URL: {url}");
+            AppendGeocodeLog($"Request {latStr},{lonStr} -> {url}");
 
-            var response = await _httpClient.GetAsync(url);
-            Console.WriteLine($"[GEOCODE] Response status: {response.StatusCode}");
-
-            if (!response.IsSuccessStatusCode)
+            for (var attempt = 1; attempt <= 3; attempt++)
             {
-                Console.WriteLine($"[GEOCODE] Failed with status {response.StatusCode}");
-                return null;
-            }
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.UserAgent.ParseAdd("StingListManager/1.0 (+https://github.com/keaganemanuel002-lab/Capital-air-stinglist-manager)");
+                request.Headers.TryAddWithoutValidation("Accept", "application/json");
+                request.Headers.TryAddWithoutValidation("Accept-Language", "en");
+                request.Headers.Referrer = new Uri("https://github.com/keaganemanuel002-lab/Capital-air-stinglist-manager");
 
-            var content = await response.Content.ReadAsStringAsync();
-            Console.WriteLine($"[GEOCODE] Response: {content.Substring(0, Math.Min(200, content.Length))}");
+                var response = await _httpClient.SendAsync(request, System.Threading.CancellationToken.None);
+                Console.WriteLine($"[GEOCODE] Response status: {response.StatusCode}");
+                AppendGeocodeLog($"Response status: {(int)response.StatusCode} {response.StatusCode} (attempt {attempt}/3)");
 
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                Console.WriteLine($"[GEOCODE] Empty response");
-                return null;
-            }
+                if ((int)response.StatusCode == 429 || (int)response.StatusCode == 503)
+                {
+                    var backoffMs = 1000 * attempt;
+                    Console.WriteLine($"[GEOCODE] Rate limited, retrying in {backoffMs}ms (attempt {attempt}/3)");
+                    AppendGeocodeLog($"Rate limited. Retrying in {backoffMs}ms");
+                    await Task.Delay(backoffMs);
+                    continue;
+                }
 
-            try
-            {
+                if (!response.IsSuccessStatusCode)
+                {
+                    Console.WriteLine($"[GEOCODE] Failed with status {response.StatusCode}");
+                    AppendGeocodeLog($"HTTP error: {(int)response.StatusCode} {response.StatusCode}");
+                    return null;
+                }
+
+                var content = await response.Content.ReadAsStringAsync();
+                Console.WriteLine($"[GEOCODE] Response: {content.Substring(0, Math.Min(200, content.Length))}");
+
+                if (string.IsNullOrWhiteSpace(content))
+                {
+                    Console.WriteLine($"[GEOCODE] Empty response");
+                    AppendGeocodeLog("Empty response");
+                    return null;
+                }
+
                 var jsonDoc = JsonDocument.Parse(content);
                 var root = jsonDoc.RootElement;
 
-                // Try to get the address from the response
                 if (root.TryGetProperty("address", out var addressElement) && addressElement.ValueKind == JsonValueKind.Object)
                 {
                     var address = BuildAddressString(addressElement);
                     if (!string.IsNullOrEmpty(address))
                     {
                         Console.WriteLine($"[GEOCODE] SUCCESS: {address}");
+                        AppendGeocodeLog($"Success: {address}");
                         _geocodeCache.TryAdd(cacheKey, address);
                         return address;
                     }
                 }
 
-                // Fallback: try display_name
                 if (root.TryGetProperty("display_name", out var displayElement))
                 {
                     var displayName = displayElement.GetString();
                     if (!string.IsNullOrEmpty(displayName))
                     {
                         Console.WriteLine($"[GEOCODE] SUCCESS (display_name): {displayName}");
+                        AppendGeocodeLog($"Success: {displayName}");
                         _geocodeCache.TryAdd(cacheKey, displayName);
                         return displayName;
                     }
                 }
 
                 Console.WriteLine($"[GEOCODE] No address found in response");
+                AppendGeocodeLog("No address found in response");
                 return null;
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[GEOCODE] JSON parse error: {ex.Message}");
-                return null;
-            }
+
+            return null;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[GEOCODE] Exception: {ex.Message}");
+            AppendGeocodeLog($"Exception for {lat},{lon}: {ex.GetType().Name}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<string?> ResolveAddressFromWialonAsync(double lat, double lon)
+    {
+        if (_userId == 0)
+        {
+            AppendGeocodeLog("Wialon geocode aborted: userId=0");
+            return null;
+        }
+
+        try
+        {
+            var coords = new[] { new { lon, lat } };
+            var coordsJson = JsonSerializer.Serialize(coords);
+            var url = $"https://geocode-maps.wialon.com/hst-api.wialon.com/gis_geocode?coords={Uri.EscapeDataString(coordsJson)}&flags=1255211008&uid={_userId}&sid={_sessionId}";
+
+            Console.WriteLine($"[GEOCODE] Wialon geocode URL: {url}");
+            var latStr = lat.ToString("0.######", CultureInfo.InvariantCulture);
+            var lonStr = lon.ToString("0.######", CultureInfo.InvariantCulture);
+            AppendGeocodeLog($"Wialon geocode request {latStr},{lonStr}");
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.UserAgent.ParseAdd("StingListManager/1.0 (+https://github.com/keaganemanuel002-lab/Capital-air-stinglist-manager)");
+            request.Headers.TryAddWithoutValidation("Accept", "application/json");
+
+            var response = await _httpClient.SendAsync(request, System.Threading.CancellationToken.None);
+            if (!response.IsSuccessStatusCode)
+            {
+                AppendGeocodeLog($"Wialon geocode HTTP {(int)response.StatusCode} {response.StatusCode}");
+                return null;
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                AppendGeocodeLog("Wialon geocode empty response");
+                return null;
+            }
+
+            AppendGeocodeLog($"Wialon geocode raw response: {content}");
+
+            var doc = JsonDocument.Parse(content);
+            if (doc.RootElement.ValueKind == JsonValueKind.Array && doc.RootElement.GetArrayLength() > 0)
+            {
+                var first = doc.RootElement[0];
+                if (first.ValueKind == JsonValueKind.String)
+                {
+                    var address = first.GetString();
+                    if (!string.IsNullOrWhiteSpace(address))
+                    {
+                        AppendGeocodeLog($"Wialon geocode success: {address}");
+                        return address;
+                    }
+                }
+            }
+
+            AppendGeocodeLog("Wialon geocode no address in response");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            AppendGeocodeLog($"Wialon geocode exception: {ex.GetType().Name} {ex.Message}");
             return null;
         }
     }
@@ -632,69 +768,413 @@ public class WialonApiService
         return string.Join(", ", parts);
     }
 
+    private static string? GetCustomFieldValue(JsonElement item, params string[] keys)
+    {
+        if (keys.Length == 0)
+            return null;
+
+        if (item.TryGetProperty("prp", out var prpElement) && prpElement.ValueKind == JsonValueKind.Object)
+        {
+            var prpValue = GetObjectValueIgnoreCase(prpElement, keys);
+            if (!string.IsNullOrWhiteSpace(prpValue))
+                return prpValue;
+        }
+
+        if (item.TryGetProperty("pflds", out var pfldsElement))
+        {
+            if (pfldsElement.ValueKind == JsonValueKind.Object)
+            {
+                var pfldsValue = GetObjectValueIgnoreCase(pfldsElement, keys);
+                if (!string.IsNullOrWhiteSpace(pfldsValue))
+                    return pfldsValue;
+            }
+            else if (pfldsElement.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var field in pfldsElement.EnumerateArray())
+                {
+                    if (field.ValueKind != JsonValueKind.Object)
+                        continue;
+
+                    if (!field.TryGetProperty("n", out var nameElement) || nameElement.ValueKind != JsonValueKind.String)
+                        continue;
+
+                    var name = nameElement.GetString() ?? string.Empty;
+                    if (!keys.Any(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    if (field.TryGetProperty("v", out var valueElement))
+                    {
+                        var value = GetValueAsString(valueElement);
+                        if (!string.IsNullOrWhiteSpace(value))
+                            return value;
+                    }
+                }
+            }
+        }
+
+        if (item.TryGetProperty("flds", out var fldsElement) && fldsElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var field in fldsElement.EnumerateArray())
+            {
+                if (field.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                if (!field.TryGetProperty("n", out var nameElement) || nameElement.ValueKind != JsonValueKind.String)
+                    continue;
+
+                var name = nameElement.GetString() ?? string.Empty;
+                if (!keys.Any(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (field.TryGetProperty("v", out var valueElement))
+                {
+                    var value = GetValueAsString(valueElement);
+                    if (!string.IsNullOrWhiteSpace(value))
+                        return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<(string? Make, string? Model)> GetMakeModelFromUnitProfileAsync(int unitId)
+    {
+        if (_unitProfileCache.TryGetValue(unitId, out var cached))
+            return cached;
+
+        if (string.IsNullOrEmpty(_sessionId))
+            return (null, null);
+
+        try
+        {
+            var (make, model) = await GetMakeModelFromProfileFieldsAsync(unitId);
+            if (!string.IsNullOrWhiteSpace(make) || !string.IsNullOrWhiteSpace(model))
+            {
+                var result = (Make: make, Model: model);
+                _unitProfileCache[unitId] = result;
+                return result;
+            }
+
+            var paramsJson = JsonSerializer.Serialize(new { itemId = unitId });
+            var url = $"{_baseUrl}wialon/ajax.html?svc=unit/get_profile&params={Uri.EscapeDataString(paramsJson)}&sid={_sessionId}";
+
+            var response = await _httpClient.GetAsync(url);
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(content))
+            {
+                _unitProfileCache[unitId] = (null, null);
+                return (null, null);
+            }
+
+            if (TryWriteProfileSample(content, "wialon_unit_profile.json", _unitProfileSampleLogged))
+                _unitProfileSampleLogged = true;
+
+            var doc = JsonDocument.Parse(content);
+            var root = doc.RootElement;
+
+            if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out _))
+            {
+                _unitProfileCache[unitId] = (null, null);
+                return (null, null);
+            }
+
+            make = GetProfileValue(root,
+                "brand", "make", "vehicle_make", "vehicle make", "car_make", "truck_make", "manufacturer");
+            model = GetProfileValue(root,
+                "model", "vehicle_model", "vehicle model", "car_model", "truck_model", "type");
+
+            var fallbackResult = (Make: make, Model: model);
+            _unitProfileCache[unitId] = fallbackResult;
+            return fallbackResult;
+        }
+        catch
+        {
+            _unitProfileCache[unitId] = (null, null);
+            return (null, null);
+        }
+    }
+
+    private async Task<(string? Make, string? Model)> GetMakeModelFromProfileFieldsAsync(int unitId)
+    {
+        if (string.IsNullOrEmpty(_sessionId))
+            return (null, null);
+
+        try
+        {
+            var (make, model, errorCode, logged) = await GetMakeModelFromProfileFieldsServiceAsync(
+                unitId,
+                "item/get_profile_fields",
+                "wialon_profile_fields.json",
+                _profileFieldsSampleLogged);
+
+            if (logged)
+                _profileFieldsSampleLogged = true;
+
+            if (!string.IsNullOrWhiteSpace(make) || !string.IsNullOrWhiteSpace(model))
+                return (make, model);
+
+            if (errorCode is 2 or 3)
+            {
+                var (unitMake, unitModel, _, unitLogged) = await GetMakeModelFromProfileFieldsServiceAsync(
+                    unitId,
+                    "unit/get_profile_fields",
+                    "wialon_unit_profile_fields.json",
+                    _unitProfileFieldsSampleLogged);
+
+                if (unitLogged)
+                    _unitProfileFieldsSampleLogged = true;
+
+                return (unitMake, unitModel);
+            }
+
+            return (make, model);
+        }
+        catch
+        {
+            return (null, null);
+        }
+    }
+
+    private async Task<(string? Make, string? Model, int? ErrorCode, bool Logged)> GetMakeModelFromProfileFieldsServiceAsync(
+        int unitId,
+        string serviceName,
+        string logFileName,
+        bool logFlag)
+    {
+        var paramsJson = JsonSerializer.Serialize(new { itemId = unitId });
+        var url = $"{_baseUrl}wialon/ajax.html?svc={serviceName}&params={Uri.EscapeDataString(paramsJson)}&sid={_sessionId}";
+
+        var response = await _httpClient.GetAsync(url);
+        var content = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(content))
+            return (null, null, null, false);
+
+        var logged = TryWriteProfileSample(content, logFileName, logFlag);
+
+        var doc = JsonDocument.Parse(content);
+        var root = doc.RootElement;
+
+        if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var errorElement))
+        {
+            if (errorElement.ValueKind == JsonValueKind.Number && errorElement.TryGetInt32(out var errorCode))
+                return (null, null, errorCode, logged);
+
+            return (null, null, null, logged);
+        }
+
+        var make = GetCustomFieldValueFromElement(root,
+            "brand", "make", "vehicle_make", "vehicle make", "car_make", "truck_make", "manufacturer");
+        var model = GetCustomFieldValueFromElement(root,
+            "model", "vehicle_model", "vehicle model", "car_model", "truck_model", "type");
+
+        return (make, model, null, logged);
+    }
+
+    private static string? GetProfileValue(JsonElement root, params string[] keys)
+    {
+        if (root.ValueKind == JsonValueKind.Object)
+        {
+            var direct = GetObjectValueIgnoreCase(root, keys);
+            if (!string.IsNullOrWhiteSpace(direct))
+                return direct;
+
+            if (root.TryGetProperty("pflds", out var pflds))
+            {
+                var value = GetCustomFieldValueFromElement(pflds, keys);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            if (root.TryGetProperty("fields", out var fields))
+            {
+                var value = GetCustomFieldValueFromElement(fields, keys);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+        }
+
+        return GetCustomFieldValueFromElement(root, keys);
+    }
+
+    private static bool TryWriteProfileSample(string content, string fileName, bool logged)
+    {
+        if (logged)
+            return false;
+
+        try
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, fileName);
+            File.WriteAllText(path, content);
+            return true;
+        }
+        catch
+        {
+            // Ignore logging failures
+            return false;
+        }
+    }
+
+    private static string? GetCustomFieldValueFromElement(JsonElement element, params string[] keys)
+    {
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var direct = GetObjectValueIgnoreCase(element, keys);
+            if (!string.IsNullOrWhiteSpace(direct))
+                return direct;
+
+            foreach (var property in element.EnumerateObject())
+            {
+                var value = GetCustomFieldValueFromElement(property.Value, keys);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in element.EnumerateArray())
+            {
+                if (entry.ValueKind == JsonValueKind.Object)
+                {
+                    if (entry.TryGetProperty("n", out var nameElement) && nameElement.ValueKind == JsonValueKind.String)
+                    {
+                        var name = nameElement.GetString() ?? string.Empty;
+                        if (keys.Any(k => string.Equals(k, name, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            if (entry.TryGetProperty("v", out var valueElement))
+                            {
+                                var value = GetValueAsString(valueElement);
+                                if (!string.IsNullOrWhiteSpace(value))
+                                    return value;
+                            }
+
+                            if (entry.TryGetProperty("value", out var altValueElement))
+                            {
+                                var value = GetValueAsString(altValueElement);
+                                if (!string.IsNullOrWhiteSpace(value))
+                                    return value;
+                            }
+                        }
+                    }
+                }
+
+                var nested = GetCustomFieldValueFromElement(entry, keys);
+                if (!string.IsNullOrWhiteSpace(nested))
+                    return nested;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? GetObjectValueIgnoreCase(JsonElement element, params string[] keys)
+    {
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!keys.Any(k => string.Equals(k, property.Name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+
+            var value = GetValueAsString(property.Value);
+            if (!string.IsNullOrWhiteSpace(value))
+                return value;
+        }
+
+        return null;
+    }
+
+    private static string? GetValueAsString(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString(),
+            JsonValueKind.Number => element.ToString(),
+            JsonValueKind.Object => element.TryGetProperty("v", out var vElement) ? GetValueAsString(vElement) : null,
+            _ => null
+        };
+    }
+
     private async Task FetchUserIdAsync()
     {
         try
         {
             if (string.IsNullOrEmpty(_sessionId))
             {
-                Console.WriteLine($"[FETCHUID] No session ID");
+                Console.WriteLine("[FETCHUID] No session ID");
+                AppendGeocodeLog("FetchUserId skipped: no session ID");
                 return;
             }
 
-            // Call account/get_account_info to get user ID
             var paramsJson = JsonSerializer.Serialize(new { });
             var url = $"{_baseUrl}wialon/ajax.html?svc=account/get_account_info&sid={_sessionId}&params={Uri.EscapeDataString(paramsJson)}";
 
-            Console.WriteLine($"[FETCHUID] Calling API...");
+            Console.WriteLine("[FETCHUID] Calling API...");
 
             var response = await _httpClient.GetAsync(url);
             Console.WriteLine($"[FETCHUID] Response status: {response.StatusCode}");
+            AppendGeocodeLog($"FetchUserId status: {(int)response.StatusCode} {response.StatusCode}");
 
             if (!response.IsSuccessStatusCode)
             {
-                Console.WriteLine($"[FETCHUID] Failed");
+                Console.WriteLine("[FETCHUID] Failed");
+                AppendGeocodeLog("FetchUserId failed");
                 return;
             }
 
             var content = await response.Content.ReadAsStringAsync();
             Console.WriteLine($"[FETCHUID] Content: {content.Substring(0, Math.Min(200, content.Length))}");
+            AppendGeocodeLog($"FetchUserId content: {content}");
 
             if (string.IsNullOrWhiteSpace(content))
             {
-                Console.WriteLine($"[FETCHUID] Empty response");
+                Console.WriteLine("[FETCHUID] Empty response");
+                AppendGeocodeLog("FetchUserId empty response");
                 return;
             }
 
             var jsonDoc = JsonDocument.Parse(content);
             var root = jsonDoc.RootElement;
 
-            // Try to extract user ID
-            if (root.TryGetProperty("id", out var idElement))
+            if (root.TryGetProperty("id", out var idElement) && idElement.TryGetInt32(out var id))
             {
-                if (idElement.TryGetInt32(out var id))
-                {
-                    _userId = id;
-                    Console.WriteLine($"[FETCHUID] Success - got {_userId}");
-                    return;
-                }
+                _userId = id;
+                Console.WriteLine($"[FETCHUID] Success - got {_userId}");
+                AppendGeocodeLog($"FetchUserId success: {_userId}");
+                return;
             }
 
-            if (root.TryGetProperty("uid", out var uidElement))
+            if (root.TryGetProperty("uid", out var uidElement) && uidElement.TryGetInt32(out var uid))
             {
-                if (uidElement.TryGetInt32(out var uid))
-                {
-                    _userId = uid;
-                    Console.WriteLine($"[FETCHUID] Success (uid field) - got {_userId}");
-                    return;
-                }
+                _userId = uid;
+                Console.WriteLine($"[FETCHUID] Success (uid field) - got {_userId}");
+                AppendGeocodeLog($"FetchUserId success (uid): {_userId}");
+                return;
             }
 
-            Console.WriteLine($"[FETCHUID] Could not extract ID");
+            Console.WriteLine("[FETCHUID] Could not extract ID");
+            AppendGeocodeLog("FetchUserId could not extract ID");
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[FETCHUID] Error: {ex.Message}");
+            AppendGeocodeLog($"FetchUserId exception: {ex.GetType().Name} {ex.Message}");
+        }
+    }
+
+    private static void AppendGeocodeLog(string message)
+    {
+        try
+        {
+            lock (GeocodeLogLock)
+            {
+                File.AppendAllText(GeocodeLogPath,
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+            }
+        }
+        catch
+        {
+            // Ignore logging failures
         }
     }
 
@@ -743,7 +1223,20 @@ public class WialonApiService
 
     public void Dispose()
     {
-        LogoutAsync().Wait();
+        _httpClient?.Dispose();
+    }
+
+    public async Task LogoutAndDisposeAsync()
+    {
+        try
+        {
+            await LogoutAsync();
+        }
+        catch
+        {
+            // Ignore logout failures during disposal
+        }
+
         _httpClient?.Dispose();
     }
 }

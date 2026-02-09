@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -18,6 +20,8 @@ public partial class WialonReportRow : ObservableObject
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public string Client { get; set; } = "";
+    public string? Make { get; set; }
+    public string? Model { get; set; }
     public DateTime CreatedAt { get; set; }
     
     [ObservableProperty]
@@ -340,7 +344,7 @@ public partial class WialonReportsViewModel : ViewModelBase
             
             FilterReports();
             
-            _appState.SetStatus($"Loaded {_allReports.Count} vehicles for {SelectedClient}. Geocoding addresses in background...");
+            _appState.SetStatus($"Loaded {_allReports.Count} vehicles for {SelectedClient}. Geocoding addresses...");
             Console.WriteLine($"[LOAD] Starting background geocoding for {Reports.Count} vehicles");
             Console.WriteLine($"[LOAD] Address sample: {(Reports.FirstOrDefault()?.Location ?? "none")}");
             
@@ -369,6 +373,8 @@ public partial class WialonReportsViewModel : ViewModelBase
                 Id = report.Id,
                 Name = report.Name,
                 Client = report.Client,
+                Make = report.Make,
+                Model = report.Model,
                 CreatedAt = report.CreatedAt,
                 Location = report.Location,
                 LastUpdateAt = report.LastUpdateAt,
@@ -429,13 +435,13 @@ public partial class WialonReportsViewModel : ViewModelBase
         try
         {
             // Collect all reports that need geocoding
-            // Geocode if we have coordinates and the location is either Unknown or looks like coordinates
-            var toGeocode = reportRows.Where(r => 
-                r.Latitude.HasValue && r.Longitude.HasValue && 
-                (r.Location == "Unknown" || 
-                 r.Location.Contains(",") ||  // Matches coordinate format like "33.8753, 18.4927"
-                 r.Location == "Loading address..." || 
-                 r.Location == "Loading...")).ToList();
+            var toGeocode = reportRows.Where(r =>
+                r.Latitude.HasValue && r.Longitude.HasValue &&
+                (string.IsNullOrEmpty(r.Location) ||
+                 r.Location == "Unknown" ||
+                 r.Location == "Loading address..." ||
+                 r.Location == "Loading..." ||
+                 IsCoordinateLocation(r.Location))).ToList();
 
             if (toGeocode.Count == 0)
             {
@@ -450,49 +456,31 @@ public partial class WialonReportsViewModel : ViewModelBase
             GeocodingProgress = 0;
             IsGeocoding = true;
 
-            // Process addresses in smaller batches with delays to avoid rate limiting
-            var batchSize = 10;
-            var currentBatch = 0;
-            var totalBatches = (toGeocode.Count + batchSize - 1) / batchSize;
-
-            for (int i = 0; i < toGeocode.Count; i += batchSize)
+            foreach (var row in toGeocode)
             {
-                currentBatch++;
-                var batch = toGeocode.Skip(i).Take(batchSize).ToList();
-                Console.WriteLine($"[BATCH] Processing batch {currentBatch}/{totalBatches} ({batch.Count} items)");
-
-                var batchTasks = batch.Select(async row =>
+                try
                 {
-                    try
+                    Console.WriteLine($"[BATCH] Geocoding {row.Name} at {row.Latitude},{row.Longitude}");
+                    var address = await _wialonService.ResolveAddressAsync(row.Latitude!.Value, row.Longitude!.Value);
+                    if (!string.IsNullOrWhiteSpace(address))
                     {
-                        Console.WriteLine($"[BATCH] Geocoding {row.Name} at {row.Latitude},{row.Longitude}");
-                        var address = await _wialonService.ResolveAddressAsync(row.Latitude!.Value, row.Longitude!.Value);
-                        if (!string.IsNullOrWhiteSpace(address))
-                        {
-                            Console.WriteLine($"[BATCH] {row.Name} -> {address}");
-                            row.Location = address;
-                        }
-                        else
-                        {
-                            Console.WriteLine($"[BATCH] {row.Name} -> NO ADDRESS (geocoding returned null)");
-                        }
-                        
-                        // Update progress
-                        GeocodingProgress++;
+                        Console.WriteLine($"[BATCH] {row.Name} -> {address}");
+                        row.Location = address;
                     }
-                    catch (Exception ex)
+                    else
                     {
-                        Console.WriteLine($"[BATCH] Error geocoding {row.Name}: {ex.Message}");
+                        Console.WriteLine($"[BATCH] {row.Name} -> NO ADDRESS (geocoding returned null)");
                     }
-                }).ToList();
 
-                await Task.WhenAll(batchTasks);
-                
-                // Small delay between batches to avoid rate limiting
-                if (currentBatch < totalBatches)
-                {
-                    await Task.Delay(500);
+                    GeocodingProgress++;
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[BATCH] Error geocoding {row.Name}: {ex.Message}");
+                }
+
+                // Nominatim usage policy: 1 request per second
+                await Task.Delay(1100);
             }
             IsGeocoding = false;
         }
@@ -501,6 +489,19 @@ public partial class WialonReportsViewModel : ViewModelBase
             Console.WriteLine($"[BATCH] Background geocoding error: {ex.Message}");
             IsGeocoding = false;
         }
+    }
+
+    private static bool IsCoordinateLocation(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location))
+            return false;
+
+        var parts = location.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2)
+            return false;
+
+        return double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
+               double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
     }
 
     [RelayCommand]
@@ -558,19 +559,7 @@ public partial class WialonReportsViewModel : ViewModelBase
         {
             using (var workbook = new XLWorkbook())
             {
-                // Separate reports into uncommunicative and updating
-                var uncommunicative = Reports
-                    .Where(r => r.CommunicationStatus.Contains("Uncommunicative"))
-                    .ToList();
-                var updating = Reports
-                    .Where(r => r.CommunicationStatus == "Updating")
-                    .ToList();
-
-                // Create Uncommunicative worksheet
-                CreateReportWorksheet(workbook, "Uncommunicative", uncommunicative);
-
-                // Create Updating worksheet
-                CreateReportWorksheet(workbook, "Updating", updating);
+                CreateReportWorksheet(workbook, "Wialon Reports", Reports.ToList());
 
                 // Save file
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
@@ -579,6 +568,19 @@ public partial class WialonReportsViewModel : ViewModelBase
 
                 workbook.SaveAs(filePath);
                 _appState.SetStatus($"Report exported successfully to {fileName}");
+
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = filePath,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception openEx)
+                {
+                    _appState.SetStatus($"Report exported, but could not open Excel: {openEx.Message}");
+                }
             }
         }
         catch (Exception ex)
@@ -591,32 +593,56 @@ public partial class WialonReportsViewModel : ViewModelBase
     {
         var worksheet = workbook.Worksheets.Add(sheetName);
 
+        var reportClient = string.IsNullOrWhiteSpace(SelectedClient) ? "All Clients" : SelectedClient;
+        var reportDate = DateTime.Now.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture).ToUpperInvariant();
+        var title = $"{reportClient.ToUpperInvariant()} - UNIT STATUS REPORT {reportDate}";
+
+        // Title row
+        worksheet.Cell(1, 1).Value = title;
+        worksheet.Range(1, 1, 1, 7).Merge();
+        worksheet.Row(1).Style.Font.Bold = true;
+        worksheet.Row(1).Style.Font.FontSize = 14;
+        worksheet.Range(1, 1, 1, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        worksheet.Range(1, 1, 1, 7).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
         // Add headers
-        worksheet.Cell(1, 1).Value = "Vehicle Name";
-        worksheet.Cell(1, 2).Value = "Client/Account";
-        worksheet.Cell(1, 3).Value = "Location";
-        worksheet.Cell(1, 4).Value = "Last Update";
-        worksheet.Cell(1, 5).Value = "Communication Status";
-        worksheet.Cell(1, 6).Value = "Latitude";
-        worksheet.Cell(1, 7).Value = "Longitude";
+        worksheet.Cell(2, 1).Value = "Vehicle Name";
+        worksheet.Cell(2, 2).Value = "Make";
+        worksheet.Cell(2, 3).Value = "Model";
+        worksheet.Cell(2, 4).Value = "Client/Account";
+        worksheet.Cell(2, 5).Value = "Location";
+        worksheet.Cell(2, 6).Value = "Last Update";
+        worksheet.Cell(2, 7).Value = "Communication Status";
 
         // Style header row
-        var headerRow = worksheet.Row(1);
+        var headerRow = worksheet.Row(2);
         headerRow.Style.Font.Bold = true;
         headerRow.Style.Fill.BackgroundColor = XLColor.DarkGray;
         headerRow.Style.Font.FontColor = XLColor.White;
 
         // Add data rows
-        int row = 2;
+        int row = 3;
         foreach (var report in reports)
         {
             worksheet.Cell(row, 1).Value = report.Name;
-            worksheet.Cell(row, 2).Value = report.Client;
-            worksheet.Cell(row, 3).Value = report.Location;
-            worksheet.Cell(row, 4).Value = report.LastUpdateAt?.ToString("yyyy-MM-dd HH:mm") ?? "N/A";
-            worksheet.Cell(row, 5).Value = report.CommunicationStatus;
-            worksheet.Cell(row, 6).Value = report.Latitude ?? 0;
-            worksheet.Cell(row, 7).Value = report.Longitude ?? 0;
+            worksheet.Cell(row, 2).Value = report.Make ?? "";
+            worksheet.Cell(row, 3).Value = report.Model ?? "";
+            worksheet.Cell(row, 4).Value = report.Client;
+            worksheet.Cell(row, 5).Value = report.Location;
+            worksheet.Cell(row, 6).Value = report.LastUpdateAt?.ToString("yyyy-MM-dd HH:mm") ?? "N/A";
+            worksheet.Cell(row, 7).Value = report.CommunicationStatus;
+
+            var statusColor = report.CommunicationStatus switch
+            {
+                "Updating" => XLColor.FromHtml("#22AB94"),
+                "Uncommunicative (<14d)" => XLColor.FromHtml("#FFA500"),
+                "Uncommunicative (>14d)" => XLColor.FromHtml("#FF6B6B"),
+                _ => XLColor.FromHtml("#CCCCCC")
+            };
+
+            var statusCell = worksheet.Cell(row, 7);
+            statusCell.Style.Fill.BackgroundColor = statusColor;
+            statusCell.Style.Font.FontColor = XLColor.White;
             row++;
         }
 
@@ -629,9 +655,12 @@ public partial class WialonReportsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void Disconnect()
+    private async Task Disconnect()
     {
-        _wialonService?.Dispose();
+        if (_wialonService is not null)
+        {
+            await _wialonService.LogoutAndDisposeAsync();
+        }
         _wialonService = null;
         IsConnected = false;
         WialonToken = "";
