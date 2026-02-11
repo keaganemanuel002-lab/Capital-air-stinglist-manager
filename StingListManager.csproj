@@ -17,6 +17,19 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="Capital-air-stinglist-manager\Assets\capital-air-logo.png"
+             Link="Assets\capital-air-logo.png"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaXaml Remove="Capital-air-stinglist-manager/**" />
+    <AvaloniaResource Remove="Capital-air-stinglist-manager/**" />
+    <Compile Remove="Capital-air-stinglist-manager/**" />
+    <None Remove="Capital-air-stinglist-manager/**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.11" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.11" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.11" />

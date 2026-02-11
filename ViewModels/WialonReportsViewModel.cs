@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Globalization;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -223,10 +224,10 @@ public partial class WialonReportsViewModel : ViewModelBase
             
             FilterReports();
             
-            _appState.SetStatus($"Loaded all {_allReports.Count} vehicles from Wialon. Geocoding addresses in background...");
-            
-            // Start background geocoding
-            _backgroundGeocodeTask = GeocodeAddressesInBackgroundAsync(_allReports);
+            _appState.SetStatus($"Loaded all {_allReports.Count} vehicles from Wialon. Geocoding addresses...");
+
+            // Geocode on load (await completion before returning)
+            await GeocodeAddressesInBackgroundAsync(_allReports);
         }
         catch (Exception ex)
         {
@@ -249,12 +250,15 @@ public partial class WialonReportsViewModel : ViewModelBase
                 Name = report.Name,
                 Client = report.Client,
                 CreatedAt = report.CreatedAt,
-                Location = report.Location,
                 LastUpdateAt = report.LastUpdateAt,
                 Status = report.Status,
                 Latitude = report.Latitude,
                 Longitude = report.Longitude
             };
+            
+            // Set Location through the property to ensure MVVM notification
+            row.Location = report.Location;
+            
             _allReports.Add(row);
             
             // Add to display if "All Clients" is selected
@@ -272,41 +276,63 @@ public partial class WialonReportsViewModel : ViewModelBase
 
         try
         {
+            System.Diagnostics.Debug.WriteLine($"GeocodeAddressesInBackgroundAsync: Starting with {reportRows.Count} rows");
+            
+            // Small delay for UI to update
+            await Task.Delay(100);
+
             // Collect all reports that need geocoding
             var toGeocode = reportRows.Where(r => 
                 r.Latitude.HasValue && r.Longitude.HasValue && 
-                (r.Location == "Loading address..." || r.Location == "Loading..." || r.Location == "Unknown")).ToList();
+                (string.IsNullOrEmpty(r.Location) || 
+                 r.Location == "Loading address..." || 
+                 r.Location == "Loading..." || 
+                 r.Location == "Unknown" || 
+                 r.Location == "Location" ||
+                 IsCoordinateLocation(r.Location))).ToList();
+
+            System.Diagnostics.Debug.WriteLine($"GeocodeAddressesInBackgroundAsync: Found {toGeocode.Count} rows needing geocoding");
 
             if (toGeocode.Count == 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"GeocodeAddressesInBackgroundAsync: No rows need geocoding");
                 return;
-
-            System.Diagnostics.Debug.WriteLine($"Starting background geocoding for {toGeocode.Count} addresses");
+            }
 
             foreach (var row in toGeocode)
             {
                 try
                 {
+                    System.Diagnostics.Debug.WriteLine($"Geocoding {row.Name} at {row.Latitude},{row.Longitude}");
                     var address = await _wialonService.ResolveAddressAsync(row.Latitude!.Value, row.Longitude!.Value);
+                    
                     if (!string.IsNullOrWhiteSpace(address))
                     {
                         row.Location = address;
                         System.Diagnostics.Debug.WriteLine($"Geocoded {row.Name}: {address}");
                     }
+                    else
+                    {
+                        // Fallback to coordinates
+                        row.Location = FormattableString.Invariant($"{row.Latitude:F4}, {row.Longitude:F4}");
+                        System.Diagnostics.Debug.WriteLine($"No address found for {row.Name}, using coordinates");
+                    }
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Geocoding failed for {row.Name}: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"Geocoding error for {row.Name}: {ex.Message}");
+                    row.Location = FormattableString.Invariant($"{row.Latitude:F4}, {row.Longitude:F4}");
                 }
 
                 // Small delay to avoid overloading the API
-                await Task.Delay(100);
+                await Task.Delay(1100);
             }
 
-            System.Diagnostics.Debug.WriteLine($"Background geocoding completed");
+            System.Diagnostics.Debug.WriteLine($"GeocodeAddressesInBackgroundAsync: Completed");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Background geocoding error: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"GeocodeAddressesInBackgroundAsync error: {ex.Message}\n{ex.StackTrace}");
         }
     }
 
@@ -387,5 +413,18 @@ public partial class WialonReportsViewModel : ViewModelBase
         {
             Reports.Add(report);
         }
+    }
+
+    private static bool IsCoordinateLocation(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location))
+            return false;
+
+        var parts = location.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2)
+            return false;
+
+        return double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
+               double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
     }
 }

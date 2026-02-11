@@ -32,11 +32,15 @@ public class WialonApiService
     private readonly HttpClient _httpClient;
     private string? _sessionId;
     public string? LastError { get; private set; }
+    private static readonly object GeocodeLogLock = new();
+    private static readonly string GeocodeLogPath = Path.Combine(AppContext.BaseDirectory, "wialon_geocode.log");
 
     public WialonApiService(string token)
     {
         _token = token;
         _httpClient = new HttpClient();
+        // Set reasonable timeouts
+        _httpClient.Timeout = TimeSpan.FromSeconds(30);
     }
 
     public async Task<bool> TestConnectionAsync()
@@ -165,7 +169,7 @@ public class WialonApiService
                 
                 System.Diagnostics.Debug.WriteLine($"Account search response: {accountContent}");
                 
-                if (accountResponse.IsSuccessStatusCode)
+                if (accountResponse.IsSuccessStatusCode && !string.IsNullOrWhiteSpace(accountContent))
                 {
                     try
                     {
@@ -176,20 +180,35 @@ public class WialonApiService
                         // Ignore logging failures
                     }
 
-                    var accountDoc = JsonDocument.Parse(accountContent);
-                    if (accountDoc.RootElement.TryGetProperty("items", out var accountItems) && accountItems.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    try
                     {
-                        foreach (var account in accountItems.EnumerateArray())
+                        var accountDoc = JsonDocument.Parse(accountContent);
+                        if (accountDoc.RootElement.TryGetProperty("items", out var accountItems) && accountItems.ValueKind == System.Text.Json.JsonValueKind.Array)
                         {
-                            var accountId = account.TryGetProperty("id", out var idElem) ? idElem.GetInt32() : 0;
-                            var accountName = account.TryGetProperty("nm", out var nmElem) ? nmElem.GetString() : "";
-                            if (accountId > 0 && !string.IsNullOrEmpty(accountName))
+                            foreach (var account in accountItems.EnumerateArray())
                             {
-                                accountsMap[accountId] = accountName ?? "Unknown Account";
-                                System.Diagnostics.Debug.WriteLine($"Found resource: ID={accountId}, Name={accountName}");
+                                var accountId = account.TryGetProperty("id", out var idElem) ? idElem.GetInt32() : 0;
+                                var accountName = account.TryGetProperty("nm", out var nmElem) ? nmElem.GetString() : "";
+                                if (accountId > 0 && !string.IsNullOrEmpty(accountName))
+                                {
+                                    accountsMap[accountId] = accountName ?? "Unknown Account";
+                                    System.Diagnostics.Debug.WriteLine($"Found resource: ID={accountId}, Name={accountName}");
+                                }
                             }
                         }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Account search returned no items or invalid format");
+                        }
                     }
+                    catch (Exception parseEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to parse account response: {parseEx.Message}");
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"Account search HTTP error: {accountResponse.StatusCode}");
                 }
                 
                 System.Diagnostics.Debug.WriteLine($"Loaded {accountsMap.Count} resources/accounts");
@@ -279,12 +298,12 @@ public class WialonApiService
                     
                     var client = accountId > 0 && accountsMap.ContainsKey(accountId) 
                         ? accountsMap[accountId] 
-                        : "Unknown Account";
+                        : "";
                     
                     System.Diagnostics.Debug.WriteLine($"Unit '{name}' mapped to client: {client}");
                     
                     // Try resource ID if billing account is missing
-                    if (accountId == 0)
+                    if (string.IsNullOrEmpty(client) && accountId == 0)
                     {
                         var resourceId = 0;
                         if (item.TryGetProperty("rid", out var ridElement) && ridElement.TryGetInt32(out var ridValue))
@@ -309,7 +328,7 @@ public class WialonApiService
                     }
 
                     // Get creator ID as fallback
-                    if (accountId == 0 && item.TryGetProperty("crt", out var crtElement))
+                    if (string.IsNullOrEmpty(client) && accountId == 0 && item.TryGetProperty("crt", out var crtElement))
                     {
                         var creatorId = crtElement.GetInt32();
                         System.Diagnostics.Debug.WriteLine($"Unit '{name}' has crt={creatorId}");
@@ -319,6 +338,12 @@ public class WialonApiService
                             client = accountsMap[creatorId];
                             System.Diagnostics.Debug.WriteLine($"Unit '{name}' using creator as client: {client}");
                         }
+                    }
+                    
+                    // If still no client found, use a default placeholder
+                    if (string.IsNullOrEmpty(client))
+                    {
+                        client = "Unknown Client";
                     }
                     
                     // Get unit location (address preferred, fallback to geocode or lat/lon)
@@ -409,62 +434,120 @@ public class WialonApiService
     {
         try
         {
-            // Use Wialon Pro's gis/get_locations endpoint
-            var pointsArray = new[]
+            // Use OpenStreetMap Nominatim for reverse geocoding (free, no API key required)
+            var url = $"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1&accept-language=en";
+
+            System.Diagnostics.Debug.WriteLine($"[Geocoding] Requesting: {url}");
+            AppendGeocodeLog($"Request {lat},{lon} -> {url}");
+
+            for (var attempt = 1; attempt <= 3; attempt++)
             {
-                new
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                // Nominatim requires a User-Agent header (include project URL as contact)
+                request.Headers.UserAgent.ParseAdd("StingListManager/1.0 (+https://github.com/keaganemanuel002-lab/Capital-air-stinglist-manager)");
+                request.Headers.TryAddWithoutValidation("Accept", "application/json");
+                request.Headers.TryAddWithoutValidation("Accept-Language", "en");
+                request.Headers.Referrer = new Uri("https://github.com/keaganemanuel002-lab/Capital-air-stinglist-manager");
+
+                try
                 {
-                    x = lon,
-                    y = lat
+                    var response = await _httpClient.SendAsync(request, System.Threading.CancellationToken.None);
+                    System.Diagnostics.Debug.WriteLine($"[Geocoding] Response status: {response.StatusCode}");
+                    AppendGeocodeLog($"Response status: {(int)response.StatusCode} {response.StatusCode} (attempt {attempt}/3)");
+
+                    if ((int)response.StatusCode == 429 || (int)response.StatusCode == 503)
+                    {
+                        var backoffMs = 1000 * attempt;
+                        System.Diagnostics.Debug.WriteLine($"[Geocoding] Rate limited, retrying in {backoffMs}ms (attempt {attempt}/3)");
+                        AppendGeocodeLog($"Rate limited. Retrying in {backoffMs}ms");
+                        await Task.Delay(backoffMs);
+                        continue;
+                    }
+
+                    var content = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"[Geocoding] Response length: {content.Length} bytes");
+
+                    try
+                    {
+                        File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "wialon_geocode_response.json"), content);
+                    }
+                    catch
+                    {
+                        // Ignore logging failures
+                    }
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Geocoding] HTTP error: {response.StatusCode}");
+                        AppendGeocodeLog($"HTTP error: {(int)response.StatusCode} {response.StatusCode}");
+                        return null;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(content))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Geocoding] Empty response");
+                        AppendGeocodeLog("Empty response");
+                        return null;
+                    }
+
+                    var jsonDoc = JsonDocument.Parse(content);
+                    var root = jsonDoc.RootElement;
+
+                    // OpenStreetMap Nominatim response format: {"address": {...}, "display_name": "..."}
+                    if (root.TryGetProperty("display_name", out var displayNameElement) &&
+                        displayNameElement.ValueKind == JsonValueKind.String)
+                    {
+                        var address = displayNameElement.GetString();
+                        if (!string.IsNullOrWhiteSpace(address))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[Geocoding] Success: {address.Substring(0, Math.Min(100, address.Length))}");
+                            AppendGeocodeLog($"Success: {address}");
+                            return address;
+                        }
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[Geocoding] No display_name in response");
+                    AppendGeocodeLog("No display_name in response");
+                    return null;
                 }
-            };
-
-            var paramsJson = JsonSerializer.Serialize(new { points = pointsArray });
-            var url = $"{_baseUrl}wialon/ajax.html?svc=gis/get_locations&params={Uri.EscapeDataString(paramsJson)}&sid={_sessionId}";
-
-            System.Diagnostics.Debug.WriteLine($"Geocoding: {lat},{lon}");
-            var response = await _httpClient.GetAsync(url);
-            var content = await response.Content.ReadAsStringAsync();
-
-            try
-            {
-                File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "wialon_geocode_response.json"), content);
-            }
-            catch
-            {
-                // Ignore logging failures
-            }
-
-            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(content))
-            {
-                System.Diagnostics.Debug.WriteLine($"Geocode HTTP error: {response.StatusCode}");
-                return null;
-            }
-
-            var jsonDoc = JsonDocument.Parse(content);
-            var root = jsonDoc.RootElement;
-
-            // Wialon Pro response format: {"locations": ["Address string"]}
-            if (root.TryGetProperty("locations", out var locationsElement) && 
-                locationsElement.ValueKind == JsonValueKind.Array && 
-                locationsElement.GetArrayLength() > 0)
-            {
-                var first = locationsElement[0];
-                if (first.ValueKind == JsonValueKind.String)
+                catch (TaskCanceledException ex)
                 {
-                    var address = first.GetString();
-                    System.Diagnostics.Debug.WriteLine($"Geocoded address: {address}");
-                    return address;
+                    System.Diagnostics.Debug.WriteLine($"[Geocoding] Timeout: {ex.Message}");
+                    AppendGeocodeLog($"Timeout: {ex.Message}");
+                    return null;
+                }
+                catch (HttpRequestException ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Geocoding] HTTP error: {ex.Message}");
+                    AppendGeocodeLog($"HTTP error: {ex.Message}");
+                    return null;
                 }
             }
 
-            System.Diagnostics.Debug.WriteLine($"Geocode returned empty or invalid response: {content}");
             return null;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Geocode failed for {lat},{lon}: {ex.Message}");
+            System.Diagnostics.Debug.WriteLine($"[Geocoding] Exception for {lat},{lon}: {ex.GetType().Name}: {ex.Message}");
+            AppendGeocodeLog($"Exception for {lat},{lon}: {ex.GetType().Name}: {ex.Message}");
             return null;
+        }
+    }
+
+    private static void AppendGeocodeLog(string message)
+    {
+        try
+        {
+            Paths.EnsureLocal();
+            lock (GeocodeLogLock)
+            {
+                File.AppendAllText(GeocodeLogPath,
+                    $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+            }
+        }
+        catch
+        {
+            // Ignore logging failures
         }
     }
 
