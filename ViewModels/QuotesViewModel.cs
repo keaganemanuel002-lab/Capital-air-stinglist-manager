@@ -398,7 +398,7 @@ public partial class QuotesViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void GenerateQuotePdf()
+    private async Task GenerateQuotePdf()
     {
         if (SelectedRow is null) return;
 
@@ -406,7 +406,7 @@ public partial class QuotesViewModel : ViewModelBase
         var quote = db.Quotes.Include(q => q.LineItems).FirstOrDefault(q => q.Id == SelectedRow.Id);
         if (quote is null) return;
 
-        var pdfBytes = new QuotePdfService(_appState.Settings).BuildQuotePdf(quote);
+        var pdfBytes = await Task.Run(() => new QuotePdfService(_appState.Settings).BuildQuotePdf(quote));
         var tempPath = Path.GetTempFileName() + ".pdf";
         File.WriteAllBytes(tempPath, pdfBytes);
 
@@ -491,7 +491,7 @@ public partial class QuotesViewModel : ViewModelBase
 
         if (file is null) return;
 
-        var pdfBytes = new QuotePdfService(_appState.Settings).BuildQuotePdf(quote);
+        var pdfBytes = await Task.Run(() => new QuotePdfService(_appState.Settings).BuildQuotePdf(quote));
         await File.WriteAllBytesAsync(file.Path.LocalPath, pdfBytes);
 
         _appState.SetStatus($"Quote PDF saved: {Path.GetFileName(file.Path.LocalPath)}");

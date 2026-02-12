@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Globalization;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ClosedXML.Excel;
 using StingListManager.Services;
 
 namespace StingListManager.ViewModels;
@@ -16,15 +21,87 @@ public partial class WialonReportRow : ObservableObject
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public string Client { get; set; } = "";
+    public string? Make { get; set; }
+    public string? Model { get; set; }
     public DateTime CreatedAt { get; set; }
     
     [ObservableProperty]
     private string _location = "";
     
-    public DateTime? LastUpdateAt { get; set; }
+    private DateTime? _lastUpdateAt;
+    public DateTime? LastUpdateAt 
+    { 
+        get => _lastUpdateAt;
+        set
+        {
+            if (SetProperty(ref _lastUpdateAt, value))
+            {
+                // Recalculate communication status when LastUpdateAt changes
+                OnPropertyChanged(nameof(CommunicationStatus));
+                OnPropertyChanged(nameof(CommunicationStatusColor));
+                OnPropertyChanged(nameof(CommunicationStatusBrush));
+            }
+        }
+    }
+
     public string Status { get; set; } = "";
     public double? Latitude { get; set; }
     public double? Longitude { get; set; }
+
+    // Computed properties for communication status
+    public string CommunicationStatus
+    {
+        get
+        {
+            if (!LastUpdateAt.HasValue)
+                return "Unknown";
+
+            var daysSinceUpdate = (DateTime.Now - LastUpdateAt.Value).TotalDays;
+
+            if (daysSinceUpdate <= 2)
+                return "Updating";
+            else if (daysSinceUpdate <= 13)
+                return "Uncommunicative (<14d)";
+            else
+                return "Uncommunicative (>14d)";
+        }
+    }
+
+    public Color CommunicationStatusColor
+    {
+        get
+        {
+            if (!LastUpdateAt.HasValue)
+                return Color.Parse("#CCCCCC"); // Gray for unknown
+
+            var daysSinceUpdate = (DateTime.Now - LastUpdateAt.Value).TotalDays;
+
+            if (daysSinceUpdate <= 2)
+                return Color.Parse("#22AB94"); // Green - updating
+            else if (daysSinceUpdate <= 13)
+                return Color.Parse("#FFA500"); // Yellow/Orange - uncommunicative <14d
+            else
+                return Color.Parse("#FF6B6B"); // Orange/Red - uncommunicative >14d
+        }
+    }
+
+    public SolidColorBrush CommunicationStatusBrush
+    {
+        get
+        {
+            if (!LastUpdateAt.HasValue)
+                return new SolidColorBrush(Color.Parse("#CCCCCC")); // Gray for unknown
+
+            var daysSinceUpdate = (DateTime.Now - LastUpdateAt.Value).TotalDays;
+
+            if (daysSinceUpdate <= 2)
+                return new SolidColorBrush(Color.Parse("#22AB94")); // Green - updating
+            else if (daysSinceUpdate <= 13)
+                return new SolidColorBrush(Color.Parse("#FFA500")); // Yellow/Orange - uncommunicative <14d
+            else
+                return new SolidColorBrush(Color.Parse("#FF6B6B")); // Orange/Red - uncommunicative >14d
+        }
+    }
 }
 
 public partial class WialonReportsViewModel : ViewModelBase
@@ -34,7 +111,8 @@ public partial class WialonReportsViewModel : ViewModelBase
     private WialonApiService? _wialonService;
     private List<WialonReportRow> _allReports = new();
     private static List<WialonReportRow> _cachedReports = new();  // Persist across page navigations
-    private static Task? _backgroundGeocodeTask;  // Continue geocoding even when navigating away
+    private readonly Dictionary<string, int> _clientIds = new();
+    private bool _suppressClientChange;
 
     public ObservableCollection<WialonReportRow> Reports { get; } = new();
     public ObservableCollection<string> AvailableClients { get; } = new();
@@ -42,6 +120,9 @@ public partial class WialonReportsViewModel : ViewModelBase
     [ObservableProperty] private int progressCount;
     [ObservableProperty] private int progressTotal;
     [ObservableProperty] private bool isLoadingMore;
+    [ObservableProperty] private int geocodingProgress;
+    [ObservableProperty] private int geocodingTotal;
+    [ObservableProperty] private bool isGeocoding;
     [ObservableProperty] private bool isConnected;
     [ObservableProperty] private string wialonToken = "";
     [ObservableProperty] private bool isLoading;
@@ -52,7 +133,19 @@ public partial class WialonReportsViewModel : ViewModelBase
 
     partial void OnSelectedClientChanged(string? value)
     {
-        FilterReports();
+        if (_suppressClientChange)
+        {
+            return;
+        }
+
+        if (IsConnected && !string.IsNullOrWhiteSpace(value) && value != "All Clients")
+        {
+            _ = LoadReports();
+        }
+        else
+        {
+            Reports.Clear();
+        }
     }
 
     public static readonly string[] ReportTypes = new[] 
@@ -136,7 +229,16 @@ public partial class WialonReportsViewModel : ViewModelBase
                 _appState.SaveSettings();
                 
                 _appState.SetStatus("Successfully connected to Wialon API.");
-                await LoadReports();
+                await LoadClientsAsync();
+
+                if (!string.IsNullOrWhiteSpace(SelectedClient) && SelectedClient != "All Clients")
+                {
+                    await LoadReports();
+                }
+                else
+                {
+                    _appState.SetStatus("Select a client, then click Refresh to load vehicles.");
+                }
             }
             else
             {
@@ -165,6 +267,22 @@ public partial class WialonReportsViewModel : ViewModelBase
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(SelectedClient) || SelectedClient == "All Clients")
+        {
+            _appState.SetStatus("Please select a client to load vehicles.");
+            return;
+        }
+
+        if (!_clientIds.TryGetValue(SelectedClient, out var accountId))
+        {
+            await LoadClientsAsync();
+            if (!_clientIds.TryGetValue(SelectedClient, out accountId))
+            {
+                _appState.SetStatus("Selected client not found. Please refresh the client list.");
+                return;
+            }
+        }
+
         try
         {
             IsLoading = true;
@@ -174,18 +292,37 @@ public partial class WialonReportsViewModel : ViewModelBase
             _allReports.Clear();
             _cachedReports.Clear();
             Reports.Clear();
-            AvailableClients.Clear();
             
-            // Add "All Clients" option
-            AvailableClients.Add("All Clients");
-            
-            // First batch to get total count
-            var (firstBatch, totalCount) = await _wialonService.GetReportsAsync(0, 100);
+            // First batch to get total count (try billing account name, then creator name, then creator ID)
+            var searchAttempts = new List<(string PropName, string PropValue)>
+            {
+                ("rel_billing_account_name", SelectedClient),
+                ("rel_user_creator_name", SelectedClient)
+            };
+
+            if (accountId > 0)
+            {
+                searchAttempts.Add(("sys_user_creator", accountId.ToString()));
+            }
+
+            var (firstBatch, totalCount) = await _wialonService.GetReportsAsync(0, 100, searchAttempts[0].PropName, searchAttempts[0].PropValue);
+            var attemptIndex = 0;
+            while (totalCount == 0 && attemptIndex + 1 < searchAttempts.Count)
+            {
+                attemptIndex++;
+                (firstBatch, totalCount) = await _wialonService.GetReportsAsync(0, 100, searchAttempts[attemptIndex].PropName, searchAttempts[attemptIndex].PropValue);
+            }
+
+            if (totalCount == 0)
+            {
+                _appState.SetStatus($"No vehicles found for {SelectedClient}. Check the client name or permissions.");
+                return;
+            }
             ProgressTotal = totalCount;
             ProgressCount = firstBatch.Count;
             
             // Add first batch
-            await AddReportsToList(firstBatch);
+            AddReportsToList(firstBatch);
             
             // Load remaining batches
             if (totalCount > 100)
@@ -193,9 +330,9 @@ public partial class WialonReportsViewModel : ViewModelBase
                 for (int from = 100; from < totalCount; from += 100)
                 {
                     IsLoadingMore = true;
-                    var (batch, _) = await _wialonService.GetReportsAsync(from, 100);
+                    var (batch, _) = await _wialonService.GetReportsAsync(from, 100, searchAttempts[attemptIndex].PropName, searchAttempts[attemptIndex].PropValue);
                     ProgressCount += batch.Count;
-                    await AddReportsToList(batch);
+                    AddReportsToList(batch);
                     IsLoadingMore = false;
                     
                     // Small delay to avoid overwhelming the API
@@ -203,24 +340,8 @@ public partial class WialonReportsViewModel : ViewModelBase
                 }
             }
             
-            // Setup client list and filter
-            var uniqueClients = _allReports
-                .Select(r => r.Client)
-                .Where(c => !string.IsNullOrEmpty(c))
-                .Distinct()
-                .OrderBy(c => c);
-            
-            foreach (var client in uniqueClients)
-            {
-                AvailableClients.Add(client);
-            }
-            
             // Cache for persistence
             _cachedReports = new List<WialonReportRow>(_allReports);
-            
-            // Set default filter and display all
-            if (string.IsNullOrEmpty(SelectedClient))
-                SelectedClient = "All Clients";
             
             FilterReports();
             
@@ -240,7 +361,7 @@ public partial class WialonReportsViewModel : ViewModelBase
         }
     }
 
-    private async Task AddReportsToList(List<StingListManager.Services.WialonReport> reports)
+    private void AddReportsToList(List<StingListManager.Services.WialonReport> reports)
     {
         foreach (var report in reports)
         {
@@ -249,6 +370,8 @@ public partial class WialonReportsViewModel : ViewModelBase
                 Id = report.Id,
                 Name = report.Name,
                 Client = report.Client,
+                Make = report.Make,
+                Model = report.Model,
                 CreatedAt = report.CreatedAt,
                 LastUpdateAt = report.LastUpdateAt,
                 Status = report.Status,
@@ -260,12 +383,47 @@ public partial class WialonReportsViewModel : ViewModelBase
             row.Location = report.Location;
             
             _allReports.Add(row);
-            
-            // Add to display if "All Clients" is selected
-            if (SelectedClient == "All Clients" || SelectedClient == report.Client)
+            Reports.Add(row);
+        }
+    }
+
+    private async Task LoadClientsAsync()
+    {
+        if (_wialonService is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var clients = await _wialonService.GetResourcesAsync();
+
+            _suppressClientChange = true;
+            _clientIds.Clear();
+            AvailableClients.Clear();
+            AvailableClients.Add("All Clients");
+
+            foreach (var client in clients.OrderBy(c => c.Value))
             {
-                Reports.Add(row);
+                AvailableClients.Add(client.Value);
+                if (!_clientIds.ContainsKey(client.Value))
+                {
+                    _clientIds[client.Value] = client.Key;
+                }
             }
+
+            if (string.IsNullOrEmpty(SelectedClient))
+            {
+                SelectedClient = "All Clients";
+            }
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Failed to load clients: {ex.Message}");
+        }
+        finally
+        {
+            _suppressClientChange = false;
         }
     }
 
@@ -308,8 +466,8 @@ public partial class WialonReportsViewModel : ViewModelBase
                     
                     if (!string.IsNullOrWhiteSpace(address))
                     {
+                        Console.WriteLine($"[BATCH] {row.Name} -> {address}");
                         row.Location = address;
-                        System.Diagnostics.Debug.WriteLine($"Geocoded {row.Name}: {address}");
                     }
                     else
                     {
@@ -334,6 +492,19 @@ public partial class WialonReportsViewModel : ViewModelBase
         {
             System.Diagnostics.Debug.WriteLine($"GeocodeAddressesInBackgroundAsync error: {ex.Message}\n{ex.StackTrace}");
         }
+    }
+
+    private static bool IsCoordinateLocation(string? location)
+    {
+        if (string.IsNullOrWhiteSpace(location))
+            return false;
+
+        var parts = location.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (parts.Length != 2)
+            return false;
+
+        return double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
+               double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
     }
 
     [RelayCommand]
@@ -379,15 +550,127 @@ public partial class WialonReportsViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private void ExportToExcel()
+    {
+        if (Reports.Count == 0)
+        {
+            _appState.SetStatus("No reports to export. Load reports first.");
+            return;
+        }
+
+        try
+        {
+            using (var workbook = new XLWorkbook())
+            {
+                CreateReportWorksheet(workbook, "Wialon Reports", Reports.ToList());
+
+                // Save file
+                string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+                string fileName = $"WialonReport_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+                string filePath = Path.Combine(desktopPath, fileName);
+
+                workbook.SaveAs(filePath);
+                _appState.SetStatus($"Report exported successfully to {fileName}");
+
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = filePath,
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception openEx)
+                {
+                    _appState.SetStatus($"Report exported, but could not open Excel: {openEx.Message}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Error exporting report: {ex.Message}");
+        }
+    }
+
+    private void CreateReportWorksheet(XLWorkbook workbook, string sheetName, List<WialonReportRow> reports)
+    {
+        var worksheet = workbook.Worksheets.Add(sheetName);
+
+        var reportClient = string.IsNullOrWhiteSpace(SelectedClient) ? "All Clients" : SelectedClient;
+        var reportDate = DateTime.Now.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture).ToUpperInvariant();
+        var title = $"{reportClient.ToUpperInvariant()} - UNIT STATUS REPORT {reportDate}";
+
+        // Title row
+        worksheet.Cell(1, 1).Value = title;
+        worksheet.Range(1, 1, 1, 7).Merge();
+        worksheet.Row(1).Style.Font.Bold = true;
+        worksheet.Row(1).Style.Font.FontSize = 14;
+        worksheet.Range(1, 1, 1, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        worksheet.Range(1, 1, 1, 7).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+
+        // Add headers
+        worksheet.Cell(2, 1).Value = "Vehicle Name";
+        worksheet.Cell(2, 2).Value = "Make";
+        worksheet.Cell(2, 3).Value = "Model";
+        worksheet.Cell(2, 4).Value = "Client/Account";
+        worksheet.Cell(2, 5).Value = "Location";
+        worksheet.Cell(2, 6).Value = "Last Update";
+        worksheet.Cell(2, 7).Value = "Communication Status";
+
+        // Style header row
+        var headerRow = worksheet.Row(2);
+        headerRow.Style.Font.Bold = true;
+        headerRow.Style.Fill.BackgroundColor = XLColor.DarkGray;
+        headerRow.Style.Font.FontColor = XLColor.White;
+
+        // Add data rows
+        int row = 3;
+        foreach (var report in reports)
+        {
+            worksheet.Cell(row, 1).Value = report.Name;
+            worksheet.Cell(row, 2).Value = report.Make ?? "";
+            worksheet.Cell(row, 3).Value = report.Model ?? "";
+            worksheet.Cell(row, 4).Value = report.Client;
+            worksheet.Cell(row, 5).Value = report.Location;
+            worksheet.Cell(row, 6).Value = report.LastUpdateAt?.ToString("yyyy-MM-dd HH:mm") ?? "N/A";
+            worksheet.Cell(row, 7).Value = report.CommunicationStatus;
+
+            var statusColor = report.CommunicationStatus switch
+            {
+                "Updating" => XLColor.FromHtml("#22AB94"),
+                "Uncommunicative (<14d)" => XLColor.FromHtml("#FFA500"),
+                "Uncommunicative (>14d)" => XLColor.FromHtml("#FF6B6B"),
+                _ => XLColor.FromHtml("#CCCCCC")
+            };
+
+            var statusCell = worksheet.Cell(row, 7);
+            statusCell.Style.Fill.BackgroundColor = statusColor;
+            statusCell.Style.Font.FontColor = XLColor.White;
+            row++;
+        }
+
+        // Add summary row
+        worksheet.Cell(row + 1, 1).Value = $"Total: {reports.Count}";
+        worksheet.Cell(row + 1, 1).Style.Font.Bold = true;
+
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+    }
+
+    [RelayCommand]
     private async Task Disconnect()
     {
-        _wialonService?.Dispose();
+        if (_wialonService is not null)
+        {
+            await _wialonService.LogoutAndDisposeAsync();
+        }
         _wialonService = null;
         IsConnected = false;
         WialonToken = "";
         Reports.Clear();
         _allReports.Clear();
         _cachedReports.Clear();  // Clear cache on disconnect
+        _clientIds.Clear();
         AvailableClients.Clear();
         
         // Clear saved token from settings
@@ -409,7 +692,19 @@ public partial class WialonReportsViewModel : ViewModelBase
             filtered = filtered.Where(r => r.Client == SelectedClient);
         }
         
-        foreach (var report in filtered)
+        // Sort by communication status (most uncommunicative first) then by name alphabetically
+        var sorted = filtered
+            .OrderBy(r => r.CommunicationStatus switch
+            {
+                "Uncommunicative (>14d)" => 0,  // Most critical - first
+                "Uncommunicative (<14d)" => 1,  // Moderately critical
+                "Updating" => 2,                 // Healthy
+                _ => 3                           // Unknown
+            })
+            .ThenBy(r => r.Name)  // Then alphabetically by name
+            .ToList();
+        
+        foreach (var report in sorted)
         {
             Reports.Add(report);
         }

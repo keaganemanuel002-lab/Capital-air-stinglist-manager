@@ -17,6 +17,16 @@ public class WorkflowService
             var quote = db.Quotes.Include(q => q.LineItems).FirstOrDefault(q => q.Id == quoteId);
             if (quote is null) return (0, "Quote not found.");
 
+            if (quote.Status == QuoteStatus.Approved)
+            {
+                return (0, "Quote is already approved.");
+            }
+
+            if (db.JobCards.Any(j => j.QuoteId == quote.Id))
+            {
+                return (0, "Job card already created for this quote.");
+            }
+
             var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sting_debug.log");
             var logMsg = $"[ApproveQuote] Quote fetched: Id={quote.Id}, Type={quote.Type}, Status={quote.Status}";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
