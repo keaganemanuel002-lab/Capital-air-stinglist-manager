@@ -56,7 +56,7 @@ public class ExcelImportService
             var exists = db.BillingEntries.Any(x =>
                 x.Company == company &&
                 x.Registration == reg &&
-                x.Status == BillingStatus.Active);
+                (x.Status == BillingStatus.Active || x.Status == BillingStatus.NotLoaded));
 
             if (exists) continue;
 

@@ -1,0 +1,60 @@
+
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:StingListManager.ViewModels"
+             x:Class="StingListManager.Views.DashcamsView"
+             x:CompileBindings="False"
+             mc:Ignorable="d">
+
+  <UserControl.DataContext>
+    <vm:DashcamsViewModel />
+  </UserControl.DataContext>
+
+  <StackPanel Spacing="12">
+    <DockPanel LastChildFill="False">
+      <StackPanel DockPanel.Dock="Left">
+        <TextBlock Text="Dashcams" Classes="h1"/>
+        <TextBlock Text="View all records in a table. Open a row to edit in a popup." Classes="muted"/>
+      </StackPanel>
+      <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right" VerticalAlignment="Center">
+        <Button Content="Refresh" Command="{Binding LoadCommand}"/>
+        <Button Content="New Dashcam" Click="NewDashcam_Click"/>
+        <Button Content="Edit / View" Click="EditSelected_Click" Classes="primary"/>
+        <Button Content="Delete Selected" Command="{Binding DeleteSelectedCommand}"/>
+      </StackPanel>
+    </DockPanel>
+
+    <Border Classes="card">
+      <DockPanel>
+        <TextBlock Text="{Binding Dashcams.Count, StringFormat='Total Dashcams: {0}'}" Classes="muted" DockPanel.Dock="Left"/>
+        <TextBlock Text="{Binding FilteredDashcams.Count, StringFormat='Filtered: {0}'}" Classes="muted" DockPanel.Dock="Right"/>
+      </DockPanel>
+    </Border>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <TextBox Width="300"
+               Watermark="Search serial, model, vehicle, notes..."
+               Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+      <Button Content="Clear Search" Command="{Binding ClearSearchCommand}"/>
+      <TextBlock Text="Double-click a row to open popup editor." Classes="muted" VerticalAlignment="Center"/>
+    </StackPanel>
+
+    <DataGrid AutoGenerateColumns="False"
+              ItemsSource="{Binding FilteredDashcams}"
+              SelectedItem="{Binding Selected, Mode=TwoWay}"
+              IsReadOnly="True"
+              GridLinesVisibility="All"
+              Height="560"
+              DoubleTapped="Grid_DoubleTapped">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Serial Number" Binding="{Binding SerialNumber}" Width="1.4*"/>
+        <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="1.2*"/>
+        <DataGridTextColumn Header="Purchased At" Binding="{Binding PurchasedAt, StringFormat=yyyy-MM-dd}" Width="1.1*"/>
+        <DataGridTextColumn Header="Allocated Vehicle" Binding="{Binding AllocatedVehicleRegistration}" Width="1.2*"/>
+        <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="2.2*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+  </StackPanel>
+</UserControl>

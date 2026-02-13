@@ -60,15 +60,15 @@ public class SearchService
             Type = SearchResultType.BillingEntry,
             Id = b.Id,
             Registration = b.Registration,
-            Title = $"{b.Registration} • {b.TrackingUnitMake ?? "—"}",
-            Subtitle = $"{b.Company} • {b.Status}"
+            Title = $"{b.Registration} - {b.TrackingUnitMake ?? "-"}",
+            Subtitle = $"{b.Company} - {b.Status.ToDisplayString()}"
         }));
 
         // Quotes
         var quotes = db.Quotes
             .AsNoTracking()
             .Where(q =>
-                q.Registration.Contains(input) ||
+                (q.Registration ?? "").Contains(input) ||
                 q.Company.Contains(input))
             .OrderByDescending(q => q.CreatedAt)
             .Take(20)
@@ -82,8 +82,8 @@ public class SearchService
                 Type = SearchResultType.Quote,
                 Id = q.Id,
                 Registration = q.Registration,
-                Title = $"Quote #{q.Id} • {q.Type} • {q.Status}",
-                Subtitle = $"{q.Company} • {q.Registration} • R{priceResult.AmountIncVat:0.00} (inc VAT)"
+                Title = $"Quote #{q.Id} - {q.Type} - {q.Status}",
+                Subtitle = $"{q.Company} - {q.Registration} - R{priceResult.AmountIncVat:0.00} (inc VAT)"
             };
         }));
 
@@ -91,7 +91,7 @@ public class SearchService
         var jobs = db.JobCards
             .AsNoTracking()
             .Where(j =>
-                j.Registration.Contains(input) ||
+                (j.Registration ?? "").Contains(input) ||
                 j.Company.Contains(input))
             .OrderByDescending(j => j.CreatedAt)
             .Take(20)
@@ -102,15 +102,15 @@ public class SearchService
             Type = SearchResultType.JobCard,
             Id = j.Id,
             Registration = j.Registration,
-            Title = $"JobCard #{j.Id} • {j.Type} • {j.Status}",
-            Subtitle = $"{j.Company} • {j.Registration} • Scheduled: {(j.ScheduledFor?.ToString("yyyy-MM-dd HH:mm") ?? "—")}"
+            Title = $"JobCard #{j.Id} - {j.Type} - {j.Status}",
+            Subtitle = $"{j.Company} - {j.Registration} - Scheduled: {(j.ScheduledFor?.ToString("yyyy-MM-dd HH:mm") ?? "-")}"
         }));
 
         // Cancellations
         var cancels = db.CancellationEntries
             .AsNoTracking()
             .Where(c =>
-                c.Registration.Contains(input) ||
+                (c.Registration ?? "").Contains(input) ||
                 c.Client.Contains(input) ||
                 (c.Reason != null && c.Reason.Contains(input)))
             .OrderByDescending(c => c.DateRequestReceived)
@@ -122,8 +122,8 @@ public class SearchService
             Type = SearchResultType.Cancellation,
             Id = c.Id,
             Registration = c.Registration,
-            Title = $"Removal Request #{c.Id} • {c.Status}",
-            Subtitle = $"{c.Client} • {c.Registration} • {c.Reason}"
+            Title = $"Removal Request #{c.Id} - {c.Status}",
+            Subtitle = $"{c.Client} - {c.Registration} - {c.Reason}"
         }));
 
         // Scoring for better ranking

@@ -5,7 +5,6 @@ using System.Globalization;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Globalization;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -21,8 +20,10 @@ public partial class WialonReportRow : ObservableObject
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public string Client { get; set; } = "";
+    public string Code { get; set; } = "";
     public string? Make { get; set; }
     public string? Model { get; set; }
+    public string MakeModel { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     
     [ObservableProperty]
@@ -40,6 +41,8 @@ public partial class WialonReportRow : ObservableObject
                 OnPropertyChanged(nameof(CommunicationStatus));
                 OnPropertyChanged(nameof(CommunicationStatusColor));
                 OnPropertyChanged(nameof(CommunicationStatusBrush));
+                OnPropertyChanged(nameof(CommunicationStatusRowBrush));
+                OnPropertyChanged(nameof(CommunicationStatusTextBrush));
             }
         }
     }
@@ -72,16 +75,16 @@ public partial class WialonReportRow : ObservableObject
         get
         {
             if (!LastUpdateAt.HasValue)
-                return Color.Parse("#CCCCCC"); // Gray for unknown
+                return Color.Parse("#94A3B8"); // Slate for unknown
 
             var daysSinceUpdate = (DateTime.Now - LastUpdateAt.Value).TotalDays;
 
             if (daysSinceUpdate <= 2)
                 return Color.Parse("#22AB94"); // Green - updating
             else if (daysSinceUpdate <= 13)
-                return Color.Parse("#FFA500"); // Yellow/Orange - uncommunicative <14d
+                return Color.Parse("#F59E0B"); // Amber - uncommunicative <14d
             else
-                return Color.Parse("#FF6B6B"); // Orange/Red - uncommunicative >14d
+                return Color.Parse("#EF4444"); // Red - uncommunicative >14d
         }
     }
 
@@ -89,19 +92,21 @@ public partial class WialonReportRow : ObservableObject
     {
         get
         {
-            if (!LastUpdateAt.HasValue)
-                return new SolidColorBrush(Color.Parse("#CCCCCC")); // Gray for unknown
-
-            var daysSinceUpdate = (DateTime.Now - LastUpdateAt.Value).TotalDays;
-
-            if (daysSinceUpdate <= 2)
-                return new SolidColorBrush(Color.Parse("#22AB94")); // Green - updating
-            else if (daysSinceUpdate <= 13)
-                return new SolidColorBrush(Color.Parse("#FFA500")); // Yellow/Orange - uncommunicative <14d
-            else
-                return new SolidColorBrush(Color.Parse("#FF6B6B")); // Orange/Red - uncommunicative >14d
+            // Softer status-cell tint.
+            return new SolidColorBrush(Color.FromArgb(90, CommunicationStatusColor.R, CommunicationStatusColor.G, CommunicationStatusColor.B));
         }
     }
+
+    public SolidColorBrush CommunicationStatusRowBrush
+    {
+        get
+        {
+            // Very transparent row tint.
+            return new SolidColorBrush(Color.FromArgb(28, CommunicationStatusColor.R, CommunicationStatusColor.G, CommunicationStatusColor.B));
+        }
+    }
+
+    public SolidColorBrush CommunicationStatusTextBrush => new(Color.Parse("#0F172A"));
 }
 
 public partial class WialonReportsViewModel : ViewModelBase
@@ -370,8 +375,10 @@ public partial class WialonReportsViewModel : ViewModelBase
                 Id = report.Id,
                 Name = report.Name,
                 Client = report.Client,
+                Code = report.Code,
                 Make = report.Make,
                 Model = report.Model,
+                MakeModel = ComposeMakeModel(report.Make, report.Model),
                 CreatedAt = report.CreatedAt,
                 LastUpdateAt = report.LastUpdateAt,
                 Status = report.Status,
@@ -494,18 +501,7 @@ public partial class WialonReportsViewModel : ViewModelBase
         }
     }
 
-    private static bool IsCoordinateLocation(string? location)
-    {
-        if (string.IsNullOrWhiteSpace(location))
-            return false;
 
-        var parts = location.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        if (parts.Length != 2)
-            return false;
-
-        return double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
-               double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
-    }
 
     [RelayCommand]
     private async Task GenerateReport()
@@ -562,7 +558,7 @@ public partial class WialonReportsViewModel : ViewModelBase
         {
             using (var workbook = new XLWorkbook())
             {
-                CreateReportWorksheet(workbook, "Wialon Reports", Reports.ToList());
+                CreateReportWorksheet(workbook, Reports.ToList());
 
                 // Save file
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
@@ -592,30 +588,30 @@ public partial class WialonReportsViewModel : ViewModelBase
         }
     }
 
-    private void CreateReportWorksheet(XLWorkbook workbook, string sheetName, List<WialonReportRow> reports)
+    private void CreateReportWorksheet(XLWorkbook workbook, List<WialonReportRow> reports)
     {
-        var worksheet = workbook.Worksheets.Add(sheetName);
-
         var reportClient = string.IsNullOrWhiteSpace(SelectedClient) ? "All Clients" : SelectedClient;
         var reportDate = DateTime.Now.ToString("dd MMMM yyyy", CultureInfo.InvariantCulture).ToUpperInvariant();
-        var title = $"{reportClient.ToUpperInvariant()} - UNIT STATUS REPORT {reportDate}";
+        var rawTitle = $"{reportClient.ToUpperInvariant()} - UNIT STATUS REPORT {reportDate}";
+        var title = ToWorksheetSafeTitle(rawTitle);
+        var worksheet = workbook.Worksheets.Add(title);
 
         // Title row
         worksheet.Cell(1, 1).Value = title;
-        worksheet.Range(1, 1, 1, 7).Merge();
+        worksheet.Range(1, 1, 1, 6).Merge();
         worksheet.Row(1).Style.Font.Bold = true;
         worksheet.Row(1).Style.Font.FontSize = 14;
-        worksheet.Range(1, 1, 1, 7).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-        worksheet.Range(1, 1, 1, 7).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        worksheet.Range(1, 1, 1, 6).Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+        worksheet.Range(1, 1, 1, 6).Style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        worksheet.Range(1, 1, 1, 6).Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
 
         // Add headers
         worksheet.Cell(2, 1).Value = "Vehicle Name";
-        worksheet.Cell(2, 2).Value = "Make";
-        worksheet.Cell(2, 3).Value = "Model";
-        worksheet.Cell(2, 4).Value = "Client/Account";
-        worksheet.Cell(2, 5).Value = "Location";
-        worksheet.Cell(2, 6).Value = "Last Update";
-        worksheet.Cell(2, 7).Value = "Communication Status";
+        worksheet.Cell(2, 2).Value = "Make & Model";
+        worksheet.Cell(2, 3).Value = "Code";
+        worksheet.Cell(2, 4).Value = "Location";
+        worksheet.Cell(2, 5).Value = "Last Update";
+        worksheet.Cell(2, 6).Value = "Communication Status";
 
         // Style header row
         var headerRow = worksheet.Row(2);
@@ -628,30 +624,43 @@ public partial class WialonReportsViewModel : ViewModelBase
         foreach (var report in reports)
         {
             worksheet.Cell(row, 1).Value = report.Name;
-            worksheet.Cell(row, 2).Value = report.Make ?? "";
-            worksheet.Cell(row, 3).Value = report.Model ?? "";
-            worksheet.Cell(row, 4).Value = report.Client;
-            worksheet.Cell(row, 5).Value = report.Location;
-            worksheet.Cell(row, 6).Value = report.LastUpdateAt?.ToString("yyyy-MM-dd HH:mm") ?? "N/A";
-            worksheet.Cell(row, 7).Value = report.CommunicationStatus;
+            worksheet.Cell(row, 2).Value = report.MakeModel;
+            worksheet.Cell(row, 3).Value = report.Code;
+            worksheet.Cell(row, 4).Value = report.Location;
+            worksheet.Cell(row, 5).Value = report.LastUpdateAt?.ToString("yyyy-MM-dd HH:mm") ?? "N/A";
+            worksheet.Cell(row, 6).Value = report.CommunicationStatus;
 
-            var statusColor = report.CommunicationStatus switch
+            var (rowColor, statusColor, statusTextColor) = report.CommunicationStatus switch
             {
-                "Updating" => XLColor.FromHtml("#22AB94"),
-                "Uncommunicative (<14d)" => XLColor.FromHtml("#FFA500"),
-                "Uncommunicative (>14d)" => XLColor.FromHtml("#FF6B6B"),
-                _ => XLColor.FromHtml("#CCCCCC")
+                "Updating" => (XLColor.FromHtml("#EEF9F5"), XLColor.FromHtml("#D7F3EA"), XLColor.FromHtml("#14532D")),
+                "Uncommunicative (<14d)" => (XLColor.FromHtml("#FFF8EB"), XLColor.FromHtml("#FDEBC8"), XLColor.FromHtml("#854D0E")),
+                "Uncommunicative (>14d)" => (XLColor.FromHtml("#FEF2F2"), XLColor.FromHtml("#FDE1E1"), XLColor.FromHtml("#7F1D1D")),
+                _ => (XLColor.FromHtml("#F8FAFC"), XLColor.FromHtml("#EAEFF5"), XLColor.FromHtml("#334155"))
             };
 
-            var statusCell = worksheet.Cell(row, 7);
+            var rowRange = worksheet.Range(row, 1, row, 6);
+            rowRange.Style.Fill.BackgroundColor = rowColor;
+
+            var statusCell = worksheet.Cell(row, 6);
             statusCell.Style.Fill.BackgroundColor = statusColor;
-            statusCell.Style.Font.FontColor = XLColor.White;
+            statusCell.Style.Font.FontColor = statusTextColor;
             row++;
         }
 
         // Add summary row
-        worksheet.Cell(row + 1, 1).Value = $"Total: {reports.Count}";
-        worksheet.Cell(row + 1, 1).Style.Font.Bold = true;
+        var summaryRow = row + 1;
+        worksheet.Cell(summaryRow, 1).Value = $"Total: {reports.Count}";
+        worksheet.Cell(summaryRow, 1).Style.Font.Bold = true;
+
+        // Add borders to all exported table cells (header + data + summary row)
+        var dataEndRow = Math.Max(2, row - 1);
+        var tableRange = worksheet.Range(2, 1, dataEndRow, 6);
+        tableRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        tableRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
+
+        var summaryRange = worksheet.Range(summaryRow, 1, summaryRow, 6);
+        summaryRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        summaryRange.Style.Border.InsideBorder = XLBorderStyleValues.Thin;
 
         // Auto-fit columns
         worksheet.Columns().AdjustToContents();
@@ -721,5 +730,50 @@ public partial class WialonReportsViewModel : ViewModelBase
 
         return double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out _) &&
                double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _);
+    }
+
+    private static string ComposeMakeModel(string? make, string? model)
+    {
+        var makeText = make?.Trim() ?? string.Empty;
+        var modelText = model?.Trim() ?? string.Empty;
+
+        if (string.IsNullOrWhiteSpace(makeText) && string.IsNullOrWhiteSpace(modelText))
+            return string.Empty;
+
+        if (string.IsNullOrWhiteSpace(makeText))
+            return modelText;
+
+        if (string.IsNullOrWhiteSpace(modelText))
+            return makeText;
+
+        if (string.Equals(makeText, modelText, StringComparison.OrdinalIgnoreCase))
+            return makeText;
+
+        if (modelText.StartsWith(makeText + " ", StringComparison.OrdinalIgnoreCase))
+            return modelText;
+
+        return $"{makeText} {modelText}";
+    }
+
+    private static string ToWorksheetSafeTitle(string rawTitle)
+    {
+        if (string.IsNullOrWhiteSpace(rawTitle))
+        {
+            return "Report";
+        }
+
+        var invalidChars = new[] { ':', '\\', '/', '?', '*', '[', ']' };
+        var safe = rawTitle.Trim();
+        foreach (var ch in invalidChars)
+        {
+            safe = safe.Replace(ch, '-');
+        }
+
+        if (safe.Length > 31)
+        {
+            safe = safe[..31];
+        }
+
+        return string.IsNullOrWhiteSpace(safe) ? "Report" : safe;
     }
 }

@@ -128,7 +128,7 @@ public partial class DashboardViewModel : ViewModelBase
 
         var activeBillingCount = db.BillingEntries
             .AsNoTracking()
-            .Count(b => b.Status == BillingStatus.Active && b.ArchivedAt == null);
+            .Count(b => (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded) && b.ArchivedAt == null);
 
         var quoteTotals = quotes.Select(pricing.CalculatePrice).ToList();
         var quoteTotalInc = quoteTotals.Sum(x => x.AmountIncVat);

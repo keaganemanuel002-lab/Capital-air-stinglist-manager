@@ -31,6 +31,8 @@ public partial class ClientsViewModel : ViewModelBase
         Load();
     }
 
+    public void SetStatus(string message) => _appState.SetStatus(message);
+
     partial void OnSelectedRowChanged(Client? value)
     {
         if (value == null)

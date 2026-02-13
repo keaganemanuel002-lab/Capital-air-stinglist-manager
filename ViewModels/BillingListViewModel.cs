@@ -54,7 +54,7 @@ public partial class BillingListViewModel : ViewModelBase
 
         var entries = db.BillingEntries
             .AsNoTracking()
-            .Where(e => e.ArchivedAt == null && e.Status == BillingStatus.Active)
+            .Where(e => e.ArchivedAt == null && (e.Status == BillingStatus.Active || e.Status == BillingStatus.NotLoaded))
             .OrderBy(e => e.Company)
             .ThenBy(e => e.Registration)
             .ToList();

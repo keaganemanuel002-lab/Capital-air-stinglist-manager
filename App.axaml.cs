@@ -173,23 +173,23 @@ public partial class App : Application
         var names = db.Quotes.AsNoTracking().Select(q => q.Company)
             .Concat(db.JobCards.AsNoTracking().Select(j => j.Company))
             .Concat(db.BillingEntries.AsNoTracking().Select(b => b.Company))
+            .Where(n => n != null)
+            .Select(n => n!.Trim())
+            .Where(n => n != "")
+            .Distinct()
             .ToList();
 
         foreach (var name in names)
         {
-            if (string.IsNullOrWhiteSpace(name))
-                continue;
-
-            var trimmed = name.Trim();
-            if (existingSet.Contains(trimmed))
+            if (existingSet.Contains(name))
                 continue;
 
             db.Clients.Add(new Data.Entities.Client
             {
-                Name = trimmed,
+                Name = name,
                 CreatedAt = DateTime.UtcNow
             });
-            existingSet.Add(trimmed);
+            existingSet.Add(name);
         }
 
         if (db.ChangeTracker.HasChanges())

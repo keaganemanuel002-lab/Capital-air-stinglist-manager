@@ -61,7 +61,7 @@ public partial class RemovalRequestEditViewModel : ViewModelBase
     {
         using var db = new AppDbContext();
         var activeEntries = db.BillingEntries
-            .Where(b => b.Status == BillingStatus.Active && b.ArchivedAt == null)
+            .Where(b => (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded) && b.ArchivedAt == null)
             .ToList();
 
         // Get unique clients
@@ -105,7 +105,7 @@ public partial class RemovalRequestEditViewModel : ViewModelBase
         using var db = new AppDbContext();
         var entries = db.BillingEntries
             .Where(b => b.RegistrationNorm == reg && 
-                       b.Status == BillingStatus.Active && 
+                       (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded) && 
                        b.ArchivedAt == null)
             .ToList();
 

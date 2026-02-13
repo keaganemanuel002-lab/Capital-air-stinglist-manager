@@ -15,19 +15,7 @@
     <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" />
     <None Include="Assets\capital-air-logo.png" CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Include="Capital-air-stinglist-manager\Assets\capital-air-logo.png"
-             Link="Assets\capital-air-logo.png"
-             CopyToOutputDirectory="PreserveNewest" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <AvaloniaXaml Remove="Capital-air-stinglist-manager/**" />
-    <AvaloniaResource Remove="Capital-air-stinglist-manager/**" />
-    <Compile Remove="Capital-air-stinglist-manager/**" />
-    <None Remove="Capital-air-stinglist-manager/**" />
+    <None Include="Assets\terms_and_conditions.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

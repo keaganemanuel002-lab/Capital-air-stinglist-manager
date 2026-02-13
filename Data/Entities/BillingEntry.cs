@@ -5,7 +5,20 @@ namespace StingListManager.Data.Entities;
 public enum BillingStatus
 {
     Active = 0,
-    Removed = 1
+    Removed = 1,
+    NotLoaded = 2
+}
+
+public static class BillingStatusExtensions
+{
+    public static string ToDisplayString(this BillingStatus status)
+    {
+        return status switch
+        {
+            BillingStatus.NotLoaded => "Not Loaded",
+            _ => status.ToString()
+        };
+    }
 }
 
 public class BillingEntry

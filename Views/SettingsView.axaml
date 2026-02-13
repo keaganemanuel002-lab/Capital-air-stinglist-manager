@@ -3,93 +3,110 @@
              x:Class="StingListManager.Views.SettingsView"
              x:CompileBindings="False">
   <Border Padding="12" Classes="surface">
-    <StackPanel Spacing="12">
-      <TextBlock Text="Settings" Classes="h1"/>
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Settings" Classes="h1"/>
 
-      <StackPanel Width="420">
-        <TextBlock Text="Operator name (used for audit log)" Classes="muted"/>
-        <TextBox Text="{Binding OperatorName}" />
-      </StackPanel>
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="General" Classes="h2"/>
+            <Grid ColumnDefinitions="1*,1*" ColumnSpacing="16" RowDefinitions="Auto,Auto" RowSpacing="10">
+              <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                <TextBlock Text="Operator name" Classes="muted"/>
+                <TextBox Text="{Binding OperatorName}"/>
+              </StackPanel>
 
-      <StackPanel Width="420">
-        <TextBlock Text="Role" Classes="muted"/>
-        <ComboBox ItemsSource="{Binding RoleOptions}" SelectedItem="{Binding Role}"/>
-      </StackPanel>
+              <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                <TextBlock Text="Role" Classes="muted"/>
+                <ComboBox ItemsSource="{Binding RoleOptions}" SelectedItem="{Binding Role}"/>
+              </StackPanel>
 
-      <StackPanel Orientation="Horizontal" Spacing="30">
-        <StackPanel Width="200">
-          <TextBlock Text="Default Install Fee (Ex VAT)" Classes="muted"/>
-          <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding DefaultInstallFeeExVat}"/>
-        </StackPanel>
+              <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                <TextBlock Text="Default Install Fee (Ex VAT)" Classes="muted"/>
+                <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding DefaultInstallFeeExVat}"/>
+              </StackPanel>
 
-        <StackPanel Width="200">
-          <TextBlock Text="Default Removal Fee (Ex VAT)" Classes="muted"/>
-          <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding DefaultRemovalFeeExVat}"/>
-        </StackPanel>
-      </StackPanel>
-
-      <StackPanel Width="520" Spacing="6">
-        <TextBlock Text="VAT &amp; Package Pricing" Classes="h2" Margin="0,8,0,0"/>
-        
-        <StackPanel Width="200">
-          <TextBlock Text="VAT Rate (%)" Classes="muted"/>
-          <NumericUpDown Minimum="0" Maximum="100" Increment="0.1" Value="{Binding VatRate}"/>
-        </StackPanel>
-
-        <TextBlock Text="Package Base Prices (Ex VAT)" Classes="muted" Margin="0,8,0,0"/>
-        <StackPanel Orientation="Horizontal" Spacing="30">
-          <StackPanel Width="150">
-            <TextBlock Text="STING Base" Classes="muted"/>
-            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingBaseExVat}"/>
+              <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                <TextBlock Text="Default Removal Fee (Ex VAT)" Classes="muted"/>
+                <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding DefaultRemovalFeeExVat}"/>
+              </StackPanel>
+            </Grid>
           </StackPanel>
-          <StackPanel Width="150">
-            <TextBlock Text="STING Plus Base" Classes="muted"/>
-            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingPlusBaseExVat}"/>
-          </StackPanel>
-          <StackPanel Width="150">
-            <TextBlock Text="STING FM Base" Classes="muted"/>
-            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingFmBaseExVat}"/>
-          </StackPanel>
-        </StackPanel>
+        </Border>
 
-        <TextBlock Text="Add-on Prices (Ex VAT)" Classes="muted" Margin="0,8,0,0"/>
-        <StackPanel Orientation="Horizontal" Spacing="30">
-          <StackPanel Width="150">
-            <TextBlock Text="Panic Button Add-on" Classes="muted"/>
-            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding PanicButtonAddonExVat}"/>
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="VAT and Package Pricing" Classes="h2"/>
+
+            <StackPanel Width="220" Spacing="4">
+              <TextBlock Text="VAT Rate (%)" Classes="muted"/>
+              <NumericUpDown Minimum="0" Maximum="100" Increment="0.1" Value="{Binding VatRate}"/>
+            </StackPanel>
+
+            <TextBlock Text="Package Base Prices (Ex VAT)" Classes="muted"/>
+            <Grid ColumnDefinitions="1*,1*,1*" ColumnSpacing="16">
+              <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="STING Base" Classes="muted"/>
+                <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingBaseExVat}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="1" Spacing="4">
+                <TextBlock Text="STING Plus Base" Classes="muted"/>
+                <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingPlusBaseExVat}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="2" Spacing="4">
+                <TextBlock Text="STING FM Base" Classes="muted"/>
+                <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding StingFmBaseExVat}"/>
+              </StackPanel>
+            </Grid>
+
+            <TextBlock Text="Add-on Prices (Ex VAT)" Classes="muted"/>
+            <Grid ColumnDefinitions="1*,1*" ColumnSpacing="16">
+              <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="Panic Button Add-on" Classes="muted"/>
+                <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding PanicButtonAddonExVat}"/>
+              </StackPanel>
+              <StackPanel Grid.Column="1" Spacing="4">
+                <TextBlock Text="App Live Tracking Add-on" Classes="muted"/>
+                <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding AppLiveTrackingAddonExVat}"/>
+              </StackPanel>
+            </Grid>
           </StackPanel>
-          <StackPanel Width="150">
-            <TextBlock Text="App Live Tracking Add-on" Classes="muted"/>
-            <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding AppLiveTrackingAddonExVat}"/>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Data and Backup" Classes="h2"/>
+            <CheckBox Content="Use shared data location (multi-user)" IsChecked="{Binding UseSharedData}"/>
+
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBox Grid.Column="0" Text="{Binding SharedBaseDir}" Watermark="Select shared folder path"/>
+              <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseSharedBaseDirCommand}" MinWidth="100"/>
+            </Grid>
+
+            <TextBlock Text="Restart required after changing data location." Classes="muted" FontSize="11"/>
+            <CheckBox Content="Auto-backup on startup (once per day)" IsChecked="{Binding AutoBackupOnStartup}"/>
           </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Teltonika FOTA API Integration" Classes="h2"/>
+            <TextBlock Text="Teltonika API Key (for fetching device IMEI, Serial, ICCID)" Classes="muted"/>
+            <TextBox Text="{Binding TeltonikaApiKey}"
+                     Watermark="Enter your Teltonika FOTA API key"
+                     PasswordChar="*"/>
+            <TextBlock Text="Get your API key from Teltonika FOTA Web platform settings."
+                       Classes="muted"
+                       FontSize="11"/>
+          </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+          <Button Content="Save Settings" MinWidth="150" Command="{Binding SaveCommand}" Classes="primary"/>
+          <TextBlock Text="Settings are auto-saved when values change." Classes="muted" VerticalAlignment="Center"/>
         </StackPanel>
       </StackPanel>
-
-      <StackPanel Width="520" Spacing="6">
-        <TextBlock Text="Data location" Classes="muted"/>
-        <CheckBox Content="Use shared data location (multi-user)" IsChecked="{Binding UseSharedData}"/>
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <TextBox Width="360" Text="{Binding SharedBaseDir}"/>
-          <Button Content="Browse" Command="{Binding BrowseSharedBaseDirCommand}"/>
-        </StackPanel>
-        <TextBlock Text="Restart required after changing data location." Classes="muted"/>
-      </StackPanel>
-
-      <CheckBox Content="Auto-backup on startup (once per day)" IsChecked="{Binding AutoBackupOnStartup}"/>
-
-      <StackPanel Width="520" Spacing="6">
-        <TextBlock Text="Teltonika FOTA API Integration" Classes="h2" Margin="0,8,0,0"/>
-        <TextBlock Text="Teltonika API Key (for fetching device IMEI, Serial, ICCID)" Classes="muted"/>
-        <TextBox Text="{Binding TeltonikaApiKey}" 
-                 Watermark="Enter your Teltonika FOTA API key"
-                 PasswordChar="•"/>
-        <TextBlock Text="Get your API key from Teltonika FOTA Web platform settings." 
-                   Classes="muted" 
-                   FontSize="11"/>
-      </StackPanel>
-
-      <Button Content="Save" Width="120" Command="{Binding SaveCommand}" Classes="primary"/>
-      <TextBlock Text="(Settings auto-save when changed)" Classes="muted" FontSize="11"/>
-    </StackPanel>
+    </ScrollViewer>
   </Border>
 </UserControl>

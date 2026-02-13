@@ -185,13 +185,13 @@ public partial class JobCardsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void CompleteSelected()
+    private async Task CompleteSelected()
     {
         if (!CanCompleteJobs) { _appState.SetStatus("Not permitted."); return; }
         if (SelectedRow is null) return;
 
         var wf = new WorkflowService();
-        var result = wf.CompleteJobCard(SelectedRow.Id, _appState.OperatorName);
+        var result = await wf.CompleteJobCardAsync(SelectedRow.Id, _appState.OperatorName, _appState.Settings.WialonApiToken);
         _appState.SetStatus(result.message);
         Load();
     }

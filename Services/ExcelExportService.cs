@@ -17,7 +17,7 @@ public class ExcelExportService
         var end = start.AddMonths(1);
 
         var active = db.BillingEntries
-            .Where(b => b.Status == BillingStatus.Active && b.ArchivedAt == null)
+            .Where(b => (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded) && b.ArchivedAt == null)
             .OrderBy(b => b.Company).ThenBy(b => b.Registration)
             .ToList();
 
@@ -148,7 +148,7 @@ public class ExcelExportService
         using var db = new AppDbContext();
 
         var entries = db.BillingEntries
-            .Where(e => e.ArchivedAt == null && e.Status == BillingStatus.Active)
+            .Where(e => e.ArchivedAt == null && (e.Status == BillingStatus.Active || e.Status == BillingStatus.NotLoaded))
             .OrderBy(e => e.Company)
             .ThenBy(e => e.Registration)
             .ToList();
@@ -231,7 +231,7 @@ public class ExcelExportService
         using var db = new AppDbContext();
 
         var entries = db.BillingEntries
-            .Where(e => e.ArchivedAt == null && e.Status == BillingStatus.Active)
+            .Where(e => e.ArchivedAt == null && (e.Status == BillingStatus.Active || e.Status == BillingStatus.NotLoaded))
             .OrderByDescending(e => e.ActiveFrom)
             .ToList();
 
@@ -268,7 +268,7 @@ public class ExcelExportService
             ws.Cell(r, 9).Value = e.SerialNumber ?? "";
             ws.Cell(r, 10).Value = e.Iccid ?? "";
             ws.Cell(r, 11).Value = e.Notes ?? "";
-            ws.Cell(r, 12).Value = e.Status.ToString();
+            ws.Cell(r, 12).Value = e.Status.ToDisplayString();
             ws.Cell(r, 13).Value = e.ActiveFrom.ToString("yyyy-MM-dd HH:mm");
             r++;
         }

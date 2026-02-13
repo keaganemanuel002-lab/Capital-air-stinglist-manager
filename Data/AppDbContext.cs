@@ -16,6 +16,8 @@ public class AppDbContext : DbContext
     public DbSet<QuoteLineItem> QuoteLineItems => Set<QuoteLineItem>();
     public DbSet<ClientQuoteSummary> ClientQuoteSummaries => Set<ClientQuoteSummary>();
     public DbSet<Client> Clients => Set<Client>();
+    public DbSet<Dashcam> Dashcams => Set<Dashcam>();
+    public DbSet<SdCard> SdCards => Set<SdCard>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder options)
     {
@@ -69,6 +71,14 @@ public class AppDbContext : DbContext
         
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.Registration);
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.DateRequestReceived);
+
+        modelBuilder.Entity<Dashcam>().HasIndex(d => d.SerialNumber);
+        modelBuilder.Entity<Dashcam>().HasIndex(d => d.AllocatedVehicleRegistration);
+        modelBuilder.Entity<SdCard>().HasIndex(s => s.SerialNumber);
+        modelBuilder.Entity<SdCard>().Property(s => s.SlotNumber).HasDefaultValue(1);
+        modelBuilder.Entity<SdCard>().HasIndex(s => new { s.DashcamId, s.SlotNumber });
+        modelBuilder.Entity<SdCard>()
+            .ToTable(t => t.HasCheckConstraint("CK_SdCards_SlotNumber", "\"SlotNumber\" IN (1, 2)"));
         
         // Quote relationships
         modelBuilder.Entity<Quote>()

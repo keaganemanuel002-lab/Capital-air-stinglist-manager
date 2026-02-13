@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using StingListManager.Data;
 
@@ -10,9 +11,11 @@ using StingListManager.Data;
 namespace StingListManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260213070554_FixDashcamDateTypes")]
+    partial class FixDashcamDateTypes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -546,9 +549,6 @@ namespace StingListManager.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
-                    b.Property<DateTimeOffset?>("ChangedAt")
-                        .HasColumnType("TEXT");
-
                     b.Property<int?>("DashcamId")
                         .HasColumnType("INTEGER");
 
@@ -564,21 +564,13 @@ namespace StingListManager.Migrations
                     b.Property<string>("SerialNumber")
                         .HasColumnType("TEXT");
 
-                    b.Property<int>("SlotNumber")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("INTEGER")
-                        .HasDefaultValue(1);
-
                     b.HasKey("Id");
+
+                    b.HasIndex("DashcamId");
 
                     b.HasIndex("SerialNumber");
 
-                    b.HasIndex("DashcamId", "SlotNumber");
-
-                    b.ToTable("SdCards", t =>
-                        {
-                            t.HasCheckConstraint("CK_SdCards_SlotNumber", "\"SlotNumber\" IN (1, 2)");
-                        });
+                    b.ToTable("SdCards");
                 });
 
             modelBuilder.Entity("StingListManager.Data.Entities.JobCard", b =>

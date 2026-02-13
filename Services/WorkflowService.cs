@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using StingListManager.Data;
 using StingListManager.Data.Entities;
@@ -176,7 +177,12 @@ public class WorkflowService
             || type.IndexOf("STING", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
-    public (bool ok, string message) CompleteJobCard(int jobCardId, string actor)
+    public (bool ok, string message) CompleteJobCard(int jobCardId, string actor, string? wialonToken = null)
+    {
+        return CompleteJobCardAsync(jobCardId, actor, wialonToken).GetAwaiter().GetResult();
+    }
+
+    public async Task<(bool ok, string message)> CompleteJobCardAsync(int jobCardId, string actor, string? wialonToken = null)
     {
         using var db = new AppDbContext();
 
@@ -188,6 +194,8 @@ public class WorkflowService
 
         if (job.Type == JobType.Install)
         {
+            var installStatus = await ResolveInstallBillingStatusAsync(job.Imei, wialonToken);
+
             // Create active billing entry
             var be = new BillingEntry
             {
@@ -204,7 +212,7 @@ public class WorkflowService
                 Iccid = job.Iccid,
                 SimNumber = job.SimNumber,
                 Notes = job.Notes,
-                Status = BillingStatus.Active,
+                Status = installStatus,
                 ActiveFrom = DateTime.UtcNow
             };
 
@@ -218,7 +226,10 @@ public class WorkflowService
                 db.SaveChanges();
                 // Log this billing add
                 new AuditService().Log(actor, "BILLING_ADD", "BillingEntry", be.Id, be.Registration, "Created from install job completion");
-                return (true, "Install completed and billing entry created.");
+                var message = installStatus == BillingStatus.NotLoaded
+                    ? "Install completed and billing entry created with status Not Loaded."
+                    : "Install completed and billing entry created.";
+                return (true, message);
             }
             catch (DbUpdateException)
             {
@@ -230,7 +241,7 @@ public class WorkflowService
         {
             var entry = db.BillingEntries
                 .Where(b => b.Registration == job.Registration
-                         && b.Status == BillingStatus.Active
+                         && (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded)
                          && b.ArchivedAt == null)
                 .OrderByDescending(b => b.ActiveFrom)
                 .FirstOrDefault();
@@ -256,6 +267,38 @@ public class WorkflowService
             }
 
             return (true, "Removal completed and billing entry archived.");
+        }
+    }
+
+    private static async Task<BillingStatus> ResolveInstallBillingStatusAsync(string? imei, string? wialonToken)
+    {
+        if (string.IsNullOrWhiteSpace(imei))
+            return BillingStatus.NotLoaded;
+
+        if (string.IsNullOrWhiteSpace(wialonToken))
+            return BillingStatus.NotLoaded;
+
+        WialonApiService? wialon = null;
+        try
+        {
+            wialon = new WialonApiService(wialonToken.Trim());
+            var connected = await wialon.TestConnectionAsync();
+            if (!connected)
+                return BillingStatus.NotLoaded;
+
+            var isLoaded = await wialon.IsImeiLoadedAsync(imei);
+            return isLoaded ? BillingStatus.Active : BillingStatus.NotLoaded;
+        }
+        catch
+        {
+            return BillingStatus.NotLoaded;
+        }
+        finally
+        {
+            if (wialon is not null)
+            {
+                await wialon.LogoutAndDisposeAsync();
+            }
         }
     }
 }

@@ -22,7 +22,8 @@
                   Command="{Binding ConnectToWialonCommand}"
                   IsEnabled="{Binding !IsLoading}"
                   Classes="primary"
-                  Width="150"/>
+                  MinWidth="180"
+                  HorizontalAlignment="Left"/>
         </StackPanel>
 
         <StackPanel IsVisible="{Binding IsConnected}" Spacing="8">
@@ -30,42 +31,10 @@
             <TextBlock Text="✓ Connected to Wialon" Foreground="Green" FontWeight="SemiBold"/>
             <Button Content="Disconnect" 
                     Command="{Binding DisconnectCommand}"
-                    Width="100"/>
+                    MinWidth="130"
+                    HorizontalAlignment="Left"/>
           </StackPanel>
         </StackPanel>
-      </StackPanel>
-    </Border>
-
-    <!-- REPORT GENERATION SECTION -->
-    <Border Classes="card" IsVisible="{Binding IsConnected}">
-      <StackPanel Spacing="8">
-        <TextBlock Text="Generate Report" FontWeight="SemiBold" FontSize="14"/>
-        
-        <Grid ColumnDefinitions="*,*,*,*" ColumnSpacing="8">
-          <StackPanel Grid.Column="0" Spacing="4">
-            <TextBlock Text="Report Type" Classes="muted" FontSize="11"/>
-            <ComboBox ItemsSource="{Binding ReportTypes}" 
-                     SelectedItem="{Binding SelectedReportType}"/>
-          </StackPanel>
-
-          <StackPanel Grid.Column="1" Spacing="4">
-            <TextBlock Text="Start Date" Classes="muted" FontSize="11"/>
-            <DatePicker SelectedDate="{Binding StartDate}"/>
-          </StackPanel>
-
-          <StackPanel Grid.Column="2" Spacing="4">
-            <TextBlock Text="End Date" Classes="muted" FontSize="11"/>
-            <DatePicker SelectedDate="{Binding EndDate}"/>
-          </StackPanel>
-
-          <StackPanel Grid.Column="3" Spacing="4" VerticalAlignment="Bottom">
-            <Button Content="Generate" 
-                    Command="{Binding GenerateReportCommand}"
-                    IsEnabled="{Binding !IsLoading}"
-                    Classes="primary"
-                    Height="36"/>
-          </StackPanel>
-        </Grid>
       </StackPanel>
     </Border>
 
@@ -77,11 +46,13 @@
           <Button Content="Refresh" 
                   Command="{Binding LoadReportsCommand}"
                   IsEnabled="{Binding !IsLoading}"
-                  Width="100"/>
+                  MinWidth="110"
+                  HorizontalAlignment="Left"/>
           <Button Content="Export to Excel" 
                   Command="{Binding ExportToExcelCommand}"
                   IsEnabled="{Binding Reports.Count}"
-                  Width="120"/>
+                  MinWidth="160"
+                  HorizontalAlignment="Left"/>
         </StackPanel>
 
         <!-- CLIENT FILTER -->
@@ -122,11 +93,15 @@
                   IsReadOnly="True"
                   GridLinesVisibility="All"
                   Height="400">
+          <DataGrid.Styles>
+            <Style Selector="DataGridRow">
+              <Setter Property="Background" Value="{Binding CommunicationStatusRowBrush}"/>
+            </Style>
+          </DataGrid.Styles>
           <DataGrid.Columns>
               <DataGridTextColumn Header="Vehicle Name" Binding="{Binding Name}" Width="2*"/>
-              <DataGridTextColumn Header="Make" Binding="{Binding Make}" Width="1.2*"/>
-              <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="1.2*"/>
-              <DataGridTextColumn Header="Client/Account" Binding="{Binding Client}" Width="1.5*"/>
+              <DataGridTextColumn Header="Make &amp; Model" Binding="{Binding MakeModel}" Width="1.8*"/>
+              <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="2*"/>
               <DataGridTextColumn Header="Location" Binding="{Binding Location}" Width="1.5*"/>
               <DataGridTextColumn Header="Last Update" Binding="{Binding LastUpdateAt, StringFormat=yyyy-MM-dd HH:mm}" Width="1.5*"/>
             <DataGridTemplateColumn Header="Communication Status" Width="1.5*">
@@ -136,7 +111,7 @@
                           Padding="8,4"
                           CornerRadius="4">
                     <TextBlock Text="{Binding CommunicationStatus}" 
-                               Foreground="White"
+                               Foreground="{Binding CommunicationStatusTextBrush}"
                                VerticalAlignment="Center"
                                TextAlignment="Center"
                                FontWeight="SemiBold"/>

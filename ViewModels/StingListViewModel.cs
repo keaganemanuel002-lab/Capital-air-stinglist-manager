@@ -40,9 +40,12 @@ public partial class StingListViewModel : PagedViewModelBase
 {
     private readonly Window _window;
     private readonly AppState _appState;
+    private bool _suppressFilterReload;
 
     public ObservableCollection<StingListRow> Rows { get; } = new();
     public ObservableCollection<FilterPreset> Presets { get; } = new();
+    public ObservableCollection<string> AvailableCompanies { get; } = new();
+    public ObservableCollection<string> AvailableRegistrations { get; } = new();
     public List<string> StatusOptions { get; } = new();
 
     [ObservableProperty] private StingListRow? selectedRow;
@@ -60,7 +63,7 @@ public partial class StingListViewModel : PagedViewModelBase
         _window = window;
         _appState = appState;
 
-        StatusOptions.AddRange(new[] { "Any", BillingStatus.Active.ToString(), BillingStatus.Removed.ToString() });
+        StatusOptions.AddRange(new[] { "Any", "Current", BillingStatus.Active.ToString(), "Not Loaded", BillingStatus.Removed.ToString() });
         SelectedStatus = string.IsNullOrWhiteSpace(statusFilter) ? "Any" : statusFilter;
         SetDefaultDateRange(startDate, endDate);
 
@@ -77,7 +80,7 @@ public partial class StingListViewModel : PagedViewModelBase
     public bool CanStartRemoval
     {
         get => SelectedRow != null 
-            && SelectedRow.Status != "Removed" 
+            && !string.Equals(SelectedRow.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase)
             && !SelectedRow.IsArchived;
     }
 
@@ -85,8 +88,17 @@ public partial class StingListViewModel : PagedViewModelBase
     partial void OnSearchTextChanged(string? value) => FirstPageCommand.Execute(null);
     partial void OnSelectedRowChanged(StingListRow? value) => OnPropertyChanged(nameof(CanStartRemoval));
     partial void OnSelectedStatusChanged(string value) => FirstPageCommand.Execute(null);
-    partial void OnCompanyFilterChanged(string? value) => FirstPageCommand.Execute(null);
-    partial void OnRegistrationFilterChanged(string? value) => FirstPageCommand.Execute(null);
+    partial void OnCompanyFilterChanged(string? value)
+    {
+        if (_suppressFilterReload) return;
+        FirstPageCommand.Execute(null);
+    }
+
+    partial void OnRegistrationFilterChanged(string? value)
+    {
+        if (_suppressFilterReload) return;
+        FirstPageCommand.Execute(null);
+    }
     partial void OnStartDateChanged(DateTimeOffset? value) => FirstPageCommand.Execute(null);
     partial void OnEndDateChanged(DateTimeOffset? value) => FirstPageCommand.Execute(null);
     partial void OnSelectedPresetChanged(FilterPreset? value)
@@ -110,22 +122,20 @@ public partial class StingListViewModel : PagedViewModelBase
         if (!ShowArchived)
             q = q.Where(b => b.ArchivedAt == null);
 
-        if (!string.Equals(SelectedStatus, "Any", StringComparison.OrdinalIgnoreCase)
-            && Enum.TryParse<BillingStatus>(SelectedStatus, out var status))
+        if (!string.Equals(SelectedStatus, "Any", StringComparison.OrdinalIgnoreCase))
         {
-            q = q.Where(b => b.Status == status);
-        }
-
-        if (!string.IsNullOrWhiteSpace(CompanyFilter))
-        {
-            var s = CompanyFilter.Trim();
-            q = q.Where(x => x.Company.Contains(s));
-        }
-
-        if (!string.IsNullOrWhiteSpace(RegistrationFilter))
-        {
-            var s = RegistrationFilter.Trim();
-            q = q.Where(x => x.Registration.Contains(s));
+            if (string.Equals(SelectedStatus, "Current", StringComparison.OrdinalIgnoreCase))
+            {
+                q = q.Where(b => b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded);
+            }
+            else if (string.Equals(SelectedStatus, "Not Loaded", StringComparison.OrdinalIgnoreCase))
+            {
+                q = q.Where(b => b.Status == BillingStatus.NotLoaded);
+            }
+            else if (Enum.TryParse<BillingStatus>(SelectedStatus, out var status))
+            {
+                q = q.Where(b => b.Status == status);
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(SearchText))
@@ -147,6 +157,20 @@ public partial class StingListViewModel : PagedViewModelBase
         {
             var endExclusive = EndDate.Value.Date.AddDays(1);
             q = q.Where(b => b.ActiveFrom < endExclusive);
+        }
+
+        RefreshFilterOptions(q);
+
+        if (!string.IsNullOrWhiteSpace(CompanyFilter))
+        {
+            var company = CompanyFilter.Trim();
+            q = q.Where(x => x.Company == company);
+        }
+
+        if (!string.IsNullOrWhiteSpace(RegistrationFilter))
+        {
+            var registration = RegistrationFilter.Trim();
+            q = q.Where(x => x.Registration == registration);
         }
 
         q = q.OrderByDescending(b => b.ActiveFrom);
@@ -172,7 +196,7 @@ public partial class StingListViewModel : PagedViewModelBase
                 Iccid = x.Iccid,
                 SimNumber = x.SimNumber,
                 Notes = x.Notes,
-                Status = x.Status.ToString(),
+                Status = x.Status.ToDisplayString(),
                 IsArchived = x.ArchivedAt != null,
                 ActiveFrom = x.ActiveFrom
             });
@@ -188,6 +212,62 @@ public partial class StingListViewModel : PagedViewModelBase
         
         // Notify that CanStartRemoval may have changed
         OnPropertyChanged(nameof(CanStartRemoval));
+    }
+
+    private void RefreshFilterOptions(IQueryable<BillingEntry> query)
+    {
+        var companies = query
+            .Select(x => x.Company)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+        var registrationQuery = query;
+        if (!string.IsNullOrWhiteSpace(CompanyFilter))
+        {
+            var selectedCompany = CompanyFilter.Trim();
+            registrationQuery = registrationQuery.Where(x => x.Company == selectedCompany);
+        }
+
+        var registrations = registrationQuery
+            .Select(x => x.Registration)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+        ReplaceOptions(AvailableCompanies, companies);
+        ReplaceOptions(AvailableRegistrations, registrations);
+
+        _suppressFilterReload = true;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(CompanyFilter) &&
+                !companies.Any(x => string.Equals(x, CompanyFilter, StringComparison.OrdinalIgnoreCase)))
+            {
+                CompanyFilter = null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(RegistrationFilter) &&
+                !registrations.Any(x => string.Equals(x, RegistrationFilter, StringComparison.OrdinalIgnoreCase)))
+            {
+                RegistrationFilter = null;
+            }
+        }
+        finally
+        {
+            _suppressFilterReload = false;
+        }
+    }
+
+    private static void ReplaceOptions(ObservableCollection<string> target, IReadOnlyCollection<string> values)
+    {
+        target.Clear();
+        foreach (var value in values)
+        {
+            target.Add(value);
+        }
     }
 
     [RelayCommand]

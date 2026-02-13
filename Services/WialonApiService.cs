@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace StingListManager.Services;
@@ -15,6 +16,9 @@ public class WialonReport
     public int Id { get; set; }
     public string Name { get; set; } = "";
     public string Client { get; set; } = "";
+    public string? UnitType { get; set; }
+    public string? UniqueId { get; set; }
+    public string Code { get; set; } = "";
     public string? Make { get; set; }
     public string? Model { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -29,11 +33,14 @@ public class WialonReport
 
 public class WialonApiService
 {
+    private const long UnitSearchFlags = 8398087; // Base unit fields + profile fields (pflds)
+    private static readonly Regex HardwareUnitTypeRegex = new(@"\b(FM[A-Z])\s*[-]?\s*(\d{2,5})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private readonly string _baseUrl = "https://hst-api.wialon.eu/";
     private readonly string _token;
     private readonly HttpClient _httpClient;
     private string? _sessionId;
     private int _userId;  // User ID needed for geocoding API
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _geocodeCache = new();
     public string? LastError { get; private set; }
     private static readonly object GeocodeLogLock = new();
     private static readonly string GeocodeLogPath = Path.Combine(AppContext.BaseDirectory, "wialon_geocode.log");
@@ -44,6 +51,321 @@ public class WialonApiService
         _httpClient = new HttpClient();
         // Set reasonable timeouts
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
+    }
+
+    private async Task FetchUserIdAsync()
+    {
+        // Best-effort fetch of userId; for now leave as no-op if session missing
+        try
+        {
+            if (string.IsNullOrEmpty(_sessionId))
+                return;
+            // Simple placeholder: do nothing for now
+            await Task.CompletedTask;
+        }
+        catch
+        {
+            // Ignore
+        }
+    }
+
+    private async Task<string?> ResolveAddressFromWialonAsync(double lat, double lon)
+    {
+        // Placeholder implementation - return null to allow fallback to external geocode
+        await Task.CompletedTask;
+        return null;
+    }
+
+    private static string? GetCustomFieldValue(JsonElement element, params string[] candidates)
+    {
+        try
+        {
+            foreach (var name in candidates)
+            {
+                if (element.TryGetProperty(name, out var el))
+                {
+                    if (el.ValueKind == JsonValueKind.String)
+                        return el.GetString();
+                    if (el.ValueKind == JsonValueKind.Number || el.ValueKind == JsonValueKind.True || el.ValueKind == JsonValueKind.False)
+                        return el.ToString();
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
+    }
+
+    private static (string? Make, string? Model) ExtractMakeModel(JsonElement item)
+    {
+        var makeCandidates = new[]
+        {
+            "make", "brand", "manufacturer", "vehicle_make", "vehicle make", "car_make", "truck_make"
+        };
+        var modelCandidates = new[]
+        {
+            "model", "vehicle_model", "vehicle model", "car_model", "truck_model", "type"
+        };
+        var makeModelCandidates = new[]
+        {
+            "make & model", "make and model", "make/model", "makemodel", "brand model"
+        };
+
+        string? make = GetCustomFieldValue(item, makeCandidates);
+        string? model = GetCustomFieldValue(item, modelCandidates);
+
+        // Custom property bag values (prp) when available.
+        make ??= GetNestedFieldValue(item, "prp", makeCandidates);
+        model ??= GetNestedFieldValue(item, "prp", modelCandidates);
+
+        // Wialon profile fields.
+        make ??= GetNestedFieldValue(item, "pflds", makeCandidates);
+        model ??= GetNestedFieldValue(item, "pflds", modelCandidates);
+
+        // Generic fields/admin fields as fallback.
+        make ??= GetNestedFieldValue(item, "flds", makeCandidates);
+        model ??= GetNestedFieldValue(item, "flds", modelCandidates);
+        make ??= GetNestedFieldValue(item, "aflds", makeCandidates);
+        model ??= GetNestedFieldValue(item, "aflds", modelCandidates);
+
+        var makeModelCombined =
+            GetNestedFieldValue(item, "pflds", makeModelCandidates) ??
+            GetNestedFieldValue(item, "flds", makeModelCandidates) ??
+            GetNestedFieldValue(item, "aflds", makeModelCandidates);
+
+        if (!string.IsNullOrWhiteSpace(makeModelCombined))
+        {
+            FillFromCombinedMakeModel(makeModelCombined!, ref make, ref model);
+        }
+
+        return (NormalizeOutput(make), NormalizeOutput(model));
+    }
+
+    private static string? GetNestedFieldValue(JsonElement item, string bucketName, params string[] candidates)
+    {
+        if (!item.TryGetProperty(bucketName, out var bucket))
+            return null;
+
+        // Direct object keys (e.g. prp values)
+        if (bucket.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var prop in bucket.EnumerateObject())
+            {
+                if (FieldNameMatches(prop.Name, candidates))
+                {
+                    var directValue = ReadFieldValue(prop.Value);
+                    if (!string.IsNullOrWhiteSpace(directValue))
+                        return directValue;
+                }
+            }
+
+            // Indexed entries where each element has n/v (e.g. pflds, flds, aflds)
+            foreach (var prop in bucket.EnumerateObject())
+            {
+                var nestedValue = GetNamedEntryValue(prop.Value, candidates);
+                if (!string.IsNullOrWhiteSpace(nestedValue))
+                    return nestedValue;
+            }
+        }
+
+        if (bucket.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in bucket.EnumerateArray())
+            {
+                var value = GetNamedEntryValue(entry, candidates);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? GetNamedEntryValue(JsonElement entry, params string[] candidates)
+    {
+        if (entry.ValueKind != JsonValueKind.Object)
+            return null;
+
+        if (!entry.TryGetProperty("n", out var nameElement) || nameElement.ValueKind != JsonValueKind.String)
+            return null;
+
+        var fieldName = nameElement.GetString();
+        if (!FieldNameMatches(fieldName, candidates))
+            return null;
+
+        if (!entry.TryGetProperty("v", out var valueElement))
+            return null;
+
+        return ReadFieldValue(valueElement);
+    }
+
+    private static string? ReadFieldValue(JsonElement valueElement)
+    {
+        return valueElement.ValueKind switch
+        {
+            JsonValueKind.String => valueElement.GetString(),
+            JsonValueKind.Number => valueElement.ToString(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => null
+        };
+    }
+
+    private static bool FieldNameMatches(string? actual, params string[] candidates)
+    {
+        if (string.IsNullOrWhiteSpace(actual))
+            return false;
+
+        var normalizedActual = NormalizeFieldName(actual);
+        foreach (var candidate in candidates)
+        {
+            if (normalizedActual == NormalizeFieldName(candidate))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string NormalizeFieldName(string name)
+    {
+        return new string(name
+            .ToLowerInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
+    }
+
+    private static void FillFromCombinedMakeModel(string combined, ref string? make, ref string? model)
+    {
+        var text = combined.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        if (string.IsNullOrWhiteSpace(make) && string.IsNullOrWhiteSpace(model))
+        {
+            var parts = text.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2)
+            {
+                make = parts[0];
+                model = parts[1];
+            }
+            else
+            {
+                make = text;
+            }
+
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(make))
+            make = text;
+
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            if (!string.IsNullOrWhiteSpace(make) &&
+                text.StartsWith(make + " ", StringComparison.OrdinalIgnoreCase))
+            {
+                model = text.Substring(make.Length).Trim();
+            }
+            else
+            {
+                model = text;
+            }
+        }
+    }
+
+    private static string? NormalizeOutput(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var trimmed = value.Trim();
+        if (trimmed.Equals("unknown", StringComparison.OrdinalIgnoreCase) ||
+            trimmed.Equals("n/a", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return trimmed;
+    }
+
+    private static string? ExtractUnitType(JsonElement item, IReadOnlyDictionary<long, string> hardwareTypes)
+    {
+        if (item.TryGetProperty("hw", out var hardwareElement) &&
+            hardwareElement.TryGetInt64(out var hardwareId) &&
+            hardwareId > 0 &&
+            hardwareTypes.TryGetValue(hardwareId, out var hardwareName) &&
+            !string.IsNullOrWhiteSpace(hardwareName))
+        {
+            return NormalizeOutput(FormatHardwareUnitType(hardwareName));
+        }
+
+        var unitTypeCandidates = new[]
+        {
+            "unit_type", "unit type",
+            "tracker_type", "tracker type",
+            "device_type", "device type",
+            "hardware_type", "hardware type",
+            "tracker_model", "tracker model"
+        };
+
+        var unitType =
+            GetCustomFieldValue(item, unitTypeCandidates) ??
+            GetNestedFieldValue(item, "prp", unitTypeCandidates) ??
+            GetNestedFieldValue(item, "pflds", unitTypeCandidates) ??
+            GetNestedFieldValue(item, "flds", unitTypeCandidates) ??
+            GetNestedFieldValue(item, "aflds", unitTypeCandidates);
+
+        return NormalizeOutput(unitType);
+    }
+
+    private static string FormatHardwareUnitType(string hardwareName)
+    {
+        var normalized = hardwareName.Trim();
+        var match = HardwareUnitTypeRegex.Match(normalized);
+        if (match.Success)
+        {
+            return $"{match.Groups[1].Value.ToUpperInvariant()} {match.Groups[2].Value}";
+        }
+
+        return normalized;
+    }
+
+    private static string ExtractUniqueId(JsonElement item, int unitId)
+    {
+        if (item.TryGetProperty("uid", out var uidElement) && uidElement.ValueKind == JsonValueKind.String)
+        {
+            var uid = uidElement.GetString();
+            if (!string.IsNullOrWhiteSpace(uid))
+                return uid.Trim();
+        }
+
+        if (item.TryGetProperty("uid2", out var uid2Element) && uid2Element.ValueKind == JsonValueKind.String)
+        {
+            var uid2 = uid2Element.GetString();
+            if (!string.IsNullOrWhiteSpace(uid2))
+                return uid2.Trim();
+        }
+
+        if (item.TryGetProperty("hw", out var hwElement) && hwElement.TryGetInt64(out var hardwareId) && hardwareId > 0)
+        {
+            return hardwareId.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return unitId.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string BuildCode(string? unitType, string uniqueId)
+    {
+        if (!string.IsNullOrWhiteSpace(unitType) && !string.IsNullOrWhiteSpace(uniqueId))
+            return $"{unitType} | {uniqueId}";
+
+        if (!string.IsNullOrWhiteSpace(unitType))
+            return unitType;
+
+        return uniqueId;
     }
 
     public async Task<bool> TestConnectionAsync()
@@ -205,6 +527,60 @@ public class WialonApiService
         return resources;
     }
 
+    private async Task<Dictionary<long, string>> GetHardwareTypesMapAsync()
+    {
+        var hardwareMap = new Dictionary<long, string>();
+        if (string.IsNullOrEmpty(_sessionId))
+        {
+            return hardwareMap;
+        }
+
+        try
+        {
+            var url = $"{_baseUrl}wialon/ajax.html?svc=core/get_hw_types&params=%7B%7D&sid={_sessionId}";
+            var response = await _httpClient.GetAsync(url);
+            var content = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode || string.IsNullOrWhiteSpace(content))
+            {
+                return hardwareMap;
+            }
+
+            using var doc = JsonDocument.Parse(content);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+            {
+                return hardwareMap;
+            }
+
+            foreach (var element in doc.RootElement.EnumerateArray())
+            {
+                if (!element.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var id) || id <= 0)
+                {
+                    continue;
+                }
+
+                if (!element.TryGetProperty("name", out var nameElement) || nameElement.ValueKind != JsonValueKind.String)
+                {
+                    continue;
+                }
+
+                var name = nameElement.GetString();
+                if (string.IsNullOrWhiteSpace(name))
+                {
+                    continue;
+                }
+
+                hardwareMap[id] = name.Trim();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to load hardware types: {ex.Message}");
+        }
+
+        return hardwareMap;
+    }
+
     private async Task<Dictionary<int, string>> FetchItemsMapAsync(string itemsType, string label)
     {
         if (string.IsNullOrEmpty(_sessionId))
@@ -354,6 +730,7 @@ public class WialonApiService
             // Search for all units (vehicles) in Wialon with pagination
             var effectivePropName = string.IsNullOrWhiteSpace(propName) ? "sys_name" : propName;
             var effectiveValueMask = string.IsNullOrWhiteSpace(propValueMask) ? "*" : propValueMask;
+            var hardwareTypes = await GetHardwareTypesMapAsync();
 
             var searchParams = new
             {
@@ -365,7 +742,7 @@ public class WialonApiService
                     sortType = "sys_name"
                 },
                 force = 1,
-                flags = 9479,  // 1 (basic) + 2 (properties) + 4 (billing) + 256 (profile fields) + 1024 (last position) + 8192 (custom fields/properties)
+                flags = UnitSearchFlags,
                 from = from,
                 to = from + batchSize   // Load in batches
             };
@@ -407,159 +784,38 @@ public class WialonApiService
                 {
                     foreach (var item in itemsElement.EnumerateArray())
                     {
-                        if (reports.Count == 0)
-                        {
-                            var availableFields = string.Join(", ", item.EnumerateObject().Select(p => p.Name));
-                            System.Diagnostics.Debug.WriteLine($"Unit fields: {availableFields}");
+                        var name = item.TryGetProperty("nm", out var nmElement) ? nmElement.GetString() : "Unknown";
+                        var id = item.TryGetProperty("id", out var idElement) ? idElement.GetInt32() : 0;
 
-                    var name = item.TryGetProperty("nm", out var nmElement) ? nmElement.GetString() : "Unknown";
-                    var id = item.TryGetProperty("id", out var idElement) ? idElement.GetInt32() : 0;
-                    
-                    // Try to get unique ID (like VIN or registration)
-                    var uniqueId = item.TryGetProperty("uid", out var uidElement) ? uidElement.GetString() : "";
-                    
-                    // Get billing account ID and map to account name
-                    var accountId = item.TryGetProperty("bact", out var bactElement) ? bactElement.GetInt32() : 0;
-                    System.Diagnostics.Debug.WriteLine($"Unit '{name}' has bact={accountId}");
-                    
-                    var client = accountId > 0 && accountsMap.ContainsKey(accountId) 
-                        ? accountsMap[accountId] 
-                        : "";
-                    
-                    System.Diagnostics.Debug.WriteLine($"Unit '{name}' mapped to client: {client}");
-                    
-                    // Try resource ID if billing account is missing
-                    if (string.IsNullOrEmpty(client) && accountId == 0)
-                    {
-                        var resourceId = 0;
-                        if (item.TryGetProperty("rid", out var ridElement) && ridElement.TryGetInt32(out var ridValue))
-                            resourceId = ridValue;
-                        else if (item.TryGetProperty("r", out var rElement) && rElement.TryGetInt32(out var rValue))
-                            resourceId = rValue;
-                        else if (item.TryGetProperty("res", out var resElement) && resElement.TryGetInt32(out var resValue))
-                            resourceId = resValue;
-                        else if (item.TryGetProperty("res_id", out var resIdElement) && resIdElement.TryGetInt32(out var resIdValue))
-                            resourceId = resIdValue;
+                        // Billing/account mapping
+                        var accountId = item.TryGetProperty("bact", out var bactElement) ? bactElement.GetInt32() : 0;
+                        var client = accountId > 0 && accountsMap.ContainsKey(accountId) ? accountsMap[accountId] : string.Empty;
 
-                        if (resourceId > 0)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Unit '{name}' has resourceId={resourceId}");
-                            if (accountsMap.TryGetValue(resourceId, out var resourceName))
-                            {
-                                File.WriteAllText(Path.Combine(AppContext.BaseDirectory, "wialon_first_unit.json"), item.GetRawText());
-                            }
-                            catch
-                            {
-                                // Ignore logging failures
-                            }
-                        }
-
-                    // Get creator ID as fallback
-                    if (string.IsNullOrEmpty(client) && accountId == 0 && item.TryGetProperty("crt", out var crtElement))
-                    {
-                        var creatorId = crtElement.GetInt32();
-                        System.Diagnostics.Debug.WriteLine($"Unit '{name}' has crt={creatorId}");
-                        if (creatorId > 0 && accountsMap.ContainsKey(creatorId))
-                        {
-                            if (accountsMap.ContainsKey(accountId))
-                            {
-                                client = accountsMap[accountId];
-                                System.Diagnostics.Debug.WriteLine($"  Found in accountsMap: '{client}'");
-                            }
-                            else
-                            {
-                                System.Diagnostics.Debug.WriteLine($"  bact={accountId} NOT found in accountsMap");
-                            }
-                        }
-                    }
-                    
-                    // If still no client found, use a default placeholder
-                    if (string.IsNullOrEmpty(client))
-                    {
-                        client = "Unknown Client";
-                    }
-                    
-                    // Get unit location (address preferred, fallback to geocode or lat/lon)
-                    var location = "";
-                    double? latValue = null;
-                    double? lonValue = null;
-                    if (item.TryGetProperty("pos", out var posElement) && posElement.ValueKind == JsonValueKind.Object)
-                    {
-                        if (posElement.TryGetProperty("y", out var latElement) &&
-                            posElement.TryGetProperty("x", out var lonElement) &&
-                            latElement.TryGetDouble(out var lat) &&
-                            lonElement.TryGetDouble(out var lon))
-                        {
-                            var resourceId = 0;
-                            if (item.TryGetProperty("rid", out var ridElement) && ridElement.TryGetInt32(out var ridValue))
-                                resourceId = ridValue;
-                            else if (item.TryGetProperty("r", out var rElement) && rElement.TryGetInt32(out var rValue))
-                                resourceId = rValue;
-                            else if (item.TryGetProperty("res", out var resElement) && resElement.TryGetInt32(out var resValue))
-                                resourceId = resValue;
-                            else if (item.TryGetProperty("res_id", out var resIdElement) && resIdElement.TryGetInt32(out var resIdValue))
-                                resourceId = resIdValue;
-
-                            System.Diagnostics.Debug.WriteLine($"  Trying resourceId={resourceId}");
-
-                            if (resourceId > 0)
-                            {
-                                if (accountsMap.TryGetValue(resourceId, out var resourceName))
-                                {
-                                    accountId = resourceId;
-                                    client = resourceName;
-                                    System.Diagnostics.Debug.WriteLine($"  Found via resourceId: '{client}'");
-                                }
-                                else
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"  resourceId={resourceId} NOT found in accountsMap");
-                                }
-                            }
-                        }
-
-                        // Get creator ID as fallback
-                        if (string.IsNullOrEmpty(client) && item.TryGetProperty("crt", out var crtElement))
-                        {
-                            var creatorId = crtElement.GetInt32();
-                            System.Diagnostics.Debug.WriteLine($"  Trying creatorId={creatorId}");
-                            if (creatorId > 0 && accountsMap.ContainsKey(creatorId))
-                            {
-                                accountId = creatorId;
-                                client = accountsMap[creatorId];
-                                System.Diagnostics.Debug.WriteLine($"  Found via creator: '{client}'");
-                            }
-                            else if (creatorId > 0)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"  creatorId={creatorId} NOT found in accountsMap");
-                            }
-                        }
-
-                        // Try account group as another fallback
-                        if (string.IsNullOrEmpty(client) && item.TryGetProperty("ag", out var agElement))
-                        {
-                            var accountGroupId = agElement.GetInt32();
-                            System.Diagnostics.Debug.WriteLine($"  Trying accountGroupId={accountGroupId}");
-                            if (accountGroupId > 0 && accountsMap.ContainsKey(accountGroupId))
-                            {
-                                accountId = accountGroupId;
-                                client = accountsMap[accountGroupId];
-                                System.Diagnostics.Debug.WriteLine($"  Found via account group: '{client}'");
-                            }
-                            else if (accountGroupId > 0)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"  accountGroupId={accountGroupId} NOT found in accountsMap");
-                            }
-                        }
-
-                        // If still no client found, just use the vehicle name itself
+                        // Try resource/creator/account group as fallbacks
                         if (string.IsNullOrEmpty(client))
                         {
-                            client = name ?? "Unknown";
-                            System.Diagnostics.Debug.WriteLine($"  Using vehicle name as client: '{client}'");
+                            if (item.TryGetProperty("rid", out var ridElement) && ridElement.TryGetInt32(out var ridValue) && accountsMap.TryGetValue(ridValue, out var rName))
+                            {
+                                accountId = ridValue;
+                                client = rName;
+                            }
+                            else if (item.TryGetProperty("crt", out var crtElement) && crtElement.TryGetInt32(out var crtValue) && accountsMap.TryGetValue(crtValue, out var cName))
+                            {
+                                accountId = crtValue;
+                                client = cName;
+                            }
+                            else if (item.TryGetProperty("ag", out var agElement) && agElement.TryGetInt32(out var agValue) && accountsMap.TryGetValue(agValue, out var agName))
+                            {
+                                accountId = agValue;
+                                client = agName;
+                            }
                         }
-                        
-                        // Get unit location (address preferred, fallback to geocode or lat/lon)
-                        var location = "";
+
+                        if (string.IsNullOrEmpty(client))
+                            client = name ?? "Unknown";
+
+                        // Location and coordinates
+                        var location = string.Empty;
                         double? latValue = null;
                         double? lonValue = null;
                         if (item.TryGetProperty("pos", out var posElement) && posElement.ValueKind == JsonValueKind.Object)
@@ -568,94 +824,65 @@ public class WialonApiService
                             {
                                 var address = addressElement.GetString();
                                 if (!string.IsNullOrWhiteSpace(address))
-                                {
-                                    location = address;
-                                }
+                                    location = address!;
                             }
 
-                            if (posElement.TryGetProperty("y", out var latElement) &&
-                                posElement.TryGetProperty("x", out var lonElement) &&
-                                latElement.TryGetDouble(out var lat) &&
-                                lonElement.TryGetDouble(out var lon))
+                            if (posElement.TryGetProperty("y", out var latElement) && posElement.TryGetProperty("x", out var lonElement)
+                                && latElement.TryGetDouble(out var lat) && lonElement.TryGetDouble(out var lon))
                             {
                                 latValue = lat;
                                 lonValue = lon;
                             }
                         }
 
-                        // Set initial location to coordinates - geocoding will update this if successful
                         if (string.IsNullOrWhiteSpace(location))
                         {
-                            if (latValue.HasValue && lonValue.HasValue)
-                            {
-                                location = FormattableString.Invariant($"{latValue:F4}, {lonValue:F4}");  // Show coordinates as fallback
-                            }
-                            else
-                            {
-                                location = "Unknown";
-                            }
+                            location = latValue.HasValue && lonValue.HasValue ? FormattableString.Invariant($"{latValue:F4}, {lonValue:F4}") : "Unknown";
                         }
 
-                    // Get last update time (prefer last message, fallback to position time)
-                    DateTime? lastUpdateAt = null;
-                    if (item.TryGetProperty("lmsg", out var lmsgElement))
-                    {
-                        if (lmsgElement.ValueKind == JsonValueKind.Number && lmsgElement.TryGetInt64(out var lmsgTime) && lmsgTime > 0)
+                        // Timestamps
+                        DateTime? lastUpdateAt = null;
+                        if (item.TryGetProperty("lmsg", out var lmsgElement))
                         {
-                            lastUpdateAt = DateTimeOffset.FromUnixTimeSeconds(lmsgTime).DateTime;
+                            if (lmsgElement.ValueKind == JsonValueKind.Number && lmsgElement.TryGetInt64(out var lmsgTime) && lmsgTime > 0)
+                                lastUpdateAt = DateTimeOffset.FromUnixTimeSeconds(lmsgTime).DateTime;
+                            else if (lmsgElement.ValueKind == JsonValueKind.Object && lmsgElement.TryGetProperty("t", out var lmsgT) && lmsgT.TryGetInt64(out var lmsgObjTime) && lmsgObjTime > 0)
+                                lastUpdateAt = DateTimeOffset.FromUnixTimeSeconds(lmsgObjTime).DateTime;
                         }
-                        else if (lmsgElement.ValueKind == JsonValueKind.Object &&
-                                 lmsgElement.TryGetProperty("t", out var lmsgTimeElement) &&
-                                 lmsgTimeElement.TryGetInt64(out var lmsgObjectTime) && lmsgObjectTime > 0)
+
+                        if (lastUpdateAt is null && item.TryGetProperty("pos", out var posForTime) && posForTime.ValueKind == JsonValueKind.Object && posForTime.TryGetProperty("t", out var posT) && posT.TryGetInt64(out var posTime) && posTime > 0)
                         {
-                            lastUpdateAt = DateTimeOffset.FromUnixTimeSeconds(lmsgObjectTime).DateTime;
+                            lastUpdateAt = DateTimeOffset.FromUnixTimeSeconds(posTime).DateTime;
                         }
-                    }
 
-                    if (lastUpdateAt is null && item.TryGetProperty("pos", out var posElementForTime) &&
-                        posElementForTime.ValueKind == JsonValueKind.Object &&
-                        posElementForTime.TryGetProperty("t", out var posTimeElement) &&
-                        posTimeElement.TryGetInt64(out var posTime) && posTime > 0)
-                    {
-                        lastUpdateAt = DateTimeOffset.FromUnixTimeSeconds(posTime).DateTime;
-                    }
+                        var createdAt = DateTime.Now;
+                        if (item.TryGetProperty("ct", out var ctElement) && ctElement.ValueKind == JsonValueKind.Number && ctElement.TryGetInt64(out var ctUnix))
+                            createdAt = DateTimeOffset.FromUnixTimeSeconds(ctUnix).DateTime;
 
-                    // Get creation time (Unix timestamp)
-                    var createdAt = DateTime.Now;
-                    if (item.TryGetProperty("ct", out var ctElement))
-                    {
-                        var unixTime = ctElement.GetInt64();
-                        createdAt = DateTimeOffset.FromUnixTimeSeconds(unixTime).DateTime;
-                    }
-                    
-                    var make = GetCustomFieldValue(item,
-                        "make", "vehicle_make", "vehicle make", "car_make", "truck_make", "brand", "manufacturer");
-                    var model = GetCustomFieldValue(item,
-                        "model", "vehicle_model", "vehicle model", "car_model", "truck_model", "type");
+                        var (make, model) = ExtractMakeModel(item);
+                        var unitType = ExtractUnitType(item, hardwareTypes);
+                        var uniqueId = ExtractUniqueId(item, id);
+                        var code = BuildCode(unitType, uniqueId);
 
-                    if (string.IsNullOrWhiteSpace(make) || string.IsNullOrWhiteSpace(model))
-                    {
-                        var profile = await GetMakeModelFromUnitProfileAsync(id);
-                        make = string.IsNullOrWhiteSpace(make) ? profile.Make : make;
-                        model = string.IsNullOrWhiteSpace(model) ? profile.Model : model;
-                    }
-
-                    reports.Add(new WialonReport
-                    {
-                        Id = id,
-                        Name = name ?? "Unknown Vehicle",
-                        Client = client,
-                        Make = make,
-                        Model = model,
-                        CreatedAt = createdAt,
-                        Location = location,
-                        LastUpdateAt = lastUpdateAt,
-                        Status = "Active",
-                        Url = $"unit_{id}",
-                        AccountId = accountId,
-                        Latitude = latValue,
-                        Longitude = lonValue
-                    });
+                        reports.Add(new WialonReport
+                        {
+                            Id = id,
+                            Name = name ?? "Unknown Vehicle",
+                            Client = client,
+                            UnitType = unitType,
+                            UniqueId = uniqueId,
+                            Code = code,
+                            Make = make,
+                            Model = model,
+                            CreatedAt = createdAt,
+                            Location = location,
+                            LastUpdateAt = lastUpdateAt,
+                            Status = "Active",
+                            Url = $"unit_{id}",
+                            AccountId = accountId,
+                            Latitude = latValue,
+                            Longitude = lonValue
+                        });
                     }
                 }
 
@@ -666,6 +893,74 @@ public class WialonApiService
         {
             throw new Exception($"Failed to fetch vehicles from Wialon: {ex.Message}");
         }
+    }
+
+    public async Task<bool> IsImeiLoadedAsync(string? imei)
+    {
+        var normalizedImei = NormalizeImei(imei);
+        if (string.IsNullOrWhiteSpace(normalizedImei))
+            return false;
+
+        if (string.IsNullOrEmpty(_sessionId))
+            throw new Exception("Not connected to Wialon. Please connect first.");
+
+        var attempts = new List<(string PropName, string PropValueMask)>
+        {
+            ("sys_unique_id", normalizedImei),
+            ("sys_unique_id", $"*{normalizedImei}*"),
+            ("unit_imei", normalizedImei),
+            ("unit_imei", $"*{normalizedImei}*"),
+            ("imei", normalizedImei),
+            ("imei", $"*{normalizedImei}*")
+        };
+
+        foreach (var attempt in attempts)
+        {
+            var (reports, totalCount) = await GetReportsAsync(0, 100, attempt.PropName, attempt.PropValueMask);
+            if (reports.Any(r => IsImeiMatch(r.UniqueId, normalizedImei)))
+                return true;
+
+            if (totalCount > 0 && reports.Count > 0)
+                return true;
+        }
+
+        // Fallback: scan unit unique IDs in batches when indexed property lookups return no match.
+        var (firstBatch, totalUnits) = await GetReportsAsync(0, 100, "sys_name", "*");
+        if (firstBatch.Any(r => IsImeiMatch(r.UniqueId, normalizedImei)))
+            return true;
+
+        var scanLimit = Math.Min(totalUnits, 2000);
+        for (var from = 100; from < scanLimit; from += 100)
+        {
+            var (batch, _) = await GetReportsAsync(from, 100, "sys_name", "*");
+            if (batch.Any(r => IsImeiMatch(r.UniqueId, normalizedImei)))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string? NormalizeImei(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var digits = new string(value.Where(char.IsDigit).ToArray());
+        if (string.IsNullOrWhiteSpace(digits))
+            return null;
+
+        return digits;
+    }
+
+    private static bool IsImeiMatch(string? candidate, string normalizedImei)
+    {
+        var normalizedCandidate = NormalizeImei(candidate);
+        if (string.IsNullOrWhiteSpace(normalizedCandidate))
+            return false;
+
+        return string.Equals(normalizedCandidate, normalizedImei, StringComparison.Ordinal)
+            || normalizedCandidate.EndsWith(normalizedImei, StringComparison.Ordinal)
+            || normalizedImei.EndsWith(normalizedCandidate, StringComparison.Ordinal);
     }
 
     public async Task<string?> ResolveAddressAsync(double lat, double lon)
@@ -696,8 +991,11 @@ public class WialonApiService
 
         try
         {
+            var latText = lat.ToString(CultureInfo.InvariantCulture);
+            var lonText = lon.ToString(CultureInfo.InvariantCulture);
+
             // Use OpenStreetMap Nominatim for reverse geocoding (free, no API key required)
-            var url = $"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat}&lon={lon}&zoom=18&addressdetails=1&accept-language=en";
+            var url = $"https://nominatim.openstreetmap.org/reverse?format=json&lat={latText}&lon={lonText}&zoom=18&addressdetails=1&accept-language=en";
 
             System.Diagnostics.Debug.WriteLine($"[Geocoding] Requesting: {url}");
             AppendGeocodeLog($"Request {lat},{lon} -> {url}");

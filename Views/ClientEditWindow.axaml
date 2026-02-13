@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.ClientEditWindow"
+        x:CompileBindings="False"
+        Width="560" Height="500"
+        MinWidth="520" MinHeight="460"
+        WindowStartupLocation="CenterOwner"
+        Title="{Binding WindowTitle}">
+
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="10">
+      <TextBlock Text="{Binding WindowTitle}" Classes="h2"/>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Client Name" Classes="muted"/>
+        <TextBox Text="{Binding Name}" Watermark="Client name"/>
+      </StackPanel>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Contact Person" Classes="muted"/>
+        <TextBox Text="{Binding ContactPerson}" Watermark="Contact person"/>
+      </StackPanel>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Phone Number" Classes="muted"/>
+        <TextBox Text="{Binding PhoneNumber}" Watermark="Phone number"/>
+      </StackPanel>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Email Address" Classes="muted"/>
+        <TextBox Text="{Binding EmailAddress}" Watermark="Email address"/>
+      </StackPanel>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Company Address" Classes="muted"/>
+        <TextBox Text="{Binding Address}" Watermark="Address" AcceptsReturn="True" Height="120" TextWrapping="Wrap"/>
+      </StackPanel>
+
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed"/>
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+        <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+        <Button Content="Save" Command="{Binding SaveCommand}" Classes="primary"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

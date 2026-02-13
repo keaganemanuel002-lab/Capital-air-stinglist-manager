@@ -1,4 +1,4 @@
-# STING List Manager - Windows App Publishing
+﻿# STING List Manager - Windows App Publishing
 
 ## Quick Start for Users
 
@@ -29,7 +29,7 @@ The result will be at: `.\bin\Release\net8.0\win-x64\publish\StingListManager.ex
 1. After publish, the entire `publish` folder is your distribution
 2. Copy `StingListManager.exe` (and the folder if needed)
 3. Users can run it directly - no .NET installation required
-4. Create a shortcut: Right-click `StingListManager.exe` → Send to → Desktop (create shortcut)
+4. Create a shortcut: Right-click `StingListManager.exe` â†’ Send to â†’ Desktop (create shortcut)
 
 ## System Requirements for Users
 
@@ -63,4 +63,6 @@ dotnet ef database update
 
 ---
 
-Enjoy your STING List Manager! 🚀
+Enjoy your STING List Manager!
+
+

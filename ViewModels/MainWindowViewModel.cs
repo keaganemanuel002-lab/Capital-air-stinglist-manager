@@ -67,6 +67,7 @@ public partial class MainWindowViewModel : ViewModelBase
             case 9: CurrentPage = new ExportViewModel(_window, _appState); break;
             case 10: CurrentPage = new SettingsViewModel(_window, _appState); break;
             case 11: CurrentPage = new WialonReportsViewModel(_window, _appState); break;
+            case 12: CurrentPage = new DashcamsViewModel(); break;
         }
     }
 
@@ -95,7 +96,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 break;
             case DashboardNavTarget.ActiveBilling:
                 NavIndex = 6;
-                CurrentPage = new StingListViewModel(_window, _appState, request.StartDate, request.EndDate, BillingStatus.Active.ToString());
+                CurrentPage = new StingListViewModel(_window, _appState, request.StartDate, request.EndDate, "Current");
                 break;
         }
     }

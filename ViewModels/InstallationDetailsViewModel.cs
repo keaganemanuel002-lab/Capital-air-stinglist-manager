@@ -81,7 +81,7 @@ public partial class InstallationDetailsViewModel : ViewModelBase
         Iccid = entry.Iccid;
         SimNumber = entry.SimNumber;
         Notes = entry.Notes;
-        Status = entry.Status.ToString();
+        Status = entry.Status.ToDisplayString();
         ActiveFrom = entry.ActiveFrom;
 
         // Build vehicle description
