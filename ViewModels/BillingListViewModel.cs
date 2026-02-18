@@ -24,11 +24,9 @@ public partial class BillingListRow : ObservableObject
     public string? FleetNumber { get; set; }
     public string VehicleDescription { get; set; } = "";
     public string Code { get; set; } = "";
-    public string StingCountDisplay { get; set; } = "";
-    public string StingPlusCountDisplay { get; set; } = "";
-    public string StingFmCountDisplay { get; set; } = "";
-    public string LiveTrackingCountDisplay { get; set; } = "";
-    public bool IsTotalRow { get; set; }
+    public string PackageCharge { get; set; } = "";
+    public string Notes { get; set; } = "";
+    public string Reason { get; set; } = "";
 }
 
 public partial class BillingListViewModel : ViewModelBase
@@ -66,7 +64,6 @@ public partial class BillingListViewModel : ViewModelBase
         foreach (var group in grouped)
         {
             var rowNumber = 1;
-            var entryCount = group.Count();
 
             foreach (var entry in group)
             {
@@ -79,32 +76,13 @@ public partial class BillingListViewModel : ViewModelBase
                     FleetNumber = entry.FleetNumber,
                     VehicleDescription = BuildVehicleDescription(entry),
                     Code = BuildCode(entry),
-                    StingCountDisplay = "",
-                    StingPlusCountDisplay = "",
-                    StingFmCountDisplay = "",
-                    LiveTrackingCountDisplay = "",
-                    IsTotalRow = false
+                    PackageCharge = "",
+                    Notes = entry.Notes ?? "",
+                    Reason = entry.Reason ?? ""
                 });
 
                 rowNumber++;
             }
-
-            // Total row: display entry count for each product type, use entry count for live tracking
-            Rows.Add(new BillingListRow
-            {
-                Id = 0,
-                RowLabel = "TOTAL",
-                Company = group.Key,
-                Registration = "",
-                FleetNumber = null,
-                VehicleDescription = "",
-                Code = "",
-                StingCountDisplay = entryCount.ToString(),
-                StingPlusCountDisplay = "",
-                StingFmCountDisplay = "",
-                LiveTrackingCountDisplay = entryCount.ToString(),
-                IsTotalRow = true
-            });
         }
 
         _appState.SetStatus($"Loaded billing list: {Rows.Count} entries.");
@@ -225,14 +203,16 @@ public partial class BillingListViewModel : ViewModelBase
     private static string BuildCode(BillingEntry entry)
     {
         var unit = string.IsNullOrWhiteSpace(entry.TrackingUnitMake) ? "-" : entry.TrackingUnitMake.Trim();
-        var serial = string.IsNullOrWhiteSpace(entry.SerialNumber) ? "-" : entry.SerialNumber.Trim();
+        var serial = !string.IsNullOrWhiteSpace(entry.SerialNumber)
+            ? entry.SerialNumber.Trim()
+            : (!string.IsNullOrWhiteSpace(entry.Imei) ? entry.Imei.Trim() : "-");
         return $"{unit} - {serial}";
     }
 
     [RelayCommand]
     private async Task ViewDetails()
     {
-        if (SelectedRow is null || SelectedRow.IsTotalRow) return;
+        if (SelectedRow is null) return;
 
         var dlg = new StingListManager.Views.InstallationDetailsWindow();
         dlg.DataContext = new InstallationDetailsViewModel(() => dlg.Close(), SelectedRow.Id, _appState);

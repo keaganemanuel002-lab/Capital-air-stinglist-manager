@@ -22,6 +22,15 @@ public class WialonReport
     public string Code { get; set; } = "";
     public string? Make { get; set; }
     public string? Model { get; set; }
+    public string? Registration { get; set; }
+    public string? FleetNumber { get; set; }
+    public string? Colour { get; set; }
+    public string? VinNumber { get; set; }
+    public string? TrackingUnitMake { get; set; }
+    public string? Imei { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? Iccid { get; set; }
+    public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
     public string Location { get; set; } = "";
     public DateTime? LastUpdateAt { get; set; }
@@ -63,7 +72,17 @@ public class WialonApiService
     private static readonly Regex HardwareUnitTypeRegex = new(@"\b(FM[A-Z])\s*[-]?\s*(\d{2,5})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private sealed record WialonResource(long Id, string Name);
     private sealed record WialonUser(long Id, string Name, long BillingAccountId);
-    private sealed record WialonUnitLookup(long Id, string Name, long HardwareTypeId, long BillingAccountId);
+    private sealed record WialonUnitLookup(long Id, string Name, long HardwareTypeId, long BillingAccountId, string? UniqueId);
+    private sealed class DuplicateUniqueIdConflictException : Exception
+    {
+        public DuplicateUniqueIdConflictException(string uniqueId)
+            : base($"IMEI {uniqueId} already exists in Wialon.")
+        {
+            UniqueId = uniqueId;
+        }
+
+        public string UniqueId { get; }
+    }
 
     private readonly string _baseUrl = "https://hst-api.wialon.eu/";
     private readonly string _token;
@@ -321,6 +340,18 @@ public class WialonApiService
         return trimmed;
     }
 
+    private static string? ExtractUnitField(JsonElement item, params string[] candidates)
+    {
+        var value =
+            GetCustomFieldValue(item, candidates) ??
+            GetNestedFieldValue(item, "prp", candidates) ??
+            GetNestedFieldValue(item, "pflds", candidates) ??
+            GetNestedFieldValue(item, "flds", candidates) ??
+            GetNestedFieldValue(item, "aflds", candidates);
+
+        return NormalizeOutput(value);
+    }
+
     private static string? ExtractUnitType(JsonElement item, IReadOnlyDictionary<long, string> hardwareTypes)
     {
         if (item.TryGetProperty("hw", out var hardwareElement) &&
@@ -500,7 +531,22 @@ public class WialonApiService
                 await TryUpdateUnitNameAsync(unitId, unitName);
             }
 
-            await UpdateUnitIdentityAsync(unitId, hardwareTypeId, normalizedImei);
+            var existingNormalizedImei = NormalizeImei(existingUnit?.UniqueId);
+            var identityAlreadyMatches =
+                existingUnit is not null &&
+                existingUnit.HardwareTypeId == hardwareTypeId &&
+                string.Equals(existingNormalizedImei, normalizedImei, StringComparison.Ordinal);
+
+            if (!identityAlreadyMatches)
+            {
+                unitId = await UpdateUnitIdentityWithRecoveryAsync(
+                    unitId,
+                    hardwareTypeId,
+                    normalizedImei,
+                    createdNewUnit,
+                    matchedResource.Id);
+            }
+
             await UpdateProfileFieldsAsync(unitId, jobCard);
             await UpsertCustomFieldsAsync(unitId, jobCard);
             await ApplyDefaultUnitAccessPoliciesAsync(unitId, users, resources);
@@ -512,6 +558,16 @@ public class WialonApiService
                 CreatedNewUnit = createdNewUnit,
                 UnitId = unitId,
                 Message = $"Wialon unit {action} under account '{matchedResource.Name}'."
+            };
+        }
+        catch (DuplicateUniqueIdConflictException ex)
+        {
+            return new WialonUnitSyncResult
+            {
+                IsSuccess = true,
+                CreatedNewUnit = false,
+                UnitId = null,
+                Message = $"IMEI {ex.UniqueId} is already loaded in Wialon. Skipped duplicate unit creation."
             };
         }
         catch (Exception ex)
@@ -891,16 +947,24 @@ public class WialonApiService
             }
         }
 
-        var scanLimit = 2000;
-        for (var from = 0; from < scanLimit; from += SearchBatchSize)
+        var fromAll = 0;
+        var totalUnits = int.MaxValue;
+        while (fromAll < totalUnits)
         {
             var searchResult = await SearchItemsAsync(
                 itemsType: "avl_unit",
                 propName: "sys_name",
                 propValueMask: "*",
                 flags: UnitSearchFlags,
-                from: from,
-                to: from + SearchBatchSize - 1);
+                from: fromAll,
+                to: fromAll + SearchBatchSize - 1);
+
+            if (searchResult.TryGetProperty("totalItemsCount", out var totalElement) &&
+                totalElement.TryGetInt32(out var parsedTotal) &&
+                parsedTotal > 0)
+            {
+                totalUnits = parsedTotal;
+            }
 
             var batch = EnumerateItems(searchResult).ToList();
             foreach (var item in batch)
@@ -913,6 +977,11 @@ public class WialonApiService
                 if (IsImeiMatch(candidateImei, normalizedImei))
                     return candidate;
             }
+
+            if (batch.Count == 0)
+                break;
+
+            fromAll += batch.Count;
 
             if (batch.Count < SearchBatchSize)
                 break;
@@ -938,7 +1007,8 @@ public class WialonApiService
             ? bact
             : 0;
 
-        return new WialonUnitLookup(id, name, hardwareTypeId, billingAccountId);
+        var uniqueId = ExtractUniqueId(item, (int)id);
+        return new WialonUnitLookup(id, name, hardwareTypeId, billingAccountId, uniqueId);
     }
 
     private async Task<long> CreateUnitAsync(long creatorUserId, string unitName, long hardwareTypeId)
@@ -981,6 +1051,66 @@ public class WialonApiService
             deviceTypeId = hardwareTypeId,
             uniqueId
         });
+    }
+
+    private async Task<long> UpdateUnitIdentityWithRecoveryAsync(
+        long unitId,
+        long hardwareTypeId,
+        string uniqueId,
+        bool createdNewUnit,
+        long expectedAccountId)
+    {
+        try
+        {
+            await UpdateUnitIdentityAsync(unitId, hardwareTypeId, uniqueId);
+            return unitId;
+        }
+        catch (Exception ex) when (IsDuplicateUniqueIdError(ex))
+        {
+            var duplicateUnit = await FindUnitByImeiAsync(uniqueId);
+            if (duplicateUnit is null)
+            {
+                if (createdNewUnit)
+                {
+                    await TryDeleteUnitAsync(unitId);
+                }
+
+                throw new DuplicateUniqueIdConflictException(uniqueId);
+            }
+
+            if (duplicateUnit.BillingAccountId > 0 &&
+                expectedAccountId > 0 &&
+                duplicateUnit.BillingAccountId != expectedAccountId)
+            {
+                throw new Exception($"IMEI {uniqueId} already exists on another account in Wialon.");
+            }
+
+            if (createdNewUnit && duplicateUnit.Id != unitId)
+            {
+                await TryDeleteUnitAsync(unitId);
+            }
+
+            return duplicateUnit.Id;
+        }
+    }
+
+    private static bool IsDuplicateUniqueIdError(Exception ex)
+    {
+        return ex.Message.Contains("returned error 1002", StringComparison.OrdinalIgnoreCase)
+               || ex.Message.Contains("error 1002", StringComparison.OrdinalIgnoreCase)
+               || ex.Message.Contains("1002", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task TryDeleteUnitAsync(long unitId)
+    {
+        try
+        {
+            await ExecuteApiAsync("item/delete_item", new { itemId = unitId });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to clean up temporary unit {unitId}: {ex.Message}");
+        }
     }
 
     private async Task TryUpdateUnitNameAsync(long unitId, string unitName)
@@ -1651,7 +1781,7 @@ public class WialonApiService
                 force = 1,
                 flags = UnitSearchFlags,
                 from = from,
-                to = from + batchSize   // Load in batches
+                to = from + Math.Max(1, batchSize) - 1   // Inclusive upper bound in Wialon API
             };
 
             var paramsJson = JsonSerializer.Serialize(searchParams);
@@ -1770,6 +1900,15 @@ public class WialonApiService
                         var unitType = ExtractUnitType(item, hardwareTypes);
                         var uniqueId = ExtractUniqueId(item, id);
                         var code = BuildCode(unitType, uniqueId);
+                        var registration = ExtractUnitField(item, "registration", "reg", "registration_plate", "number_plate");
+                        var fleetNumber = ExtractUnitField(item, "fleet", "fleet_number", "fleet no", "fleet_no", "fleetnumber");
+                        var colour = ExtractUnitField(item, "colour", "color", "vehicle_colour", "vehicle_color");
+                        var vin = ExtractUnitField(item, "vin", "vin_number", "chassis");
+                        var trackingUnitMake = ExtractUnitField(item, "tracking_unit_make", "tracking unit make", "device_make", "tracker_make") ?? unitType;
+                        var imei = ExtractUnitField(item, "imei", "unit_imei", "device_imei", "sys_unique_id") ?? uniqueId;
+                        var serialNumber = ExtractUnitField(item, "serial", "serial_number", "serial number", "serial#", "sn");
+                        var iccid = ExtractUnitField(item, "iccid", "sim_iccid", "sim iccid");
+                        var notes = ExtractUnitField(item, "notes", "note", "comment", "comments");
 
                         reports.Add(new WialonReport
                         {
@@ -1781,6 +1920,15 @@ public class WialonApiService
                             Code = code,
                             Make = make,
                             Model = model,
+                            Registration = registration,
+                            FleetNumber = fleetNumber,
+                            Colour = colour,
+                            VinNumber = vin,
+                            TrackingUnitMake = trackingUnitMake,
+                            Imei = imei,
+                            SerialNumber = serialNumber,
+                            Iccid = iccid,
+                            Notes = notes,
                             CreatedAt = createdAt,
                             Location = location,
                             LastUpdateAt = lastUpdateAt,

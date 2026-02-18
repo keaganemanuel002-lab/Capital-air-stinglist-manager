@@ -7,6 +7,23 @@ using StingListManager.Data.Entities;
 
 namespace StingListManager.Services;
 
+public sealed class StingListExportRow
+{
+    public string Company { get; init; } = "";
+    public string Registration { get; init; } = "";
+    public string? FleetNumber { get; init; }
+    public string? Make { get; init; }
+    public string? Model { get; init; }
+    public string? Colour { get; init; }
+    public string? VinNumber { get; init; }
+    public string? Imei { get; init; }
+    public string? SerialNumber { get; init; }
+    public string? Iccid { get; init; }
+    public string? Notes { get; init; }
+    public string Status { get; init; } = "";
+    public DateTime ActiveFrom { get; init; }
+}
+
 public class ExcelExportService
 {
     public void ExportMonthly(string filePath, int year, int month)
@@ -156,27 +173,25 @@ public class ExcelExportService
         using var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("Billing List");
 
-        // Header - matching the page display
+        // Header - matching finance template
         ws.Cell(1, 1).Value = "#";
         ws.Cell(1, 2).Value = "COMPANY";
-        ws.Cell(1, 3).Value = "REG";
-        ws.Cell(1, 4).Value = "FLEET";
+        ws.Cell(1, 3).Value = "REG.";
+        ws.Cell(1, 4).Value = "FLT. NO";
         ws.Cell(1, 5).Value = "VEHICLE DESCRIPTION";
         ws.Cell(1, 6).Value = "CODE";
-        ws.Cell(1, 7).Value = "STING";
-        ws.Cell(1, 8).Value = "STING PLUS";
-        ws.Cell(1, 9).Value = "STING FM";
-        ws.Cell(1, 10).Value = "LIVE TRACKING";
+        ws.Cell(1, 7).Value = "";
+        ws.Cell(1, 8).Value = "NOTES";
+        ws.Cell(1, 9).Value = "Reason";
 
-        // Data rows - grouped by company like on the page
+        // Data rows - grouped by company with per-company row numbering
         int r = 2;
         var grouped = entries.GroupBy(e => e.Company).OrderBy(g => g.Key);
-        
+
         foreach (var group in grouped)
         {
             var rowNumber = 1;
-            var entryCount = group.Count();
-            
+
             foreach (var entry in group)
             {
                 ws.Cell(r, 1).Value = rowNumber;
@@ -186,25 +201,11 @@ public class ExcelExportService
                 ws.Cell(r, 5).Value = BuildVehicleDescription(entry);
                 ws.Cell(r, 6).Value = BuildCode(entry);
                 ws.Cell(r, 7).Value = "";
-                ws.Cell(r, 8).Value = "";
-                ws.Cell(r, 9).Value = "";
-                ws.Cell(r, 10).Value = "";
+                ws.Cell(r, 8).Value = entry.Notes ?? "";
+                ws.Cell(r, 9).Value = entry.Reason ?? "";
                 r++;
                 rowNumber++;
             }
-            
-            // Total row
-            ws.Cell(r, 1).Value = "TOTAL";
-            ws.Cell(r, 2).Value = group.Key;
-            ws.Cell(r, 3).Value = "";
-            ws.Cell(r, 4).Value = "";
-            ws.Cell(r, 5).Value = "";
-            ws.Cell(r, 6).Value = "";
-            ws.Cell(r, 7).Value = entryCount;
-            ws.Cell(r, 8).Value = "";
-            ws.Cell(r, 9).Value = "";
-            ws.Cell(r, 10).Value = entryCount;
-            r++;
         }
 
         ApplyFormatting(ws);
@@ -213,17 +214,24 @@ public class ExcelExportService
 
     private static string BuildVehicleDescription(BillingEntry entry)
     {
-        return string.IsNullOrWhiteSpace(entry.Make) || string.IsNullOrWhiteSpace(entry.Model)
-            ? entry.Make ?? ""
-            : $"{entry.Make} {entry.Model}";
+        var make = (entry.Make ?? "").Trim();
+        var model = (entry.Model ?? "").Trim();
+        var colour = (entry.Colour ?? "").Trim();
+
+        var makeModel = string.Join(" ", new[] { make, model }.Where(x => !string.IsNullOrWhiteSpace(x)));
+        if (string.IsNullOrWhiteSpace(makeModel))
+            return colour;
+
+        return string.IsNullOrWhiteSpace(colour) ? makeModel : $"{makeModel} - {colour}";
     }
 
     private static string BuildCode(BillingEntry entry)
     {
-        var parts = new List<string>();
-        if (!string.IsNullOrWhiteSpace(entry.Imei)) parts.Add($"IMEI: {entry.Imei}");
-        if (!string.IsNullOrWhiteSpace(entry.Iccid)) parts.Add($"ICCID: {entry.Iccid}");
-        return string.Join(", ", parts);
+        var unit = string.IsNullOrWhiteSpace(entry.TrackingUnitMake) ? "-" : entry.TrackingUnitMake.Trim();
+        var serial = !string.IsNullOrWhiteSpace(entry.SerialNumber)
+            ? entry.SerialNumber.Trim()
+            : (!string.IsNullOrWhiteSpace(entry.Imei) ? entry.Imei.Trim() : "-");
+        return $"{unit} - {serial}";
     }
 
     public void ExportStingList(string filePath)
@@ -233,6 +241,33 @@ public class ExcelExportService
         var entries = db.BillingEntries
             .Where(e => e.ArchivedAt == null && (e.Status == BillingStatus.Active || e.Status == BillingStatus.NotLoaded))
             .OrderByDescending(e => e.ActiveFrom)
+            .Select(e => new StingListExportRow
+            {
+                Company = e.Company,
+                Registration = e.Registration,
+                FleetNumber = e.FleetNumber,
+                Make = e.Make,
+                Model = e.Model,
+                Colour = e.Colour,
+                VinNumber = e.VinNumber,
+                Imei = e.Imei,
+                SerialNumber = e.SerialNumber,
+                Iccid = e.Iccid,
+                Notes = e.Notes,
+                Status = e.Status.ToDisplayString(),
+                ActiveFrom = e.ActiveFrom
+            })
+            .ToList();
+
+        ExportStingList(filePath, entries);
+    }
+
+    public void ExportStingList(string filePath, IReadOnlyCollection<StingListExportRow> entries)
+    {
+        var orderedEntries = entries
+            .OrderByDescending(e => e.ActiveFrom)
+            .ThenBy(e => e.Company)
+            .ThenBy(e => e.Registration)
             .ToList();
 
         using var wb = new XLWorkbook();
@@ -255,7 +290,7 @@ public class ExcelExportService
 
         // Data rows
         int r = 2;
-        foreach (var e in entries)
+        foreach (var e in orderedEntries)
         {
             ws.Cell(r, 1).Value = e.Company;
             ws.Cell(r, 2).Value = e.Registration;
@@ -268,7 +303,7 @@ public class ExcelExportService
             ws.Cell(r, 9).Value = e.SerialNumber ?? "";
             ws.Cell(r, 10).Value = e.Iccid ?? "";
             ws.Cell(r, 11).Value = e.Notes ?? "";
-            ws.Cell(r, 12).Value = e.Status.ToDisplayString();
+            ws.Cell(r, 12).Value = e.Status;
             ws.Cell(r, 13).Value = e.ActiveFrom.ToString("yyyy-MM-dd HH:mm");
             r++;
         }

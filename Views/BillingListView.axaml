@@ -18,16 +18,15 @@
               Height="520"
               DoubleTapped="Grid_DoubleTapped">
       <DataGrid.Columns>
-      <DataGridTextColumn Header="#" Binding="{Binding RowLabel}" Width="0.8*"/>
-        <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2*"/>
-        <DataGridTextColumn Header="Reg" Binding="{Binding Registration}" Width="1.1*"/>
-        <DataGridTextColumn Header="Fleet" Binding="{Binding FleetNumber}" Width="0.9*"/>
-        <DataGridTextColumn Header="Vehicle Description" Binding="{Binding VehicleDescription}" Width="2*"/>
-        <DataGridTextColumn Header="Code" Binding="{Binding Code}" Width="2*"/>
-        <DataGridTextColumn Header="STING" Binding="{Binding StingCountDisplay}" Width="0.8*"/>
-        <DataGridTextColumn Header="STING Plus" Binding="{Binding StingPlusCountDisplay}" Width="0.9*"/>
-        <DataGridTextColumn Header="STING FM" Binding="{Binding StingFmCountDisplay}" Width="0.9*"/>
-        <DataGridTextColumn Header="Live Tracking" Binding="{Binding LiveTrackingCountDisplay}" Width="1*"/>
+        <DataGridTextColumn Header="#" Binding="{Binding RowLabel}" Width="0.6*"/>
+        <DataGridTextColumn Header="COMPANY" Binding="{Binding Company}" Width="2.4*"/>
+        <DataGridTextColumn Header="REG." Binding="{Binding Registration}" Width="1.1*"/>
+        <DataGridTextColumn Header="FLT. NO" Binding="{Binding FleetNumber}" Width="1*"/>
+        <DataGridTextColumn Header="VEHICLE DESCRIPTION" Binding="{Binding VehicleDescription}" Width="2.2*"/>
+        <DataGridTextColumn Header="CODE" Binding="{Binding Code}" Width="2*"/>
+        <DataGridTextColumn Header="" Binding="{Binding PackageCharge}" Width="1.6*"/>
+        <DataGridTextColumn Header="NOTES" Binding="{Binding Notes}" Width="1.8*"/>
+        <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="1.2*"/>
       </DataGrid.Columns>
     </DataGrid>
   </StackPanel>
