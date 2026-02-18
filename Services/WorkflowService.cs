@@ -226,9 +226,21 @@ public class WorkflowService
                 db.SaveChanges();
                 // Log this billing add
                 new AuditService().Log(actor, "BILLING_ADD", "BillingEntry", be.Id, be.Registration, "Created from install job completion");
-                var message = installStatus == BillingStatus.NotLoaded
+
+                var syncResult = await SyncInstallUnitToWialonAsync(job, wialonToken);
+                if (syncResult.ok && be.Status != BillingStatus.Active)
+                {
+                    be.Status = BillingStatus.Active;
+                    db.SaveChanges();
+                }
+
+                var message = be.Status == BillingStatus.NotLoaded
                     ? "Install completed and billing entry created with status Not Loaded."
-                    : "Install completed and billing entry created.";
+                    : "Install completed and billing entry created with status Active.";
+
+                if (syncResult.attempted && !string.IsNullOrWhiteSpace(syncResult.message))
+                    message = $"{message} {syncResult.message}";
+
                 return (true, message);
             }
             catch (DbUpdateException)
@@ -292,6 +304,38 @@ public class WorkflowService
         catch
         {
             return BillingStatus.NotLoaded;
+        }
+        finally
+        {
+            if (wialon is not null)
+            {
+                await wialon.LogoutAndDisposeAsync();
+            }
+        }
+    }
+
+    private static async Task<(bool attempted, bool ok, string message)> SyncInstallUnitToWialonAsync(JobCard job, string? wialonToken)
+    {
+        if (string.IsNullOrWhiteSpace(wialonToken))
+            return (false, false, string.Empty);
+
+        WialonApiService? wialon = null;
+        try
+        {
+            wialon = new WialonApiService(wialonToken.Trim());
+            var connected = await wialon.TestConnectionAsync();
+            if (!connected)
+            {
+                var reason = string.IsNullOrWhiteSpace(wialon.LastError) ? "failed to connect to Wialon." : wialon.LastError;
+                return (true, false, $"Wialon sync failed: {reason}");
+            }
+
+            var syncResult = await wialon.SyncJobCardUnitAsync(job);
+            return (true, syncResult.IsSuccess, syncResult.Message);
+        }
+        catch (Exception ex)
+        {
+            return (true, false, $"Wialon sync failed: {ex.Message}");
         }
         finally
         {

@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using StingListManager.Data.Entities;
 
 namespace StingListManager.Services;
 
@@ -31,10 +32,23 @@ public class WialonReport
     public double? Longitude { get; set; }
 }
 
+public class WialonUnitSyncResult
+{
+    public bool IsSuccess { get; init; }
+    public bool CreatedNewUnit { get; init; }
+    public long? UnitId { get; init; }
+    public string Message { get; init; } = "";
+}
+
 public class WialonApiService
 {
     private const long UnitSearchFlags = 8398087; // Base unit fields + profile fields (pflds)
+    private const int SearchBatchSize = 200;
     private static readonly Regex HardwareUnitTypeRegex = new(@"\b(FM[A-Z])\s*[-]?\s*(\d{2,5})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private sealed record WialonResource(long Id, string Name);
+    private sealed record WialonUser(long Id, string Name, long BillingAccountId);
+    private sealed record WialonUnitLookup(long Id, string Name, long HardwareTypeId, long BillingAccountId);
+
     private readonly string _baseUrl = "https://hst-api.wialon.eu/";
     private readonly string _token;
     private readonly HttpClient _httpClient;
@@ -366,6 +380,815 @@ public class WialonApiService
             return unitType;
 
         return uniqueId;
+    }
+
+    public async Task<WialonUnitSyncResult> SyncJobCardUnitAsync(JobCard jobCard)
+    {
+        if (jobCard is null)
+        {
+            return new WialonUnitSyncResult
+            {
+                IsSuccess = false,
+                Message = "No job card was provided for Wialon sync."
+            };
+        }
+
+        if (string.IsNullOrEmpty(_sessionId))
+        {
+            return new WialonUnitSyncResult
+            {
+                IsSuccess = false,
+                Message = "Not connected to Wialon."
+            };
+        }
+
+        try
+        {
+            var normalizedImei = NormalizeImei(jobCard.Imei);
+            if (string.IsNullOrWhiteSpace(normalizedImei))
+            {
+                return new WialonUnitSyncResult
+                {
+                    IsSuccess = false,
+                    Message = "IMEI is required to create or update a Wialon unit."
+                };
+            }
+
+            var company = PrepareFieldValue(jobCard.Company);
+            if (string.IsNullOrWhiteSpace(company))
+            {
+                return new WialonUnitSyncResult
+                {
+                    IsSuccess = false,
+                    Message = "Company is required to match a Wialon account."
+                };
+            }
+
+            var resources = await GetResourcesInternalAsync();
+            var matchedResource = FindBestResourceMatch(resources, company);
+            if (matchedResource is null)
+            {
+                return new WialonUnitSyncResult
+                {
+                    IsSuccess = false,
+                    Message = $"Could not find Wialon account '{company}'."
+                };
+            }
+
+            var users = await GetUsersInternalAsync();
+            var creatorUser = FindBestUserForResource(users, matchedResource.Id, company)
+                              ?? users.FirstOrDefault(u => u.Id == _userId);
+            if (creatorUser is null || creatorUser.Id <= 0)
+            {
+                return new WialonUnitSyncResult
+                {
+                    IsSuccess = false,
+                    Message = $"Could not find a Wialon user for account '{matchedResource.Name}'."
+                };
+            }
+
+            var existingUnit = await FindUnitByImeiAsync(normalizedImei);
+            if (existingUnit is not null &&
+                existingUnit.BillingAccountId > 0 &&
+                existingUnit.BillingAccountId != matchedResource.Id)
+            {
+                return new WialonUnitSyncResult
+                {
+                    IsSuccess = false,
+                    Message = $"IMEI {normalizedImei} already exists on another account in Wialon."
+                };
+            }
+
+            var hardwareTypeId = await ResolveHardwareTypeIdAsync(jobCard.TrackingUnitMake, existingUnit?.HardwareTypeId ?? 0);
+            if (hardwareTypeId <= 0)
+            {
+                return new WialonUnitSyncResult
+                {
+                    IsSuccess = false,
+                    Message = $"Could not match tracking unit make '{jobCard.TrackingUnitMake}' to a Wialon hardware type."
+                };
+            }
+
+            var unitName = BuildUnitName(jobCard);
+            var createdNewUnit = false;
+            long unitId;
+
+            if (existingUnit is null)
+            {
+                unitId = await CreateUnitAsync(creatorUser.Id, unitName, hardwareTypeId);
+                createdNewUnit = true;
+            }
+            else
+            {
+                unitId = existingUnit.Id;
+                await TryUpdateUnitNameAsync(unitId, unitName);
+            }
+
+            await UpdateUnitIdentityAsync(unitId, hardwareTypeId, normalizedImei);
+            await UpdateProfileFieldsAsync(unitId, jobCard);
+            await UpsertCustomFieldsAsync(unitId, jobCard);
+
+            var action = createdNewUnit ? "created" : "updated";
+            return new WialonUnitSyncResult
+            {
+                IsSuccess = true,
+                CreatedNewUnit = createdNewUnit,
+                UnitId = unitId,
+                Message = $"Wialon unit {action} under account '{matchedResource.Name}'."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new WialonUnitSyncResult
+            {
+                IsSuccess = false,
+                Message = $"Wialon sync failed: {ex.Message}"
+            };
+        }
+    }
+
+    private async Task<JsonElement> ExecuteApiAsync(string service, object parameters)
+    {
+        if (string.IsNullOrEmpty(_sessionId))
+            throw new Exception("Not connected to Wialon. Please connect first.");
+
+        var paramsJson = JsonSerializer.Serialize(parameters);
+        var url = $"{_baseUrl}wialon/ajax.html?svc={service}&params={Uri.EscapeDataString(paramsJson)}&sid={_sessionId}";
+        var response = await _httpClient.GetAsync(url);
+        var responseContent = await response.Content.ReadAsStringAsync();
+
+        if (!response.IsSuccessStatusCode)
+            throw new Exception($"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}");
+
+        if (string.IsNullOrWhiteSpace(responseContent))
+            throw new Exception($"Empty response from Wialon for {service}.");
+
+        using var doc = JsonDocument.Parse(responseContent);
+        var root = doc.RootElement.Clone();
+
+        if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("error", out var errorElement))
+        {
+            var errorText = errorElement.ValueKind == JsonValueKind.String
+                ? errorElement.GetString()
+                : errorElement.ToString();
+            throw new Exception($"{service} returned error {errorText}");
+        }
+
+        return root;
+    }
+
+    private async Task<JsonElement> SearchItemsAsync(
+        string itemsType,
+        string propName,
+        string propValueMask,
+        long flags,
+        int from = 0,
+        int to = SearchBatchSize - 1)
+    {
+        var searchParams = new
+        {
+            spec = new
+            {
+                itemsType,
+                propName,
+                propValueMask,
+                sortType = "sys_name"
+            },
+            force = 1,
+            flags,
+            from,
+            to
+        };
+
+        return await ExecuteApiAsync("core/search_items", searchParams);
+    }
+
+    private static IEnumerable<JsonElement> EnumerateItems(JsonElement searchResult)
+    {
+        if (searchResult.ValueKind != JsonValueKind.Object)
+            yield break;
+
+        if (!searchResult.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+            yield break;
+
+        foreach (var item in items.EnumerateArray())
+            yield return item;
+    }
+
+    private async Task<List<WialonResource>> GetResourcesInternalAsync()
+    {
+        var resources = new List<WialonResource>();
+        var from = 0;
+
+        while (true)
+        {
+            var searchResult = await SearchItemsAsync(
+                itemsType: "avl_resource",
+                propName: "sys_name",
+                propValueMask: "*",
+                flags: 1,
+                from: from,
+                to: from + SearchBatchSize - 1);
+
+            var batch = EnumerateItems(searchResult).ToList();
+            foreach (var item in batch)
+            {
+                if (!item.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var id) || id <= 0)
+                    continue;
+                if (!item.TryGetProperty("nm", out var nameElement) || nameElement.ValueKind != JsonValueKind.String)
+                    continue;
+
+                var name = PrepareFieldValue(nameElement.GetString());
+                if (!string.IsNullOrWhiteSpace(name))
+                    resources.Add(new WialonResource(id, name));
+            }
+
+            var totalCount = searchResult.TryGetProperty("totalItemsCount", out var totalElement) && totalElement.TryGetInt32(out var total)
+                ? total
+                : 0;
+
+            if (batch.Count == 0)
+                break;
+
+            from += batch.Count;
+
+            if (totalCount > 0 && from >= totalCount)
+                break;
+
+            if (batch.Count < SearchBatchSize)
+                break;
+        }
+
+        return resources;
+    }
+
+    private async Task<List<WialonUser>> GetUsersInternalAsync()
+    {
+        var users = new List<WialonUser>();
+        var from = 0;
+
+        while (true)
+        {
+            var searchResult = await SearchItemsAsync(
+                itemsType: "user",
+                propName: "sys_name",
+                propValueMask: "*",
+                flags: 7,
+                from: from,
+                to: from + SearchBatchSize - 1);
+
+            var batch = EnumerateItems(searchResult).ToList();
+            foreach (var item in batch)
+            {
+                if (!item.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var id) || id <= 0)
+                    continue;
+                if (!item.TryGetProperty("nm", out var nameElement) || nameElement.ValueKind != JsonValueKind.String)
+                    continue;
+
+                var name = PrepareFieldValue(nameElement.GetString()) ?? $"User {id}";
+                var billingAccountId = item.TryGetProperty("bact", out var bactElement) && bactElement.TryGetInt64(out var bact)
+                    ? bact
+                    : 0;
+
+                users.Add(new WialonUser(id, name, billingAccountId));
+            }
+
+            var totalCount = searchResult.TryGetProperty("totalItemsCount", out var totalElement) && totalElement.TryGetInt32(out var total)
+                ? total
+                : 0;
+
+            if (batch.Count == 0)
+                break;
+
+            from += batch.Count;
+
+            if (totalCount > 0 && from >= totalCount)
+                break;
+
+            if (batch.Count < SearchBatchSize)
+                break;
+        }
+
+        return users;
+    }
+
+    private static WialonResource? FindBestResourceMatch(IEnumerable<WialonResource> resources, string companyName)
+    {
+        var company = PrepareFieldValue(companyName);
+        if (string.IsNullOrWhiteSpace(company))
+            return null;
+
+        var list = resources.ToList();
+        if (list.Count == 0)
+            return null;
+
+        var exact = list.FirstOrDefault(r => string.Equals(r.Name, company, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+            return exact;
+
+        var normalizedCompany = NormalizeComparableText(company);
+        exact = list.FirstOrDefault(r => NormalizeComparableText(r.Name) == normalizedCompany);
+        if (exact is not null)
+            return exact;
+
+        var contains = list.FirstOrDefault(r =>
+            NormalizeComparableText(r.Name).Contains(normalizedCompany, StringComparison.OrdinalIgnoreCase)
+            || normalizedCompany.Contains(NormalizeComparableText(r.Name), StringComparison.OrdinalIgnoreCase));
+        return contains;
+    }
+
+    private static WialonUser? FindBestUserForResource(IEnumerable<WialonUser> users, long resourceId, string companyName)
+    {
+        var candidates = users.Where(u => u.BillingAccountId == resourceId).ToList();
+        if (candidates.Count == 0)
+            return null;
+
+        var exact = candidates.FirstOrDefault(u => string.Equals(u.Name, companyName, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+            return exact;
+
+        var normalizedCompany = NormalizeComparableText(companyName);
+        exact = candidates.FirstOrDefault(u => NormalizeComparableText(u.Name) == normalizedCompany);
+        if (exact is not null)
+            return exact;
+
+        return candidates[0];
+    }
+
+    private static string NormalizeComparableText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value
+            .ToLowerInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
+    }
+
+    private static string BuildUnitName(JobCard jobCard)
+    {
+        var registration = PrepareFieldValue(jobCard.Registration);
+        var fleetNumber = PrepareFieldValue(jobCard.FleetNumber);
+        var company = PrepareFieldValue(jobCard.Company);
+        var imei = NormalizeImei(jobCard.Imei);
+
+        var name = registration;
+        if (string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(fleetNumber))
+            name = fleetNumber;
+        if (string.IsNullOrWhiteSpace(name) && !string.IsNullOrWhiteSpace(company) && !string.IsNullOrWhiteSpace(imei))
+            name = $"{company} {imei}";
+        if (string.IsNullOrWhiteSpace(name))
+            name = !string.IsNullOrWhiteSpace(imei) ? $"Unit {imei}" : "New Unit";
+
+        if (!string.IsNullOrWhiteSpace(fleetNumber) && !string.Equals(name, fleetNumber, StringComparison.OrdinalIgnoreCase))
+            name = $"{name} ({fleetNumber})";
+
+        name = name.Trim();
+        if (name.Length < 4)
+            name = $"{name} unit";
+        if (name.Length > 50)
+            name = name.Substring(0, 50).Trim();
+
+        return name;
+    }
+
+    private async Task<WialonUnitLookup?> FindUnitByImeiAsync(string normalizedImei)
+    {
+        var masks = new[]
+        {
+            normalizedImei,
+            $"*{normalizedImei}*"
+        };
+
+        foreach (var mask in masks)
+        {
+            var from = 0;
+            while (true)
+            {
+                var searchResult = await SearchItemsAsync(
+                    itemsType: "avl_unit",
+                    propName: "sys_unique_id",
+                    propValueMask: mask,
+                    flags: UnitSearchFlags,
+                    from: from,
+                    to: from + SearchBatchSize - 1);
+
+                var batch = EnumerateItems(searchResult).ToList();
+                foreach (var item in batch)
+                {
+                    var candidate = ParseUnitLookup(item);
+                    if (candidate is null)
+                        continue;
+
+                    var candidateImei = ExtractUniqueId(item, (int)candidate.Id);
+                    if (IsImeiMatch(candidateImei, normalizedImei))
+                        return candidate;
+                }
+
+                var totalCount = searchResult.TryGetProperty("totalItemsCount", out var totalElement) && totalElement.TryGetInt32(out var total)
+                    ? total
+                    : 0;
+
+                if (batch.Count == 0)
+                    break;
+
+                from += batch.Count;
+
+                if (totalCount > 0 && from >= totalCount)
+                    break;
+
+                if (batch.Count < SearchBatchSize)
+                    break;
+            }
+        }
+
+        var scanLimit = 2000;
+        for (var from = 0; from < scanLimit; from += SearchBatchSize)
+        {
+            var searchResult = await SearchItemsAsync(
+                itemsType: "avl_unit",
+                propName: "sys_name",
+                propValueMask: "*",
+                flags: UnitSearchFlags,
+                from: from,
+                to: from + SearchBatchSize - 1);
+
+            var batch = EnumerateItems(searchResult).ToList();
+            foreach (var item in batch)
+            {
+                var candidate = ParseUnitLookup(item);
+                if (candidate is null)
+                    continue;
+
+                var candidateImei = ExtractUniqueId(item, (int)candidate.Id);
+                if (IsImeiMatch(candidateImei, normalizedImei))
+                    return candidate;
+            }
+
+            if (batch.Count < SearchBatchSize)
+                break;
+        }
+
+        return null;
+    }
+
+    private static WialonUnitLookup? ParseUnitLookup(JsonElement item)
+    {
+        if (!item.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var id) || id <= 0)
+            return null;
+
+        var name = item.TryGetProperty("nm", out var nameElement) && nameElement.ValueKind == JsonValueKind.String
+            ? (nameElement.GetString() ?? $"Unit {id}")
+            : $"Unit {id}";
+
+        var hardwareTypeId = item.TryGetProperty("hw", out var hwElement) && hwElement.TryGetInt64(out var hw)
+            ? hw
+            : 0;
+
+        var billingAccountId = item.TryGetProperty("bact", out var bactElement) && bactElement.TryGetInt64(out var bact)
+            ? bact
+            : 0;
+
+        return new WialonUnitLookup(id, name, hardwareTypeId, billingAccountId);
+    }
+
+    private async Task<long> CreateUnitAsync(long creatorUserId, string unitName, long hardwareTypeId)
+    {
+        var result = await ExecuteApiAsync("core/create_unit", new
+        {
+            creatorId = creatorUserId,
+            name = unitName,
+            hwTypeId = hardwareTypeId,
+            dataFlags = UnitSearchFlags
+        });
+
+        if (result.ValueKind == JsonValueKind.Object)
+        {
+            if (result.TryGetProperty("item", out var itemElement) &&
+                itemElement.ValueKind == JsonValueKind.Object &&
+                itemElement.TryGetProperty("id", out var itemIdElement) &&
+                itemIdElement.TryGetInt64(out var itemId) &&
+                itemId > 0)
+            {
+                return itemId;
+            }
+
+            if (result.TryGetProperty("id", out var idElement) &&
+                idElement.TryGetInt64(out var id) &&
+                id > 0)
+            {
+                return id;
+            }
+        }
+
+        throw new Exception("Wialon did not return a valid unit ID after creation.");
+    }
+
+    private async Task UpdateUnitIdentityAsync(long unitId, long hardwareTypeId, string uniqueId)
+    {
+        await ExecuteApiAsync("unit/update_device_type", new
+        {
+            itemId = unitId,
+            deviceTypeId = hardwareTypeId,
+            uniqueId
+        });
+    }
+
+    private async Task TryUpdateUnitNameAsync(long unitId, string unitName)
+    {
+        if (string.IsNullOrWhiteSpace(unitName))
+            return;
+
+        try
+        {
+            await ExecuteApiAsync("item/update_name", new
+            {
+                itemId = unitId,
+                name = unitName
+            });
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to update unit name for {unitId}: {ex.Message}");
+        }
+    }
+
+    private async Task<long> ResolveHardwareTypeIdAsync(string? trackingUnitMake, long fallbackHardwareTypeId)
+    {
+        var hardwareTypes = await GetHardwareTypesMapAsync();
+        if (hardwareTypes.Count == 0)
+            return fallbackHardwareTypeId;
+
+        var fromTrackingMake = FindHardwareTypeByName(hardwareTypes, trackingUnitMake);
+        if (fromTrackingMake > 0)
+            return fromTrackingMake;
+
+        if (fallbackHardwareTypeId > 0 && hardwareTypes.ContainsKey(fallbackHardwareTypeId))
+            return fallbackHardwareTypeId;
+
+        return 0;
+    }
+
+    private static long FindHardwareTypeByName(IReadOnlyDictionary<long, string> hardwareTypes, string? trackingUnitMake)
+    {
+        var value = PrepareFieldValue(trackingUnitMake);
+        if (string.IsNullOrWhiteSpace(value))
+            return 0;
+
+        var normalizedInput = NormalizeComparableText(value);
+        if (string.IsNullOrWhiteSpace(normalizedInput))
+            return 0;
+
+        foreach (var pair in hardwareTypes)
+        {
+            if (NormalizeComparableText(pair.Value) == normalizedInput)
+                return pair.Key;
+        }
+
+        foreach (var pair in hardwareTypes)
+        {
+            var normalizedCandidate = NormalizeComparableText(pair.Value);
+            if (normalizedCandidate.Contains(normalizedInput, StringComparison.OrdinalIgnoreCase) ||
+                normalizedInput.Contains(normalizedCandidate, StringComparison.OrdinalIgnoreCase))
+            {
+                return pair.Key;
+            }
+        }
+
+        return 0;
+    }
+
+    private async Task UpdateProfileFieldsAsync(long unitId, JobCard jobCard)
+    {
+        var fields = new Dictionary<string, string?>
+        {
+            ["registration_plate"] = PrepareFieldValue(jobCard.Registration),
+            ["brand"] = PrepareFieldValue(jobCard.Make),
+            ["model"] = PrepareFieldValue(jobCard.Model),
+            ["vin"] = PrepareFieldValue(jobCard.VinNumber),
+            ["color"] = PrepareFieldValue(jobCard.Colour),
+            ["vehicle_type"] = PrepareFieldValue(jobCard.Company)
+        };
+
+        foreach (var pair in fields)
+        {
+            if (string.IsNullOrWhiteSpace(pair.Value))
+                continue;
+
+            try
+            {
+                await ExecuteApiAsync("item/update_profile_field", new
+                {
+                    itemId = unitId,
+                    n = pair.Key,
+                    v = pair.Value
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to update profile field {pair.Key} for unit {unitId}: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task UpsertCustomFieldsAsync(long unitId, JobCard jobCard)
+    {
+        Dictionary<string, long> existingCustomFieldIds;
+        try
+        {
+            existingCustomFieldIds = await GetCustomFieldIdsByNameAsync(unitId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to load custom fields for unit {unitId}: {ex.Message}");
+            existingCustomFieldIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        var customFields = new Dictionary<string, string?>
+        {
+            ["Client"] = PrepareFieldValue(jobCard.Company),
+            ["Registration & Fleet"] = BuildRegistrationFleetValue(jobCard.Registration, jobCard.FleetNumber),
+            ["Make & Model"] = PrepareFieldValue($"{PrepareFieldValue(jobCard.Make)} {PrepareFieldValue(jobCard.Model)}".Trim()),
+            ["Tracking Unit Make"] = PrepareFieldValue(jobCard.TrackingUnitMake),
+            ["IMEI"] = NormalizeImei(jobCard.Imei),
+            ["Serial Number"] = PrepareFieldValue(jobCard.SerialNumber),
+            ["ICCID"] = PrepareFieldValue(jobCard.Iccid),
+            ["SIM Number"] = PrepareFieldValue(jobCard.SimNumber),
+            ["Notes"] = PrepareFieldValue(jobCard.Notes)
+        };
+
+        foreach (var pair in customFields)
+        {
+            if (string.IsNullOrWhiteSpace(pair.Value))
+                continue;
+
+            try
+            {
+                var normalizedFieldName = NormalizeFieldName(pair.Key);
+                existingCustomFieldIds.TryGetValue(normalizedFieldName, out var fieldId);
+                var savedFieldId = await UpsertCustomFieldAsync(unitId, fieldId, pair.Key, pair.Value);
+                if (savedFieldId.HasValue && savedFieldId.Value > 0)
+                    existingCustomFieldIds[normalizedFieldName] = savedFieldId.Value;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to upsert custom field '{pair.Key}' for unit {unitId}: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task<Dictionary<string, long>> GetCustomFieldIdsByNameAsync(long unitId)
+    {
+        var customFieldIds = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+
+        var searchResult = await SearchItemsAsync(
+            itemsType: "avl_unit",
+            propName: "sys_id",
+            propValueMask: unitId.ToString(CultureInfo.InvariantCulture),
+            flags: UnitSearchFlags,
+            from: 0,
+            to: 0);
+
+        foreach (var item in EnumerateItems(searchResult))
+        {
+            if (!item.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var id) || id != unitId)
+                continue;
+
+            if (!item.TryGetProperty("flds", out var fieldsElement) || fieldsElement.ValueKind != JsonValueKind.Object)
+                break;
+
+            foreach (var fieldEntry in fieldsElement.EnumerateObject())
+            {
+                var field = fieldEntry.Value;
+                if (!field.TryGetProperty("id", out var fieldIdElement) || !fieldIdElement.TryGetInt64(out var fieldId) || fieldId <= 0)
+                    continue;
+                if (!field.TryGetProperty("n", out var fieldNameElement) || fieldNameElement.ValueKind != JsonValueKind.String)
+                    continue;
+
+                var fieldName = fieldNameElement.GetString();
+                if (string.IsNullOrWhiteSpace(fieldName))
+                    continue;
+
+                customFieldIds[NormalizeFieldName(fieldName)] = fieldId;
+            }
+
+            break;
+        }
+
+        return customFieldIds;
+    }
+
+    private async Task<long?> UpsertCustomFieldAsync(long unitId, long fieldId, string fieldName, string fieldValue)
+    {
+        if (fieldId > 0)
+        {
+            try
+            {
+                await ExecuteApiAsync("item/update_custom_field", new
+                {
+                    itemId = unitId,
+                    id = fieldId,
+                    callMode = "update",
+                    n = fieldName,
+                    v = fieldValue
+                });
+                return fieldId;
+            }
+            catch
+            {
+                await ExecuteApiAsync("item/update_custom_field", new
+                {
+                    itemId = unitId,
+                    id = fieldId,
+                    callMode = 0,
+                    n = fieldName,
+                    v = fieldValue
+                });
+                return fieldId;
+            }
+        }
+
+        try
+        {
+            var createResult = await ExecuteApiAsync("item/update_custom_field", new
+            {
+                itemId = unitId,
+                id = 0,
+                callMode = "create",
+                n = fieldName,
+                v = fieldValue
+            });
+            return ExtractCustomFieldId(createResult);
+        }
+        catch
+        {
+            var createResult = await ExecuteApiAsync("item/update_custom_field", new
+            {
+                itemId = unitId,
+                id = 0,
+                callMode = 1,
+                n = fieldName,
+                v = fieldValue
+            });
+            return ExtractCustomFieldId(createResult);
+        }
+    }
+
+    private static long? ExtractCustomFieldId(JsonElement response)
+    {
+        if (response.ValueKind == JsonValueKind.Number && response.TryGetInt64(out var numericId) && numericId > 0)
+            return numericId;
+
+        if (response.ValueKind == JsonValueKind.Object &&
+            response.TryGetProperty("id", out var idElement) &&
+            idElement.TryGetInt64(out var idFromObject) &&
+            idFromObject > 0)
+        {
+            return idFromObject;
+        }
+
+        if (response.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entry in response.EnumerateArray())
+            {
+                if (entry.ValueKind == JsonValueKind.Number && entry.TryGetInt64(out var idFromArray) && idFromArray > 0)
+                    return idFromArray;
+
+                if (entry.ValueKind == JsonValueKind.Object &&
+                    entry.TryGetProperty("id", out var idInEntry) &&
+                    idInEntry.TryGetInt64(out var objectId) &&
+                    objectId > 0)
+                {
+                    return objectId;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string? PrepareFieldValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var trimmed = value.Trim();
+        return string.IsNullOrWhiteSpace(trimmed) ? null : trimmed;
+    }
+
+    private static string? BuildRegistrationFleetValue(string? registration, string? fleetNumber)
+    {
+        var registrationValue = PrepareFieldValue(registration);
+        var fleetValue = PrepareFieldValue(fleetNumber);
+
+        if (string.IsNullOrWhiteSpace(registrationValue) && string.IsNullOrWhiteSpace(fleetValue))
+            return null;
+
+        if (!string.IsNullOrWhiteSpace(registrationValue) && !string.IsNullOrWhiteSpace(fleetValue))
+            return $"{registrationValue} - ({fleetValue})";
+
+        return registrationValue ?? fleetValue;
     }
 
     public async Task<bool> TestConnectionAsync()
