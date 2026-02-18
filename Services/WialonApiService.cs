@@ -44,6 +44,22 @@ public class WialonApiService
 {
     private const long UnitSearchFlags = 8398087; // Base unit fields + profile fields (pflds)
     private const int SearchBatchSize = 200;
+    // Wialon docs: user/update_item_access
+    private const long FullItemAccessMask = 0x0FFFFFFFFFFFFFFFL;
+    // Read-only mask: common view rights + unit view rights (connectivity, service intervals, commands).
+    private const long ReadOnlyUnitAccessMask =
+        0x0000000000000001L |
+        0x0000000000000002L |
+        0x0000000000000020L |
+        0x0000000000000200L |
+        0x0000000000001000L |
+        0x0000000000004000L |
+        0x0000000004000000L |
+        0x0000000010000000L |
+        0x0000000400000000L;
+
+    private static readonly string[] FullAccessAccounts = { "Executive Account", "Capital Air" };
+    private static readonly string[] ReadOnlyAccounts = { "Recovery Controller", "Sindi Mntambo" };
     private static readonly Regex HardwareUnitTypeRegex = new(@"\b(FM[A-Z])\s*[-]?\s*(\d{2,5})\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private sealed record WialonResource(long Id, string Name);
     private sealed record WialonUser(long Id, string Name, long BillingAccountId);
@@ -487,6 +503,7 @@ public class WialonApiService
             await UpdateUnitIdentityAsync(unitId, hardwareTypeId, normalizedImei);
             await UpdateProfileFieldsAsync(unitId, jobCard);
             await UpsertCustomFieldsAsync(unitId, jobCard);
+            await ApplyDefaultUnitAccessPoliciesAsync(unitId, users, resources);
 
             var action = createdNewUnit ? "created" : "updated";
             return new WialonUnitSyncResult
@@ -724,6 +741,77 @@ public class WialonApiService
             .ToLowerInvariant()
             .Where(char.IsLetterOrDigit)
             .ToArray());
+    }
+
+    private async Task ApplyDefaultUnitAccessPoliciesAsync(
+        long unitId,
+        IReadOnlyCollection<WialonUser> users,
+        IReadOnlyCollection<WialonResource> resources)
+    {
+        var missingAccounts = new List<string>();
+        var policies = new List<(string AccountName, long AccessMask)>
+        {
+            (FullAccessAccounts[0], FullItemAccessMask),
+            (FullAccessAccounts[1], FullItemAccessMask),
+            (ReadOnlyAccounts[0], ReadOnlyUnitAccessMask),
+            (ReadOnlyAccounts[1], ReadOnlyUnitAccessMask)
+        };
+
+        foreach (var policy in policies)
+        {
+            var user = FindUserForAccessPolicy(users, resources, policy.AccountName);
+            if (user is null)
+            {
+                missingAccounts.Add(policy.AccountName);
+                continue;
+            }
+
+            await ExecuteApiAsync("user/update_item_access", new
+            {
+                userId = user.Id,
+                itemId = unitId,
+                accessMask = policy.AccessMask
+            });
+        }
+
+        if (missingAccounts.Count > 0)
+        {
+            throw new Exception($"Could not find Wialon users/accounts for access policy: {string.Join(", ", missingAccounts)}.");
+        }
+    }
+
+    private static WialonUser? FindUserForAccessPolicy(
+        IEnumerable<WialonUser> users,
+        IEnumerable<WialonResource> resources,
+        string accountOrUserName)
+    {
+        var userList = users.ToList();
+        if (userList.Count == 0 || string.IsNullOrWhiteSpace(accountOrUserName))
+            return null;
+
+        var exactUser = userList.FirstOrDefault(u => string.Equals(u.Name, accountOrUserName, StringComparison.OrdinalIgnoreCase));
+        if (exactUser is not null)
+            return exactUser;
+
+        var normalizedName = NormalizeComparableText(accountOrUserName);
+        exactUser = userList.FirstOrDefault(u => NormalizeComparableText(u.Name) == normalizedName);
+        if (exactUser is not null)
+            return exactUser;
+
+        var matchedResource = FindBestResourceMatch(resources, accountOrUserName);
+        if (matchedResource is not null)
+        {
+            var usersInResource = userList.Where(u => u.BillingAccountId == matchedResource.Id).ToList();
+            if (usersInResource.Count > 0)
+            {
+                return usersInResource.FirstOrDefault(u => NormalizeComparableText(u.Name) == normalizedName)
+                    ?? usersInResource.FirstOrDefault();
+            }
+        }
+
+        return userList.FirstOrDefault(u =>
+            NormalizeComparableText(u.Name).Contains(normalizedName, StringComparison.OrdinalIgnoreCase)
+            || normalizedName.Contains(NormalizeComparableText(u.Name), StringComparison.OrdinalIgnoreCase));
     }
 
     private static string BuildUnitName(JobCard jobCard)
@@ -1007,15 +1095,11 @@ public class WialonApiService
 
         var customFields = new Dictionary<string, string?>
         {
-            ["Client"] = PrepareFieldValue(jobCard.Company),
-            ["Registration & Fleet"] = BuildRegistrationFleetValue(jobCard.Registration, jobCard.FleetNumber),
-            ["Make & Model"] = PrepareFieldValue($"{PrepareFieldValue(jobCard.Make)} {PrepareFieldValue(jobCard.Model)}".Trim()),
-            ["Tracking Unit Make"] = PrepareFieldValue(jobCard.TrackingUnitMake),
-            ["IMEI"] = NormalizeImei(jobCard.Imei),
-            ["Serial Number"] = PrepareFieldValue(jobCard.SerialNumber),
-            ["ICCID"] = PrepareFieldValue(jobCard.Iccid),
-            ["SIM Number"] = PrepareFieldValue(jobCard.SimNumber),
-            ["Notes"] = PrepareFieldValue(jobCard.Notes)
+            ["Registration"] = PrepareFieldValue(jobCard.Registration),
+            ["VIN"] = PrepareFieldValue(jobCard.VinNumber),
+            ["Make"] = PrepareFieldValue(jobCard.Make),
+            ["Model"] = PrepareFieldValue(jobCard.Model),
+            ["Colour"] = PrepareFieldValue(jobCard.Colour)
         };
 
         foreach (var pair in customFields)
