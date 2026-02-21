@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -163,6 +164,54 @@ public partial class SettingsViewModel : ViewModelBase
             _appState.SaveSettings();
             OnPropertyChanged();
         }
+    }
+
+    public bool TechnicianApiEnabled
+    {
+        get => _appState.Settings.TechnicianApiEnabled;
+        set
+        {
+            _appState.Settings.TechnicianApiEnabled = value;
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
+    public int TechnicianApiPort
+    {
+        get => _appState.Settings.TechnicianApiPort <= 0 ? 5075 : _appState.Settings.TechnicianApiPort;
+        set
+        {
+            var port = value is < 1024 or > 65535 ? 5075 : value;
+            _appState.Settings.TechnicianApiPort = port;
+            _appState.SaveSettings();
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(TechnicianPortalUrls));
+        }
+    }
+
+    public string TechnicianApiKey
+    {
+        get => _appState.Settings.TechnicianApiKey ?? string.Empty;
+        set
+        {
+            _appState.Settings.TechnicianApiKey = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
+    public string TechnicianPortalUrls => string.Join(Environment.NewLine, TechnicianApiHostService.GetSuggestedPortalUrls(TechnicianApiPort));
+
+    [RelayCommand]
+    private void GenerateTechnicianApiKey()
+    {
+        _appState.Settings.TechnicianApiKey = Convert.ToBase64String(Guid.NewGuid().ToByteArray())
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+        _appState.SaveSettings();
+        OnPropertyChanged(nameof(TechnicianApiKey));
     }
 
     [RelayCommand]

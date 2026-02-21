@@ -13,7 +13,14 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         DataContext = new MainWindowViewModel(this);
+        Closed += MainWindow_Closed;
         CollapseSidebar();
+    }
+
+    private void MainWindow_Closed(object? sender, System.EventArgs e)
+    {
+        if (DataContext is System.IDisposable disposable)
+            disposable.Dispose();
     }
 
     private void Sidebar_PointerEntered(object? sender, PointerEventArgs e)

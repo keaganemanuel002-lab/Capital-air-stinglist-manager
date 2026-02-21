@@ -134,6 +134,49 @@
           </StackPanel>
         </Border>
 
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Field Technician Mobile Access" Classes="h2"/>
+            <CheckBox Content="Enable Technician API and mobile portal"
+                      IsChecked="{Binding TechnicianApiEnabled}"/>
+
+            <Grid ColumnDefinitions="220,*" ColumnSpacing="12">
+              <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="API Port" Classes="muted"/>
+                <NumericUpDown Minimum="1024"
+                               Maximum="65535"
+                               Value="{Binding TechnicianApiPort}"/>
+              </StackPanel>
+
+              <StackPanel Grid.Column="1" Spacing="4">
+                <TextBlock Text="Technician API Key" Classes="muted"/>
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                  <TextBox Grid.Column="0"
+                           Text="{Binding TechnicianApiKey}"
+                           PasswordChar="*"
+                           Watermark="Set technician API key"/>
+                  <Button Grid.Column="1"
+                          Content="Generate"
+                          Command="{Binding GenerateTechnicianApiKeyCommand}"/>
+                </Grid>
+              </StackPanel>
+            </Grid>
+
+            <TextBlock Text="Portal URLs (use on Android browser, same Wi-Fi/LAN):" Classes="muted"/>
+            <TextBox Text="{Binding TechnicianPortalUrls}"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     MinHeight="58"/>
+            <TextBlock Text="Open one URL on the phone, enter API key, then upload job card photos."
+                       Classes="muted"
+                       FontSize="11"/>
+            <TextBlock Text="Restart app after changing this section."
+                       Classes="muted"
+                       FontSize="11"/>
+          </StackPanel>
+        </Border>
+
         <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
           <Button Content="Save Settings" MinWidth="150" Command="{Binding SaveCommand}" Classes="primary"/>
           <TextBlock Text="Settings are auto-saved when values change." Classes="muted" VerticalAlignment="Center"/>

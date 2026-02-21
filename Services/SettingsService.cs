@@ -33,6 +33,9 @@ public class AppSettings
     public string? WialonClientProvisionApiToken { get; set; } = null;
     public DateTime? LastWialonClientsSyncUtc { get; set; } = null;
     public List<string> LastWialonClientNames { get; set; } = new();
+    public bool TechnicianApiEnabled { get; set; } = true;
+    public int TechnicianApiPort { get; set; } = 5075;
+    public string? TechnicianApiKey { get; set; } = null;
     public List<FilterPreset> StingPresets { get; set; } = new();
 }
 

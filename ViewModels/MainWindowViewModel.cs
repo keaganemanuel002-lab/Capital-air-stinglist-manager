@@ -13,10 +13,11 @@ using StingListManager.ViewModels;
 
 namespace StingListManager.ViewModels;
 
-public partial class MainWindowViewModel : ViewModelBase
+public partial class MainWindowViewModel : ViewModelBase, IDisposable
 {
     private readonly Window _window;
     private readonly AppState _appState;
+    private readonly TechnicianApiHostService _technicianApiHost = TechnicianApiHostService.Instance;
     private bool _isShowingErrorPopup;
     private string? _lastErrorPopupMessage;
     private DateTime _lastErrorPopupUtc = DateTime.MinValue;
@@ -51,6 +52,36 @@ public partial class MainWindowViewModel : ViewModelBase
         };
 
         CurrentPage = new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult);
+        _ = StartTechnicianApiAsync();
+    }
+
+    public void Dispose()
+    {
+        try
+        {
+            _technicianApiHost.StopAsync().GetAwaiter().GetResult();
+        }
+        catch
+        {
+            // Ignore shutdown failures during app close.
+        }
+    }
+
+    private async Task StartTechnicianApiAsync()
+    {
+        var (started, message) = await _technicianApiHost.StartAsync(_appState.Settings);
+        if (!started)
+        {
+            if (_appState.Settings.TechnicianApiEnabled)
+                _appState.SetStatus(message, true);
+            return;
+        }
+
+        var preferredUrl = TechnicianApiHostService.GetSuggestedPortalUrls(_appState.Settings.TechnicianApiPort)
+            .FirstOrDefault(url => !url.Contains("localhost", StringComparison.OrdinalIgnoreCase))
+            ?? $"http://localhost:{_appState.Settings.TechnicianApiPort}/technician";
+
+        _appState.SetStatus($"Technician portal ready: {preferredUrl}");
     }
 
     private async Task ShowErrorPopupAsync(string message)
