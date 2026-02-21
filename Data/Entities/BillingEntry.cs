@@ -51,4 +51,7 @@ public class BillingEntry
 
     // Normalized fields for search
     public string RegistrationNorm { get; set; } = ""; // uppercase trimmed
+    public string ImeiNorm { get; set; } = ""; // digits-only
+    public string IccidNorm { get; set; } = ""; // digits-only
+    public string SerialNumberNorm { get; set; } = ""; // uppercase trimmed
 }

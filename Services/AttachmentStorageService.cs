@@ -9,9 +9,14 @@ namespace StingListManager.Services;
 
 public class AttachmentStorageService
 {
-    public string EnsureOwnerFolder(AttachmentOwnerType ownerType, int ownerId)
+    private static string EnsureTargetFolder(AttachmentOwnerType ownerType, int ownerId, AttachmentKind kind)
     {
         Paths.Ensure();
+
+        // Generated quote PDFs are centralized in the managed Generated\Quotes folder.
+        if (kind == AttachmentKind.QuotePdf)
+            return Paths.GeneratedQuotesDir;
+
         var owner = ownerType == AttachmentOwnerType.Quote ? "quote" : "jobcard";
         var path = Path.Combine(Paths.AttachmentsDir, owner, ownerId.ToString());
         Directory.CreateDirectory(path);
@@ -24,14 +29,15 @@ public class AttachmentStorageService
         int ownerId,
         AttachmentKind kind,
         string sourceFilePath,
-        string? notes = null)
+        string? notes = null,
+        string? preferredFileName = null)
     {
-        var folder = EnsureOwnerFolder(ownerType, ownerId);
+        var folder = EnsureTargetFolder(ownerType, ownerId, kind);
 
-        // avoid overwriting: prefix with timestamp
-        var safeName = Path.GetFileName(sourceFilePath);
-        var storedName = $"{DateTime.UtcNow:yyyyMMddHHmmss}_{safeName}";
-        var destPath = Path.Combine(folder, storedName);
+        var sourceName = Path.GetFileName(sourceFilePath);
+        var requestedName = string.IsNullOrWhiteSpace(preferredFileName) ? sourceName : preferredFileName;
+        var safeName = SanitizeFileName(Path.GetFileName(requestedName));
+        var destPath = BuildUniqueFilePath(folder, safeName);
 
         File.Copy(sourceFilePath, destPath, overwrite: false);
 
@@ -41,7 +47,7 @@ public class AttachmentStorageService
             OwnerType = ownerType,
             OwnerId = ownerId,
             Kind = kind,
-            FileName = safeName,
+            FileName = Path.GetFileName(destPath),
             StoredPath = destPath,
             Notes = notes,
             AddedBy = actor
@@ -50,6 +56,33 @@ public class AttachmentStorageService
         db.Attachments.Add(att);
         db.SaveChanges();
         return att;
+    }
+
+    public static string BuildUniqueFilePath(string folder, string fileName)
+    {
+        Directory.CreateDirectory(folder);
+
+        var baseName = Path.GetFileNameWithoutExtension(fileName);
+        var extension = Path.GetExtension(fileName);
+        var candidate = Path.Combine(folder, fileName);
+        var index = 2;
+
+        while (File.Exists(candidate))
+        {
+            candidate = Path.Combine(folder, $"{baseName}_{index}{extension}");
+            index++;
+        }
+
+        return candidate;
+    }
+
+    private static string SanitizeFileName(string fileName)
+    {
+        var safe = fileName;
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+            safe = safe.Replace(invalid, '_');
+
+        return string.IsNullOrWhiteSpace(safe) ? "attachment.pdf" : safe;
     }
 
     public void OpenAttachment(string storedPath)

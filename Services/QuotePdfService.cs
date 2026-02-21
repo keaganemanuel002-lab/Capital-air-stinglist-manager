@@ -72,9 +72,9 @@ public class QuotePdfService
                     {
                         row.Spacing(12);
 
-                        row.AutoItem().AlignLeft().Width(141).Column(logo =>
+                        row.AutoItem().AlignLeft().Width(161).Column(logo =>
                         {
-                            logo.Item().Height(94).Element(e =>
+                            logo.Item().Height(108).Element(e =>
                             {
                                 if (!string.IsNullOrWhiteSpace(logoPath))
                                     e.Image(logoPath);
@@ -86,7 +86,7 @@ public class QuotePdfService
 
                         row.RelativeItem().Column(info =>
                         {
-                            info.Item().AlignRight().Text(_companyName).FontSize(18).SemiBold();
+                            info.Item().AlignRight().Text(_companyName).FontSize(22).SemiBold();
 
                             info.Item().PaddingTop(4).Row(addressRow =>
                             {
@@ -124,19 +124,13 @@ public class QuotePdfService
                     col.Item().PaddingTop(6);
                     col.Item().AlignCenter().Text("Quotation").FontSize(20).Bold();
                     col.Item().PaddingTop(2).AlignLeft()
-                        .Text($"Ref: {quote.QuoteNumber}")
+                        .Text($"Ref: {QuoteReferenceFormatter.Format(quote.QuoteNumber)}")
                         .FontSize(10)
                         .FontColor(Colors.Grey.Darken1);
-                    col.Item().AlignLeft().Text(DateTime.Now.ToString("dd MMMM yyyy")).FontSize(10).FontColor(Colors.Grey.Darken1);
                 });
 
                 page.Content().Column(col =>
                 {
-                    if (!string.IsNullOrWhiteSpace(logoPath) && File.Exists(logoPath))
-                    {
-                        col.Item().AlignCenter().Height(120).Image(logoPath);
-                    }
-
                     col.Item().AlignRight()
                         .Text(DateTime.Now.ToString("dd MMMM yyyy"))
                         .FontSize(10);
@@ -167,12 +161,16 @@ public class QuotePdfService
                         table.ColumnsDefinition(columns =>
                         {
                             columns.RelativeColumn(3f);
+                            columns.RelativeColumn(1f);
+                            columns.RelativeColumn(1.5f);
                             columns.RelativeColumn(1.5f);
                         });
 
                         table.Header(header =>
                         {
                             header.Cell().Background(Colors.Grey.Lighten2).Padding(4).Text("Description").FontSize(10).Bold();
+                            header.Cell().Background(Colors.Grey.Lighten2).Padding(4).AlignRight().Text("Quantity").FontSize(10).Bold();
+                            header.Cell().Background(Colors.Grey.Lighten2).Padding(4).AlignRight().Text("Unit Price").FontSize(10).Bold();
                             header.Cell().Background(Colors.Grey.Lighten2).Padding(4).AlignRight().Text("Amount").FontSize(10).Bold();
                         });
 
@@ -180,25 +178,26 @@ public class QuotePdfService
                         {
                             foreach (var item in lineItems)
                             {
-                                var description = item.ProductName ?? item.ProductType ?? "Service";
-                                if (item.Quantity > 1)
-                                    description += $" ({item.Quantity}x)";
+                                var description = !string.IsNullOrWhiteSpace(item.Description)
+                                    ? item.Description
+                                    : item.ProductName ?? item.ProductType ?? "Service";
 
                                 table.Cell().Padding(4).Text(description).FontSize(10);
+                                table.Cell().Padding(4).AlignRight().Text(item.Quantity.ToString()).FontSize(10);
+                                table.Cell().Padding(4).AlignRight().Text($"R {item.UnitPriceExVat:0.00}").FontSize(10);
                                 table.Cell().Padding(4).AlignRight().Text($"R {item.LineTotalExVat:0.00}").FontSize(10);
                             }
 
-                            table.Cell().Padding(2).Text("").FontSize(8);
-                            table.Cell().Padding(2).Text("").FontSize(8);
+                            table.Cell().ColumnSpan(4).Padding(2).Text("").FontSize(8);
                         }
 
-                        table.Cell().Padding(4).Text("Subtotal Ex VAT").FontSize(10).Bold();
+                        table.Cell().ColumnSpan(3).Padding(4).Text("Subtotal Ex VAT").FontSize(10).Bold();
                         table.Cell().Padding(4).AlignRight().Text($"R {priceResult.AmountExVat:0.00}").FontSize(10).Bold();
 
-                        table.Cell().Padding(4).Text("Plus VAT @ 15%").FontSize(10).Bold();
+                        table.Cell().ColumnSpan(3).Padding(4).Text("Plus VAT @ 15%").FontSize(10).Bold();
                         table.Cell().Padding(4).AlignRight().Text($"R {priceResult.VatAmount:0.00}").FontSize(10).Bold();
 
-                        table.Cell().Padding(4).Background(Colors.Grey.Lighten2).Text("TOTAL").FontSize(11).Bold();
+                        table.Cell().ColumnSpan(3).Padding(4).Background(Colors.Grey.Lighten2).Text("TOTAL").FontSize(11).Bold();
                         table.Cell().Padding(4).AlignRight().Background(Colors.Grey.Lighten2).Text($"R {priceResult.AmountIncVat:0.00}").FontSize(11).Bold();
                     });
 
@@ -217,25 +216,26 @@ public class QuotePdfService
                     }
 
                     col.Item().PaddingTop(12).Text("We hope this quotation will meet your approval.").FontSize(10);
+                });
 
-                    col.Item().PaddingTop(20).LineHorizontal(1f);
+                page.Footer().Column(footer =>
+                {
+                    footer.Item().LineHorizontal(1f);
 
-                    col.Item().PaddingTop(12).Text("Banking Details:").FontSize(10).Bold();
-                    col.Item().Column(bank =>
+                    footer.Item().PaddingTop(8).Text("Banking Details:").FontSize(9).Bold();
+                    footer.Item().Column(bank =>
                     {
                         bank.Spacing(0);
-                        bank.Item().Text(_companyName).FontSize(9);
-                        bank.Item().Text(_bankName).FontSize(9);
-                        bank.Item().Text(_bankBranch).FontSize(9);
-                        bank.Item().Text(_bankCode).FontSize(9);
-                        bank.Item().Text($"Account: {_accountNumber}").FontSize(9);
+                        bank.Item().Text(_companyName).FontSize(8.5f);
+                        bank.Item().Text(_bankName).FontSize(8.5f);
+                        bank.Item().Text(_bankBranch).FontSize(8.5f);
+                        bank.Item().Text(_bankCode).FontSize(8.5f);
+                        bank.Item().Text($"Account: {_accountNumber}").FontSize(8.5f);
                     });
 
-                    col.Item().PaddingTop(20);
-
-                    col.Item().Text(
+                    footer.Item().PaddingTop(6).Text(
                         "Please note these prices are valid for 14 days from the date of issuing this quotation and excludes reactivation fees.")
-                        .FontSize(9)
+                        .FontSize(8.5f)
                         .Italic();
                 });
             });

@@ -56,6 +56,7 @@ public partial class ClientEditViewModel : ViewModelBase
     {
         ErrorMessage = null;
         var normalizedName = Name.Trim();
+        var normalizedComparableName = NormalizeComparableText(normalizedName);
 
         if (string.IsNullOrWhiteSpace(normalizedName))
         {
@@ -68,7 +69,7 @@ public partial class ClientEditViewModel : ViewModelBase
         var duplicate = db.Clients
             .AsNoTracking()
             .FirstOrDefault(c => c.Id != (_clientId ?? 0) &&
-                                 c.Name.ToLower() == normalizedName.ToLower());
+                                 c.NameNorm == normalizedComparableName);
 
         if (duplicate is not null)
         {
@@ -101,8 +102,21 @@ public partial class ClientEditViewModel : ViewModelBase
         entity.Address = Address?.Trim();
 
         db.SaveChanges();
-        _setStatus("Client saved.");
+        _setStatus("Client saved locally. Use 'Sync from Wialon' to refresh accounts.");
+
         _onSaved(entity.Id);
         _close();
+    }
+
+    private static string NormalizeComparableText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value
+            .Trim()
+            .ToLowerInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
     }
 }

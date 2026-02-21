@@ -115,6 +115,56 @@ public partial class SettingsViewModel : ViewModelBase
         set { _appState.Settings.TeltonikaApiKey = value; _appState.SaveSettings(); OnPropertyChanged(); }
     }
 
+    public string FlickswitchBaseUrl
+    {
+        get => _appState.Settings.FlickswitchBaseUrl ?? "https://app.simcontrol.co.za";
+        set
+        {
+            _appState.Settings.FlickswitchBaseUrl = string.IsNullOrWhiteSpace(value)
+                ? "https://app.simcontrol.co.za"
+                : value.Trim();
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
+    public string FlickswitchApiKey
+    {
+        get
+        {
+            var value = _appState.Settings.FlickswitchApiKey ?? string.Empty;
+            return value.StartsWith("http", System.StringComparison.OrdinalIgnoreCase) ? string.Empty : value;
+        }
+        set
+        {
+            _appState.Settings.FlickswitchApiKey = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
+    public string WialonApiToken
+    {
+        get => _appState.Settings.WialonApiToken ?? string.Empty;
+        set
+        {
+            _appState.Settings.WialonApiToken = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
+    public string WialonClientProvisionApiToken
+    {
+        get => _appState.Settings.WialonClientProvisionApiToken ?? string.Empty;
+        set
+        {
+            _appState.Settings.WialonClientProvisionApiToken = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
     [RelayCommand]
     private void Save()
     {

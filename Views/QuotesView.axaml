@@ -1,30 +1,29 @@
-<UserControl xmlns="https://github.com/avaloniaui"
+﻿<UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="StingListManager.Views.QuotesView"
              x:CompileBindings="False">
-  <StackPanel Spacing="12">
-    <TextBlock Text="Quotes" Classes="h1"/>
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" RowSpacing="12">
+    <TextBlock Grid.Row="0" Text="Quotes" Classes="h1"/>
 
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <Button Content="Add Quote" Command="{Binding AddQuoteCommand}" Classes="primary"/>
-          <Button Content="Create Sample Quote" Command="{Binding CreateSampleQuoteCommand}" ToolTip.Tip="Create a demo quote with all required fields populated"/>
-          <Button Content="Edit Selected" Command="{Binding EditSelectedCommand}"/>
-          <Button Content="Approve Selected" Command="{Binding ApproveSelectedCommand}" IsEnabled="{Binding CanApproveSelectedQuote}"/>
-          <Button Content="Delete Selected" Command="{Binding DeleteSelectedCommand}"/>
-          <Button Content="Documents" Command="{Binding OpenDocumentsCommand}"/>
-          <Button Content="Generate PDF" Command="{Binding GenerateQuotePdfCommand}"/>
-          <Button Content="Export PDF" Command="{Binding ExportPdfCommand}"/>
-          <Button Content="Refresh" Command="{Binding LoadCommand}"/>
-        </StackPanel>
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+      <Button Content="Add Quote" Command="{Binding AddQuoteCommand}" Classes="primary"/>
+      <Button Content="Edit Selected" Command="{Binding EditSelectedCommand}"/>
+      <Button Content="Approve Selected" Command="{Binding ApproveSelectedCommand}" IsEnabled="{Binding CanApproveSelectedQuote}"/>
+      <Button Content="Cancel Draft" Command="{Binding CancelSelectedCommand}" IsEnabled="{Binding CanCancelSelectedQuote}"/>
+      <Button Content="Delete Selected" Command="{Binding DeleteSelectedCommand}"/>
+      <Button Content="Documents" Command="{Binding OpenDocumentsCommand}"/>
+      <Button Content="Generate PDF" Command="{Binding GenerateQuotePdfCommand}"/>
+      <Button Content="Refresh" Command="{Binding LoadCommand}"/>
+    </StackPanel>
 
-    <StackPanel Orientation="Horizontal" Spacing="8">
+    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
       <Button Content="◀" Command="{Binding PrevPageCommand}" IsEnabled="{Binding CanPrevPage}" ToolTip.Tip="Previous page"/>
       <TextBlock Text="{Binding PageNumber}" VerticalAlignment="Center" Width="40" TextAlignment="Center"/>
       <Button Content="▶" Command="{Binding NextPageCommand}" IsEnabled="{Binding CanNextPage}" ToolTip.Tip="Next page"/>
       <TextBlock Text="{Binding TotalCount, StringFormat='Total: {0}'}" Margin="20,0,0,0" VerticalAlignment="Center" Classes="muted"/>
     </StackPanel>
 
-    <StackPanel Orientation="Horizontal" Spacing="8">
+    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8">
       <ComboBox Width="140" ItemsSource="{Binding StatusOptions}" SelectedItem="{Binding SelectedStatus}"/>
       <ComboBox Width="140" ItemsSource="{Binding TypeOptions}" SelectedItem="{Binding SelectedType}"/>
       <TextBox Width="200" Watermark="Company..." Text="{Binding CompanyFilter, UpdateSourceTrigger=PropertyChanged}"/>
@@ -34,25 +33,33 @@
       <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}"/>
     </StackPanel>
 
-    <DataGrid AutoGenerateColumns="False"
+    <DataGrid Grid.Row="4"
+              AutoGenerateColumns="False"
               ItemsSource="{Binding Rows}"
               SelectedItem="{Binding SelectedRow}"
               IsReadOnly="True"
               GridLinesVisibility="All"
-              Height="520"
+              FontSize="13"
+              RowHeight="30"
               DoubleTapped="Grid_DoubleTapped">
+      <DataGrid.Styles>
+        <Style Selector="DataGridColumnHeader">
+          <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style Selector="DataGridCell">
+          <Setter Property="FontSize" Value="13"/>
+        </Style>
+      </DataGrid.Styles>
       <DataGrid.Columns>
-        <DataGridTextColumn Header="#" Binding="{Binding QuoteNumber}" Width="0.7*"/>
+        <DataGridTextColumn Header="#" Binding="{Binding QuoteReference}" Width="1*"/>
         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
-        <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2*"/>
-        <DataGridTextColumn Header="Reg" Binding="{Binding Registration}" Width="1.2*"/>
-        <DataGridTextColumn Header="Product" Binding="{Binding ProductType}" Width="1.5*"/>
+        <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2.2*"/>
         <DataGridTextColumn Header="Amount (Ex VAT)" Binding="{Binding AmountExVat, StringFormat=R{0:0.00}}" Width="1.2*"/>
         <DataGridTextColumn Header="VAT (15%)" Binding="{Binding VatAmount, StringFormat=R{0:0.00}}" Width="1.2*"/>
         <DataGridTextColumn Header="Amount (Inc VAT)" Binding="{Binding AmountIncVat, StringFormat=R{0:0.00}}" Width="1.2*"/>
-        <DataGridTextColumn Header="Created" Binding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" Width="1.5*"/>
+        <DataGridTextColumn Header="Created" Binding="{Binding CreatedAt, StringFormat=yyyy-MM-dd HH:mm}" Width="1.8*"/>
       </DataGrid.Columns>
     </DataGrid>
-  </StackPanel>
+  </Grid>
 </UserControl>

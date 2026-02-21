@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
@@ -19,6 +18,7 @@ public partial class QuoteRow : ObservableObject
 {
     public int Id { get; set; }
     public int QuoteNumber { get; set; }
+    public string QuoteReference => QuoteReferenceFormatter.Format(QuoteNumber);
     public string Type { get; set; } = "";
     public string Status { get; set; } = "";
     public string Company { get; set; } = "";
@@ -67,6 +67,7 @@ public partial class QuotesViewModel : ViewModelBase
     partial void OnSelectedRowChanged(QuoteRow? value)
     {
         OnPropertyChanged(nameof(CanApproveSelectedQuote));
+        OnPropertyChanged(nameof(CanCancelSelectedQuote));
         OnPropertyChanged(nameof(HasSelectedRow));
     }
     
@@ -89,7 +90,6 @@ public partial class QuotesViewModel : ViewModelBase
     }
 
     public bool CanApproveQuotes => _appState.CanApproveQuotes;
-    public bool CanExport => _appState.CanExport;
 
     partial void OnSelectedStatusChanged(string value) => ApplyFilters();
     partial void OnSelectedTypeChanged(string value) => ApplyFilters();
@@ -263,8 +263,7 @@ public partial class QuotesViewModel : ViewModelBase
             };
 
             // Generate quote number
-            var maxQuoteNumber = db.Quotes.Any() ? db.Quotes.Max(x => x.QuoteNumber) : 0;
-            quote.QuoteNumber = maxQuoteNumber + 1;
+            quote.QuoteNumber = QuoteNumberAllocator.GetNext(db);
 
             // Add line items with sample products
             quote.LineItems = new System.Collections.Generic.List<QuoteLineItem>
@@ -324,7 +323,7 @@ public partial class QuotesViewModel : ViewModelBase
             db.Quotes.Add(quote);
             db.SaveChanges();
 
-            _appState.SetStatus($"Sample quote #{quote.QuoteNumber} created successfully with all required information.");
+            _appState.SetStatus($"Sample quote {QuoteReferenceFormatter.Format(quote.QuoteNumber)} created successfully with all required information.");
             Load();
         }
         catch (Exception ex)
@@ -356,6 +355,47 @@ public partial class QuotesViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task OpenSelectedFromDoubleClick()
+    {
+        if (SelectedRow is null) return;
+
+        if (string.Equals(SelectedRow.Status, QuoteStatus.Approved.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            await ViewRelatedJobCards();
+            return;
+        }
+
+        await ViewDetails();
+    }
+
+    [RelayCommand]
+    private async Task ViewRelatedJobCards()
+    {
+        if (SelectedRow is null) return;
+
+        using var db = new AppDbContext();
+        var hasRelatedJobCards = db.JobCards.AsNoTracking().Any(j => j.QuoteId == SelectedRow.Id);
+        if (!hasRelatedJobCards)
+        {
+            _appState.SetStatus("No related job cards found for the selected quote.");
+            return;
+        }
+
+        var wnd = new StingListManager.Views.DocumentsWindow
+        {
+            Title = $"Related Job Cards - {SelectedRow.QuoteReference}",
+            Width = 1300,
+            Height = 700
+        };
+
+        var vm = new JobCardsViewModel(_window, _appState, quoteId: SelectedRow.Id);
+        var view = new StingListManager.Views.JobCardsView { DataContext = vm };
+        wnd.Content = view;
+
+        await wnd.ShowDialog(_window);
+    }
+
+    [RelayCommand]
     private void ApproveSelected()
     {
         if (SelectedRow is null)
@@ -383,7 +423,56 @@ public partial class QuotesViewModel : ViewModelBase
     }
 
     public bool CanApproveSelectedQuote => CanApproveQuotes && SelectedRow != null;
+    public bool CanCancelSelectedQuote =>
+        SelectedRow != null &&
+        string.Equals(SelectedRow.Status, QuoteStatus.Draft.ToString(), StringComparison.OrdinalIgnoreCase);
+
     public bool HasSelectedRow => SelectedRow != null;
+
+    [RelayCommand]
+    private void CancelSelected()
+    {
+        if (SelectedRow is null)
+        {
+            _appState.SetStatus("Please select a quote to cancel.");
+            return;
+        }
+
+        using var db = new AppDbContext();
+        var quote = db.Quotes.FirstOrDefault(q => q.Id == SelectedRow.Id);
+        if (quote is null)
+        {
+            _appState.SetStatus("Quote not found.");
+            return;
+        }
+
+        if (quote.Status == QuoteStatus.Approved)
+        {
+            _appState.SetStatus("Cannot cancel: quote is already approved.");
+            return;
+        }
+
+        if (quote.Status != QuoteStatus.Draft)
+        {
+            _appState.SetStatus("Only draft quotes can be cancelled.");
+            return;
+        }
+
+        quote.Status = QuoteStatus.Cancelled;
+        db.SaveChanges();
+
+        var quoteRef = QuoteReferenceFormatter.Format(quote.QuoteNumber);
+        new AuditService().Log(
+            _appState.OperatorName,
+            "QUOTE_CANCEL",
+            "Quote",
+            quote.Id,
+            quote.Registration,
+            $"Draft quote {quoteRef} cancelled");
+
+        _appState.SetStatus($"Quote {quoteRef} cancelled.");
+        Load();
+    }
 
     [RelayCommand]
     private async Task OpenDocuments()
@@ -410,16 +499,29 @@ public partial class QuotesViewModel : ViewModelBase
         var tempPath = Path.GetTempFileName() + ".pdf";
         File.WriteAllBytes(tempPath, pdfBytes);
 
-        new AttachmentStorageService().AddAttachment(
+        var quoteReference = QuoteReferenceFormatter.Format(quote.QuoteNumber);
+        var pdfFileName = $"Quote_{quoteReference}.pdf";
+
+        var attachmentService = new AttachmentStorageService();
+        var attachment = attachmentService.AddAttachment(
             _appState.OperatorName,
             AttachmentOwnerType.Quote,
             quote.Id,
             AttachmentKind.QuotePdf,
-            tempPath);
+            tempPath,
+            preferredFileName: pdfFileName);
 
         try { File.Delete(tempPath); } catch { }
 
-        _appState.SetStatus("Quote PDF generated and stored as attachment.");
+        try
+        {
+            attachmentService.OpenAttachment(attachment.StoredPath);
+            _appState.SetStatus($"Quote PDF generated as {attachment.FileName}, stored in Generated\\Quotes, and opened.");
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Quote PDF generated and stored as attachment, but could not be opened: {ex.Message}");
+        }
     }
 
     [RelayCommand]
@@ -470,30 +572,4 @@ public partial class QuotesViewModel : ViewModelBase
         Load();
     }
 
-    [RelayCommand]
-    private async Task ExportPdf()
-    {
-        if (SelectedRow is null) return;
-
-        using var db = new AppDbContext();
-        var quote = db.Quotes.Include(q => q.LineItems).FirstOrDefault(q => q.Id == SelectedRow.Id);
-        if (quote is null) return;
-
-        var file = await _window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Save Quote PDF",
-            SuggestedFileName = $"Quote_{quote.Id}_{quote.Registration}.pdf",
-            FileTypeChoices =
-            [
-                new FilePickerFileType("PDF") { Patterns = ["*.pdf"] }
-            ]
-        });
-
-        if (file is null) return;
-
-        var pdfBytes = await Task.Run(() => new QuotePdfService(_appState.Settings).BuildQuotePdf(quote));
-        await File.WriteAllBytesAsync(file.Path.LocalPath, pdfBytes);
-
-        _appState.SetStatus($"Quote PDF saved: {Path.GetFileName(file.Path.LocalPath)}");
-    }
 }

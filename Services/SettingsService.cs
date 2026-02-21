@@ -27,7 +27,12 @@ public class AppSettings
     public bool AutoBackupOnStartup { get; set; } = true;
     public DateTime? LastAutoBackupDate { get; set; } = null;
     public string? TeltonikaApiKey { get; set; } = null;
+    public string? FlickswitchBaseUrl { get; set; } = "https://app.simcontrol.co.za";
+    public string? FlickswitchApiKey { get; set; } = null;
     public string? WialonApiToken { get; set; } = null;
+    public string? WialonClientProvisionApiToken { get; set; } = null;
+    public DateTime? LastWialonClientsSyncUtc { get; set; } = null;
+    public List<string> LastWialonClientNames { get; set; } = new();
     public List<FilterPreset> StingPresets { get; set; } = new();
 }
 

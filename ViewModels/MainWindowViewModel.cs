@@ -17,6 +17,9 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly Window _window;
     private readonly AppState _appState;
+    private bool _isShowingErrorPopup;
+    private string? _lastErrorPopupMessage;
+    private DateTime _lastErrorPopupUtc = DateTime.MinValue;
 
     [ObservableProperty]
     private ViewModelBase currentPage;
@@ -36,13 +39,47 @@ public partial class MainWindowViewModel : ViewModelBase
         _appState = new AppState();
 
         // Bubble state changes to UI
-        _appState.PropertyChanged += (_, __) =>
+        _appState.PropertyChanged += (_, e) =>
         {
             OnPropertyChanged(nameof(StatusMessage));
             OnPropertyChanged(nameof(StatusTime));
+
+            if (e.PropertyName == nameof(AppState.StatusMessage) && _appState.StatusIsError)
+            {
+                _ = ShowErrorPopupAsync(_appState.StatusMessage);
+            }
         };
 
         CurrentPage = new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult);
+    }
+
+    private async Task ShowErrorPopupAsync(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+
+        // Avoid flooding with repeated identical messages in quick succession.
+        if (string.Equals(_lastErrorPopupMessage, message, StringComparison.Ordinal)
+            && DateTime.UtcNow - _lastErrorPopupUtc < TimeSpan.FromSeconds(3))
+        {
+            return;
+        }
+
+        if (_isShowingErrorPopup)
+            return;
+
+        _isShowingErrorPopup = true;
+        _lastErrorPopupMessage = message;
+        _lastErrorPopupUtc = DateTime.UtcNow;
+
+        try
+        {
+            await DialogService.Alert(_window, "Error", message);
+        }
+        finally
+        {
+            _isShowingErrorPopup = false;
+        }
     }
 
     partial void OnCurrentPageChanged(ViewModelBase value)
@@ -139,12 +176,28 @@ public partial class MainWindowViewModel : ViewModelBase
         // Create removal quote prefilled from billing entry
         db.Quotes.Add(new Data.Entities.Quote
         {
+            QuoteNumber = QuoteNumberAllocator.GetNext(db),
             Type = Data.Entities.QuoteType.Removal,
             Status = Data.Entities.QuoteStatus.Draft,
             Company = entry.Company,
             Registration = entry.Registration,
             FleetNumber = entry.FleetNumber,
-            AmountExVat = 0m,
+            AmountExVat = _appState.Settings.DefaultRemovalFeeExVat,
+            LineItems = new System.Collections.Generic.List<Data.Entities.QuoteLineItem>
+            {
+                new()
+                {
+                    LineNumber = 1,
+                    ProductType = "Removal Fee",
+                    ProductCode = "AUTO-REMOVAL-FEE",
+                    ProductName = "Removal Fee",
+                    Quantity = 1,
+                    UnitPriceExVat = _appState.Settings.DefaultRemovalFeeExVat,
+                    LineTotalExVat = _appState.Settings.DefaultRemovalFeeExVat,
+                    IsVatExempt = false,
+                    Description = "Auto-added removal fee"
+                }
+            },
             Notes = $"Removal for unit: {entry.Registration}"
         });
 

@@ -2,10 +2,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="StingListManager.Views.InstallationsView"
              x:CompileBindings="False">
-  <StackPanel Spacing="12">
-    <TextBlock Text="Installations / Scheduling" Classes="h1"/>
+  <Grid RowDefinitions="Auto,Auto,*" RowSpacing="12">
+    <TextBlock Grid.Row="0" Text="Installations / Scheduling" Classes="h1"/>
 
-    <DockPanel LastChildFill="True">
+    <DockPanel Grid.Row="1" LastChildFill="True">
       <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" Spacing="12">
         <CheckBox Content="Open only" IsChecked="{Binding ShowOpenOnly}"/>
         <CheckBox Content="Today only" IsChecked="{Binding ShowTodayOnly}"/>
@@ -18,19 +18,20 @@
       </StackPanel>
     </DockPanel>
 
-    <DataGrid AutoGenerateColumns="False"
+    <DataGrid Grid.Row="2"
+              AutoGenerateColumns="False"
               ItemsSource="{Binding Rows}"
               SelectedItem="{Binding SelectedRow}"
               IsReadOnly="True"
-              GridLinesVisibility="All"
-              Height="520">
+              GridLinesVisibility="All">
       <DataGrid.Columns>
+        <DataGridTextColumn Header="Job Card #" Binding="{Binding JobCardReference}" Width="2*"/>
+        <DataGridTextColumn Header="Quote" Binding="{Binding QuoteReference}" Width="0.9*"/>
         <DataGridTextColumn Header="Scheduled" Binding="{Binding ScheduledFor}" Width="1.4*"/>
-        <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
         <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2*"/>
         <DataGridTextColumn Header="Reg" Binding="{Binding Registration}" Width="1.2*"/>
       </DataGrid.Columns>
     </DataGrid>
-  </StackPanel>
+  </Grid>
 </UserControl>

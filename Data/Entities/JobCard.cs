@@ -2,7 +2,7 @@ using System;
 
 namespace StingListManager.Data.Entities;
 
-public enum JobType { Install = 0, Removal = 1 }
+public enum JobType { Install = 0, Removal = 1, Transfer = 2 }
 public enum JobStatus { Open = 0, Completed = 1, Cancelled = 2 }
 
 public class JobCard

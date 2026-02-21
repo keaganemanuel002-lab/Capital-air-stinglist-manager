@@ -68,13 +68,42 @@
         </StackPanel>
       </Border>
 
+      <!-- SIM BALANCES -->
+      <Border Classes="card">
+        <StackPanel Spacing="8">
+          <TextBlock Text="SIM Balances (Flickswitch)" FontWeight="SemiBold" FontSize="16"/>
+
+          <TextBlock Text="Refreshing SIM balances..."
+                     IsVisible="{Binding IsLoadingSimBalances}"
+                     Classes="muted"/>
+
+          <TextBlock Text="{Binding SimBalanceStatusMessage}"
+                     Classes="muted"
+                     TextWrapping="Wrap"/>
+
+          <Grid ColumnDefinitions="180,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Airtime Balance:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SimAirtimeBalanceDisplay}"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Data Balance:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SimDataBalanceDisplay}"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="SMS Balance:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SimSmsBalanceDisplay}"/>
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Last Balance Check:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SimLastBalanceCheckDisplay}"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+
       <!-- RELATED QUOTES -->
       <Border Classes="card" IsVisible="{Binding HasRelatedQuotes}">
         <StackPanel Spacing="8">
           <TextBlock Text="Related Quotes" FontWeight="SemiBold" FontSize="16"/>
           <DataGrid ItemsSource="{Binding RelatedQuotes}" IsReadOnly="True" Height="150">
             <DataGrid.Columns>
-              <DataGridTextColumn Header="Quote #" Binding="{Binding QuoteNumber}" Width="0.8*"/>
+              <DataGridTextColumn Header="Quote #" Binding="{Binding QuoteReference}" Width="0.8*"/>
               <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
               <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
               <DataGridTextColumn Header="Amount" Binding="{Binding AmountIncVat, StringFormat='R{0:0.00}'}" Width="1.2*"/>
@@ -91,7 +120,7 @@
           
           <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Job Card #:" Classes="muted"/>
-            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstallJobCardNumber}"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding InstallJobCardReference}"/>
             
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Status:" Classes="muted"/>
             <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding InstallJobStatus}"/>

@@ -102,7 +102,7 @@ public class SearchService
             Type = SearchResultType.JobCard,
             Id = j.Id,
             Registration = j.Registration,
-            Title = $"JobCard #{j.Id} - {j.Type} - {j.Status}",
+            Title = $"Job Card {JobCardReferenceFormatter.Format(j.Type, j.JobCardNumber)} - {j.Type} - {j.Status}",
             Subtitle = $"{j.Company} - {j.Registration} - Scheduled: {(j.ScheduledFor?.ToString("yyyy-MM-dd HH:mm") ?? "-")}"
         }));
 

@@ -178,14 +178,28 @@ public partial class RemovalsViewModel : ViewModelBase
         // Create removal quote linked to this cancellation
         var q = new Quote
         {
+            QuoteNumber = QuoteNumberAllocator.GetNext(db),
             Type = QuoteType.Removal,
             Status = QuoteStatus.Draft,
             Company = c.Client,
             Registration = c.Registration,
             FleetNumber = c.FleetNumber,
-            AmountExVat = 0m,
+            AmountExVat = _appState.Settings.DefaultRemovalFeeExVat,
             Notes = $"Removal request for {c.Registration}"
         };
+
+        q.LineItems.Add(new QuoteLineItem
+        {
+            LineNumber = 1,
+            ProductType = "Removal Fee",
+            ProductCode = "AUTO-REMOVAL-FEE",
+            ProductName = "Removal Fee",
+            Quantity = 1,
+            UnitPriceExVat = _appState.Settings.DefaultRemovalFeeExVat,
+            LineTotalExVat = _appState.Settings.DefaultRemovalFeeExVat,
+            IsVatExempt = false,
+            Description = "Auto-added removal fee"
+        });
 
         db.Quotes.Add(q);
         db.SaveChanges();

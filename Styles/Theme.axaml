@@ -21,6 +21,13 @@
     <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource TextMutedColor}"/>
   </Styles.Resources>
 
+  <Style Selector="Window">
+    <Setter Property="FontSize" Value="13"/>
+  </Style>
+  <Style Selector="TextBlock">
+    <Setter Property="FontSize" Value="13"/>
+  </Style>
+
   <!-- Typography helpers -->
   <Style Selector="TextBlock.h1">
     <Setter Property="FontSize" Value="22"/>
@@ -76,6 +83,15 @@
     <Setter Property="Padding" Value="10,8"/>
     <Setter Property="CornerRadius" Value="8"/>
     <Setter Property="Margin" Value="0,2"/>
+  </Style>
+  <Style Selector="ListBox.nav-icons ListBoxItem">
+    <Setter Property="Padding" Value="8"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Margin" Value="0,2"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="TextBlock.nav-icon">
+    <Setter Property="FontSize" Value="18"/>
   </Style>
   <Style Selector="ListBox.nav ListBoxItem:selected">
     <Setter Property="Background" Value="{StaticResource SurfaceSubtleBrush}"/>

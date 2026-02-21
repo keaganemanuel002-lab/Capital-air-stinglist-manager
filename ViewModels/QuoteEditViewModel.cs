@@ -85,6 +85,11 @@ namespace StingListManager.ViewModels
 
     public partial class QuoteEditViewModel : ViewModelBase
     {
+        private const string AutoRemovalFeeCode = "AUTO-REMOVAL-FEE";
+        private const string AutoMonthlyStingCode = "AUTO-MONTHLY-STING";
+        private const string AutoMonthlyStingPlusCode = "AUTO-MONTHLY-STING-PLUS";
+        private const string AutoMonthlyStingFmCode = "AUTO-MONTHLY-STING-FM";
+        private bool _isApplyingAutomaticLineItems;
         private readonly Action _close;
         private readonly int? _quoteId;
         private readonly AppState _appState;
@@ -121,14 +126,16 @@ namespace StingListManager.ViewModels
         [ObservableProperty]
         private QuoteLineItemRow? selectedLineItem;
 
-        [ObservableProperty]
-        private Client? selectedClient;
-
         public ObservableCollection<QuoteLineItemRow> LineItems { get; } = new();
         public ObservableCollection<ProductCatalogItem> Products { get; } = new();
-        public ObservableCollection<Client> Clients { get; } = new();
+        public ObservableCollection<string> ClientNames { get; } = new();
 
         public bool IsRemovalQuote => TypeIndex == 1;
+
+        partial void OnTypeIndexChanged(int value)
+        {
+            EnsureAutomaticLineItems();
+        }
 
         public QuoteEditViewModel(Action close, int? quoteId, AppState appState, QuotePricingService pricingService)
         {
@@ -149,23 +156,24 @@ namespace StingListManager.ViewModels
             {
                 LoadQuote(quoteId.Value);
             }
+            else
+            {
+                EnsureAutomaticLineItems();
+            }
         }
 
         private void LoadClients()
         {
-            Clients.Clear();
+            ClientNames.Clear();
             using var db = new AppDbContext();
-            foreach (var client in db.Clients.AsNoTracking().OrderBy(c => c.Name).ToList())
+            foreach (var name in db.Clients.AsNoTracking()
+                .Select(c => c.Name)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Distinct()
+                .OrderBy(n => n)
+                .ToList())
             {
-                Clients.Add(client);
-            }
-        }
-
-        partial void OnSelectedClientChanged(Client? value)
-        {
-            if (value != null)
-            {
-                Company = value.Name;
+                ClientNames.Add(name);
             }
         }
 
@@ -183,7 +191,6 @@ namespace StingListManager.ViewModels
 
                 TypeIndex = quote.Type == QuoteType.Removal ? 1 : 0;
                 Company = quote.Company ?? "";
-                SelectedClient = Clients.FirstOrDefault(c => string.Equals(c.Name, Company, StringComparison.OrdinalIgnoreCase));
                 Registration = quote.Registration ?? "";
                 FleetNumber = quote.FleetNumber ?? "";
                 Notes = quote.Notes ?? "";
@@ -211,7 +218,7 @@ namespace StingListManager.ViewModels
                     LineItems.Add(row);
                 }
 
-                RecalculateTotals();
+                EnsureAutomaticLineItems();
             }
             catch (Exception ex)
             {
@@ -230,6 +237,7 @@ namespace StingListManager.ViewModels
             var row = new QuoteLineItemRow { LineNumber = lineNumber };
             row.SetChangeHandler(RecalculateLineItemTotal);
             LineItems.Add(row);
+            EnsureAutomaticLineItems();
         }
 
         [RelayCommand]
@@ -237,7 +245,7 @@ namespace StingListManager.ViewModels
         {
             if (item is null) return;
             LineItems.Remove(item);
-            RecalculateTotals();
+            EnsureAutomaticLineItems();
         }
 
         public void RecalculateTotals()
@@ -250,6 +258,12 @@ namespace StingListManager.ViewModels
 
         public void RecalculateLineItemTotal(QuoteLineItemRow item)
         {
+            if (_isApplyingAutomaticLineItems)
+            {
+                item.LineTotalExVat = item.UnitPriceExVat * item.Quantity;
+                return;
+            }
+
             var matchedProduct = _catalogService.FindByCode(Products, item.ProductCode)
                 ?? _catalogService.FindByName(Products, item.ProductName);
 
@@ -275,6 +289,7 @@ namespace StingListManager.ViewModels
                 item.IsVatExempt = false;
             }
             item.LineTotalExVat = item.UnitPriceExVat * item.Quantity;
+            EnsureAutomaticLineItems();
             RecalculateTotals();
         }
 
@@ -282,6 +297,7 @@ namespace StingListManager.ViewModels
         private void Save()
         {
             ErrorMessage = null;
+            EnsureAutomaticLineItems();
 
             if (string.IsNullOrWhiteSpace(Company))
             {
@@ -312,8 +328,7 @@ namespace StingListManager.ViewModels
                 if (_quoteId is null)
                 {
                     q = new Quote { CreatedAt = DateTime.UtcNow };
-                    var maxQuoteNumber = db.Quotes.Any() ? db.Quotes.Max(x => x.QuoteNumber) : 0;
-                    q.QuoteNumber = maxQuoteNumber + 1;
+                    q.QuoteNumber = QuoteNumberAllocator.GetNext(db);
                     db.Quotes.Add(q);
                 }
                 else
@@ -329,7 +344,7 @@ namespace StingListManager.ViewModels
                 q.Notes = string.IsNullOrWhiteSpace(Notes) ? null : Notes.Trim();
                 q.AmountExVat = SubtotalExVat;
 
-                foreach (var row in LineItems)
+                foreach (var row in LineItems.ToList())
                 {
                     RecalculateLineItemTotal(row);
                 }
@@ -359,6 +374,185 @@ namespace StingListManager.ViewModels
             {
                 ErrorMessage = $"Error saving quote: {ex.Message}";
             }
+        }
+
+        private enum UnitFamily
+        {
+            None = 0,
+            Sting = 1,
+            StingPlus = 2,
+            StingFm = 3
+        }
+
+        private void EnsureAutomaticLineItems()
+        {
+            if (_isApplyingAutomaticLineItems)
+                return;
+
+            _isApplyingAutomaticLineItems = true;
+            try
+            {
+                if (IsRemovalQuote)
+                {
+                    RemoveAutoMonthlyLines();
+                    EnsureRemovalFeeLine();
+                }
+                else
+                {
+                    RemoveAutoRemovalFeeLines();
+                    EnsureMonthlyFeeLines();
+                }
+
+                RenumberLineItems();
+                foreach (var row in LineItems)
+                {
+                    row.LineTotalExVat = row.UnitPriceExVat * row.Quantity;
+                }
+            }
+            finally
+            {
+                _isApplyingAutomaticLineItems = false;
+            }
+
+            RecalculateTotals();
+        }
+
+        private void EnsureRemovalFeeLine()
+        {
+            var autoRows = LineItems.Where(IsAutoRemovalFeeLine).ToList();
+            foreach (var extra in autoRows.Skip(1))
+            {
+                LineItems.Remove(extra);
+            }
+
+            var row = autoRows.FirstOrDefault();
+            if (row == null)
+            {
+                row = new QuoteLineItemRow();
+                row.SetChangeHandler(RecalculateLineItemTotal);
+                LineItems.Add(row);
+            }
+
+            row.SelectedProduct = null;
+            row.ProductCode = AutoRemovalFeeCode;
+            row.ProductName = "Removal Fee";
+            row.Quantity = 1;
+            row.UnitPriceExVat = _appState.Settings.DefaultRemovalFeeExVat;
+            row.IsVatExempt = false;
+            row.Description = "Auto-added removal fee";
+            row.LineTotalExVat = row.UnitPriceExVat * row.Quantity;
+        }
+
+        private void EnsureMonthlyFeeLines()
+        {
+            var qtyByFamily = new Dictionary<UnitFamily, int>
+            {
+                { UnitFamily.Sting, 0 },
+                { UnitFamily.StingPlus, 0 },
+                { UnitFamily.StingFm, 0 }
+            };
+
+            foreach (var row in LineItems.Where(x => !IsAutoRow(x)))
+            {
+                var family = GetUnitFamily(row);
+                if (family == UnitFamily.None)
+                    continue;
+
+                qtyByFamily[family] += row.Quantity <= 0 ? 1 : row.Quantity;
+            }
+
+            SyncMonthlyLine(UnitFamily.Sting, qtyByFamily[UnitFamily.Sting], AutoMonthlyStingCode, "STING Monthly Fee", 150m);
+            SyncMonthlyLine(UnitFamily.StingPlus, qtyByFamily[UnitFamily.StingPlus], AutoMonthlyStingPlusCode, "STING PLUS Monthly Fee", 180m);
+            SyncMonthlyLine(UnitFamily.StingFm, qtyByFamily[UnitFamily.StingFm], AutoMonthlyStingFmCode, "STING FM Monthly Fee", 235m);
+        }
+
+        private void SyncMonthlyLine(UnitFamily family, int quantity, string code, string name, decimal unitPrice)
+        {
+            var existing = LineItems.FirstOrDefault(x => IsAutoMonthlyLine(x) && string.Equals(x.ProductCode, code, StringComparison.OrdinalIgnoreCase));
+
+            if (quantity <= 0)
+            {
+                if (existing != null)
+                    LineItems.Remove(existing);
+                return;
+            }
+
+            if (existing == null)
+            {
+                existing = new QuoteLineItemRow();
+                existing.SetChangeHandler(RecalculateLineItemTotal);
+                LineItems.Add(existing);
+            }
+
+            existing.SelectedProduct = null;
+            existing.ProductCode = code;
+            existing.ProductName = name;
+            existing.Quantity = quantity;
+            existing.UnitPriceExVat = unitPrice;
+            existing.IsVatExempt = false;
+            existing.Description = "Auto-added monthly fee";
+            existing.LineTotalExVat = existing.UnitPriceExVat * existing.Quantity;
+        }
+
+        private void RemoveAutoMonthlyLines()
+        {
+            foreach (var row in LineItems.Where(IsAutoMonthlyLine).ToList())
+            {
+                LineItems.Remove(row);
+            }
+        }
+
+        private void RemoveAutoRemovalFeeLines()
+        {
+            foreach (var row in LineItems.Where(IsAutoRemovalFeeLine).ToList())
+            {
+                LineItems.Remove(row);
+            }
+        }
+
+        private void RenumberLineItems()
+        {
+            var n = 1;
+            foreach (var row in LineItems)
+            {
+                row.LineNumber = n++;
+            }
+        }
+
+        private static bool IsAutoRemovalFeeLine(QuoteLineItemRow row)
+        {
+            return string.Equals(row.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAutoMonthlyLine(QuoteLineItemRow row)
+        {
+            return (row.ProductCode ?? string.Empty).StartsWith("AUTO-MONTHLY-", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAutoRow(QuoteLineItemRow row)
+        {
+            return IsAutoRemovalFeeLine(row) || IsAutoMonthlyLine(row);
+        }
+
+        private static UnitFamily GetUnitFamily(QuoteLineItemRow row)
+        {
+            var text = $"{row.ProductCode} {row.ProductName}".Trim();
+            if (string.IsNullOrWhiteSpace(text))
+                return UnitFamily.None;
+
+            var value = text.ToUpperInvariant();
+            if (value.Contains("STING FM", StringComparison.Ordinal) || value.Contains("STING-FM", StringComparison.Ordinal))
+                return UnitFamily.StingFm;
+
+            if (value.Contains("STING PLUS", StringComparison.Ordinal)
+                || value.Contains("STING+", StringComparison.Ordinal)
+                || value.Contains("STING-PLUS", StringComparison.Ordinal))
+                return UnitFamily.StingPlus;
+
+            if (value.Contains("STING", StringComparison.Ordinal))
+                return UnitFamily.Sting;
+
+            return UnitFamily.None;
         }
     }
 }

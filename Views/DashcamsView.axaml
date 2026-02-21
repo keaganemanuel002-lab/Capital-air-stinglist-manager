@@ -16,7 +16,7 @@
     <DockPanel LastChildFill="False">
       <StackPanel DockPanel.Dock="Left">
         <TextBlock Text="Dashcams" Classes="h1"/>
-        <TextBlock Text="View all records in a table. Open a row to edit in a popup." Classes="muted"/>
+        <TextBlock Text="Dashcam register aligned to your Excel layout." Classes="muted"/>
       </StackPanel>
       <StackPanel Orientation="Horizontal" Spacing="8" DockPanel.Dock="Right" VerticalAlignment="Center">
         <Button Content="Refresh" Command="{Binding LoadCommand}"/>
@@ -35,7 +35,7 @@
 
     <StackPanel Orientation="Horizontal" Spacing="8">
       <TextBox Width="300"
-               Watermark="Search serial, model, vehicle, notes..."
+               Watermark="Search vehicle, device ID, passwords, location..."
                Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
       <Button Content="Clear Search" Command="{Binding ClearSearchCommand}"/>
       <TextBlock Text="Double-click a row to open popup editor." Classes="muted" VerticalAlignment="Center"/>
@@ -49,11 +49,16 @@
               Height="560"
               DoubleTapped="Grid_DoubleTapped">
       <DataGrid.Columns>
-        <DataGridTextColumn Header="Serial Number" Binding="{Binding SerialNumber}" Width="1.4*"/>
-        <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="1.2*"/>
-        <DataGridTextColumn Header="Purchased At" Binding="{Binding PurchasedAt, StringFormat=yyyy-MM-dd}" Width="1.1*"/>
-        <DataGridTextColumn Header="Allocated Vehicle" Binding="{Binding AllocatedVehicleRegistration}" Width="1.2*"/>
-        <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="2.2*"/>
+        <DataGridTextColumn Header="Vehicle" Binding="{Binding Vehicle}" Width="0.8*"/>
+        <DataGridTextColumn Header="Device ID" Binding="{Binding DeviceId}" Width="1.2*"/>
+        <DataGridTextColumn Header="WIFI Password" Binding="{Binding WifiPassword}" Width="1.1*"/>
+        <DataGridTextColumn Header="ISUP Password" Binding="{Binding IsupPassword}" Width="1*"/>
+        <DataGridTextColumn Header="Interior Cam" Binding="{Binding InteriorCam}" Width="0.9*"/>
+        <DataGridTextColumn Header="Rear Cam" Binding="{Binding RearCam}" Width="0.9*"/>
+        <DataGridTextColumn Header="Installed" Binding="{Binding Installed}" Width="1.1*"/>
+        <DataGridTextColumn Header="Location" Binding="{Binding Location}" Width="1.2*"/>
+        <DataGridTextColumn Header="Issue" Binding="{Binding Issue}" Width="1.4*"/>
+        <DataGridTextColumn Header="Upgrade Steps" Binding="{Binding UpgradeSteps}" Width="2*"/>
       </DataGrid.Columns>
     </DataGrid>
   </StackPanel>

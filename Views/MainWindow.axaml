@@ -16,7 +16,7 @@
     <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveSettingsCommand}"/>
   </Window.KeyBindings>
 
-  <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="260,*">
+  <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="Auto,*">
 
     <!-- Top bar -->
         <Border Grid.Row="0" Grid.ColumnSpan="2" Padding="16" Classes="topbar">
@@ -42,24 +42,120 @@
     </Border>
 
     <!-- Left nav -->
-    <Border Grid.Row="1" Grid.Column="0" Classes="sidebar">
+    <Border x:Name="SidebarNav"
+            Grid.Row="1"
+            Grid.Column="0"
+            Width="74"
+            Classes="sidebar"
+            PointerEntered="Sidebar_PointerEntered"
+            PointerExited="Sidebar_PointerExited">
+      <Border.Transitions>
+        <Transitions>
+          <DoubleTransition Property="Width" Duration="0:0:0.15"/>
+        </Transitions>
+      </Border.Transitions>
       <StackPanel Margin="12" Spacing="8">
-        <TextBlock Text="Navigation" Classes="h2" Margin="6,10,0,6"/>
-        <ListBox SelectedIndex="{Binding NavIndex}"
-                 Classes="nav">
-          <ListBoxItem>Search</ListBoxItem>
-          <ListBoxItem>Dashboard</ListBoxItem>
-          <ListBoxItem>Quotes</ListBoxItem>
-          <ListBoxItem>Installations</ListBoxItem>
-          <ListBoxItem>Job Cards</ListBoxItem>
-          <ListBoxItem>Removals / Cancellations</ListBoxItem>
-          <ListBoxItem>STING List</ListBoxItem>
-          <ListBoxItem>Billing List</ListBoxItem>
-          <ListBoxItem>Clients</ListBoxItem>
-          <ListBoxItem>Monthly Export</ListBoxItem>
-          <ListBoxItem>Settings</ListBoxItem>
-          <ListBoxItem>Wialon Reports</ListBoxItem>
-          <ListBoxItem>Dashcams</ListBoxItem>
+        <TextBlock x:Name="NavTitle" Text="Navigation" Classes="h2" Margin="6,10,0,6" IsVisible="False"/>
+        <ListBox x:Name="CollapsedNavList"
+                 SelectedIndex="{Binding NavIndex}"
+                 Classes="nav nav-icons">
+          <ListBoxItem ToolTip.Tip="Search"><TextBlock Text="🔍" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Dashboard"><TextBlock Text="📊" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Quotes"><TextBlock Text="🧾" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Installations"><TextBlock Text="🛠" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Job Cards"><TextBlock Text="📋" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Removals / Cancellations"><TextBlock Text="🗑" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="STING List"><TextBlock Text="📄" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Billing List"><TextBlock Text="💰" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Clients"><TextBlock Text="👥" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Monthly Export"><TextBlock Text="📤" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Settings"><TextBlock Text="⚙" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Wialon Reports"><TextBlock Text="📈" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Dashcams"><TextBlock Text="📷" Classes="nav-icon"/></ListBoxItem>
+        </ListBox>
+
+        <ListBox x:Name="ExpandedNavList"
+                 SelectedIndex="{Binding NavIndex}"
+                 Classes="nav"
+                 IsVisible="False">
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="🔍" Classes="nav-icon"/>
+              <TextBlock Text="Search"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="📊" Classes="nav-icon"/>
+              <TextBlock Text="Dashboard"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="🧾" Classes="nav-icon"/>
+              <TextBlock Text="Quotes"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="🛠" Classes="nav-icon"/>
+              <TextBlock Text="Installations"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="📋" Classes="nav-icon"/>
+              <TextBlock Text="Job Cards"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="🗑" Classes="nav-icon"/>
+              <TextBlock Text="Removals / Cancellations"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="📄" Classes="nav-icon"/>
+              <TextBlock Text="STING List"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="💰" Classes="nav-icon"/>
+              <TextBlock Text="Billing List"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="👥" Classes="nav-icon"/>
+              <TextBlock Text="Clients"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="📤" Classes="nav-icon"/>
+              <TextBlock Text="Monthly Export"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="⚙" Classes="nav-icon"/>
+              <TextBlock Text="Settings"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="📈" Classes="nav-icon"/>
+              <TextBlock Text="Wialon Reports"/>
+            </StackPanel>
+          </ListBoxItem>
+          <ListBoxItem>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="📷" Classes="nav-icon"/>
+              <TextBlock Text="Dashcams"/>
+            </StackPanel>
+          </ListBoxItem>
         </ListBox>
       </StackPanel>
     </Border>

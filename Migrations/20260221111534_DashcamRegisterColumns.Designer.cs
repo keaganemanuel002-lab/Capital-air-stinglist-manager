@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using StingListManager.Data;
 
@@ -10,9 +11,11 @@ using StingListManager.Data;
 namespace StingListManager.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260221111534_DashcamRegisterColumns")]
+    partial class DashcamRegisterColumns
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
@@ -118,15 +121,7 @@ namespace StingListManager.Migrations
                     b.Property<string>("Iccid")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("IccidNorm")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Imei")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ImeiNorm")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Make")
@@ -152,10 +147,6 @@ namespace StingListManager.Migrations
                     b.Property<string>("SerialNumber")
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("SerialNumberNorm")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("SimNumber")
                         .HasColumnType("TEXT");
 
@@ -176,19 +167,7 @@ namespace StingListManager.Migrations
 
                     b.HasIndex("Company");
 
-                    b.HasIndex("IccidNorm")
-                        .IsUnique()
-                        .HasFilter("\"ArchivedAt\" IS NULL AND (\"Status\" = 0 OR \"Status\" = 2) AND \"IccidNorm\" <> ''");
-
-                    b.HasIndex("ImeiNorm")
-                        .IsUnique()
-                        .HasFilter("\"ArchivedAt\" IS NULL AND (\"Status\" = 0 OR \"Status\" = 2) AND \"ImeiNorm\" <> ''");
-
                     b.HasIndex("RegistrationNorm");
-
-                    b.HasIndex("SerialNumberNorm")
-                        .IsUnique()
-                        .HasFilter("\"ArchivedAt\" IS NULL AND (\"Status\" = 0 OR \"Status\" = 2) AND \"SerialNumberNorm\" <> ''");
 
                     b.ToTable("BillingEntries");
                 });
@@ -265,17 +244,10 @@ namespace StingListManager.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("NameNorm")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("PhoneNumber")
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("NameNorm")
-                        .IsUnique();
 
                     b.ToTable("Clients");
                 });
@@ -453,9 +425,6 @@ namespace StingListManager.Migrations
 
                     b.HasIndex("CreatedAt");
 
-                    b.HasIndex("JobCardNumber")
-                        .IsUnique();
-
                     b.HasIndex("QuoteId");
 
                     b.HasIndex("Registration");
@@ -543,9 +512,6 @@ namespace StingListManager.Migrations
                     b.HasIndex("Company");
 
                     b.HasIndex("CreatedAt");
-
-                    b.HasIndex("QuoteNumber")
-                        .IsUnique();
 
                     b.HasIndex("Registration");
 

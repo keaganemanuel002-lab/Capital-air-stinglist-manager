@@ -10,7 +10,7 @@
       <Button Content="New" Click="NewClient_Click" Classes="primary"/>
       <Button Content="Edit" Click="EditClient_Click"/>
       <Button Content="Delete" Command="{Binding DeleteCommand}"/>
-      <Button Content="Refresh" Command="{Binding LoadCommand}"/>
+      <Button Content="Sync from Wialon" Command="{Binding SyncNowCommand}"/>
     </StackPanel>
 
     <DataGrid AutoGenerateColumns="False"

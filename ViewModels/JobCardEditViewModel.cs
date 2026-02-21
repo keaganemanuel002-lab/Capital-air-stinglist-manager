@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.EntityFrameworkCore;
 using StingListManager.Data;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
@@ -19,6 +21,9 @@ public partial class JobCardEditViewModel : ViewModelBase
     private readonly VehicleDataService _vehicleService = new();
     private bool _suppressMakeFilter;
     private bool _suppressModelFilter;
+    private bool _suppressIccidAutoLookup;
+    private string? _lastAutoLookupIccid;
+    private CancellationTokenSource? _flickswitchLookupCts;
     private JobStatus _currentStatus;
 
     [ObservableProperty] private string company = "";
@@ -33,17 +38,76 @@ public partial class JobCardEditViewModel : ViewModelBase
     [ObservableProperty] private string? serialNumber;
     [ObservableProperty] private string? iccid;
     [ObservableProperty] private string? simNumber;
-    [ObservableProperty] private string? statusMessage;
-    [ObservableProperty] private bool isFetching;
+    [ObservableProperty] private string? flickswitchStatusMessage;
+    [ObservableProperty] private string? flickswitchRulesText;
+    [ObservableProperty] private decimal? simAirtimeBalance;
+    [ObservableProperty] private decimal? simDataBalanceMb;
+    [ObservableProperty] private decimal? simSmsBalance;
+    [ObservableProperty] private DateTimeOffset? simLastBalanceCheckAt;
+    [ObservableProperty] private string? flickswitchBalanceStatusMessage;
+    [ObservableProperty] private bool isLookingUpFlickswitch;
     [ObservableProperty] private bool showMakesList;
     [ObservableProperty] private bool showModelsList;
     [ObservableProperty] private bool isEditable = true;
     [ObservableProperty] private string editableWarning = "";
+    [ObservableProperty] private bool isTransferCard;
+    [ObservableProperty] private string? selectedClientName;
 
     public ObservableCollection<string> AvailableMakes { get; } = new();
     public ObservableCollection<string> AvailableModels { get; } = new();
     public ObservableCollection<string> FilteredMakes { get; } = new();
     public ObservableCollection<string> FilteredModels { get; } = new();
+    public ObservableCollection<string> ClientNames { get; } = new();
+    public bool ShowTransferCompanyPicker => IsTransferCard;
+    public bool ShowReadOnlyCompany => !IsTransferCard;
+    public double EditSectionOpacity => IsEditable ? 1.0 : 0.95;
+    public bool HasFlickswitchRules => !string.IsNullOrWhiteSpace(FlickswitchRulesText);
+    public bool HasSimBalanceData =>
+        SimAirtimeBalance.HasValue
+        || SimDataBalanceMb.HasValue
+        || SimSmsBalance.HasValue
+        || SimLastBalanceCheckAt.HasValue;
+    public string SimAirtimeBalanceDisplay => SimAirtimeBalance.HasValue ? $"R {SimAirtimeBalance.Value:0.00}" : "-";
+    public string SimDataBalanceDisplay => SimDataBalanceMb.HasValue ? $"{SimDataBalanceMb.Value:0.##} MB" : "-";
+    public string SimSmsBalanceDisplay => SimSmsBalance.HasValue ? $"{SimSmsBalance.Value:0.##}" : "-";
+    public string SimLastBalanceCheckDisplay => SimLastBalanceCheckAt.HasValue ? SimLastBalanceCheckAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm") : "-";
+
+    partial void OnIsTransferCardChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowTransferCompanyPicker));
+        OnPropertyChanged(nameof(ShowReadOnlyCompany));
+    }
+
+    partial void OnIsEditableChanged(bool value)
+    {
+        OnPropertyChanged(nameof(EditSectionOpacity));
+    }
+
+    partial void OnSelectedClientNameChanged(string? value)
+    {
+        if (!IsTransferCard || string.IsNullOrWhiteSpace(value))
+            return;
+
+        Company = value.Trim();
+    }
+
+    partial void OnFlickswitchRulesTextChanged(string? value)
+    {
+        OnPropertyChanged(nameof(HasFlickswitchRules));
+    }
+
+    partial void OnSimAirtimeBalanceChanged(decimal? value) => OnSimBalanceValuesChanged();
+    partial void OnSimDataBalanceMbChanged(decimal? value) => OnSimBalanceValuesChanged();
+    partial void OnSimSmsBalanceChanged(decimal? value) => OnSimBalanceValuesChanged();
+    partial void OnSimLastBalanceCheckAtChanged(DateTimeOffset? value) => OnSimBalanceValuesChanged();
+
+    partial void OnIccidChanged(string? value)
+    {
+        if (_suppressIccidAutoLookup)
+            return;
+
+        _ = AutoLookupFromIccidAsync(value);
+    }
 
     partial void OnMakeChanged(string? value)
     {
@@ -136,6 +200,8 @@ public partial class JobCardEditViewModel : ViewModelBase
         _close = close;
         _appState = appState;
 
+        LoadClients();
+
         // Load all available makes
         RefreshAvailableMakes();
 
@@ -147,18 +213,21 @@ public partial class JobCardEditViewModel : ViewModelBase
         if (job != null)
         {
             _currentStatus = job.Status;
+            IsTransferCard = job.Type == JobType.Transfer;
             
-            // Check if job is completed and user is not admin
-            if (job.Status == JobStatus.Completed && !_appState.IsAdmin)
+            // Completed job cards are locked for editing (including transfer cards).
+            if (job.Status == JobStatus.Completed)
             {
                 IsEditable = false;
-                EditableWarning = "This job card is completed and can only be edited by administrators.";
+                EditableWarning = "This job card is completed and is read-only.";
             }
 
             var logMsg = $"[JobCardEditViewModel] Loaded JobCard {jobCardId}: Make={job.Make}, Model={job.Model}, Imei={job.Imei}, Iccid={job.Iccid}, SerialNumber={job.SerialNumber}";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
             
             Company = job.Company;
+            AddClientNameIfMissing(Company);
+            SelectedClientName = Company;
             Registration = job.Registration;
             FleetNumber = job.FleetNumber;
             Make = job.Make;
@@ -166,10 +235,23 @@ public partial class JobCardEditViewModel : ViewModelBase
             Colour = job.Colour;
             VinNumber = job.VinNumber;
             TrackingUnitMake = job.TrackingUnitMake;
-            Imei = job.Imei;
-            SerialNumber = job.SerialNumber;
-            Iccid = job.Iccid;
-            SimNumber = job.SimNumber;
+            _suppressIccidAutoLookup = true;
+            try
+            {
+                Imei = job.Imei;
+                SerialNumber = job.SerialNumber;
+                Iccid = job.Iccid;
+                SimNumber = job.SimNumber;
+            }
+            finally
+            {
+                _suppressIccidAutoLookup = false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(Iccid))
+            {
+                _ = AutoLookupFromIccidAsync(Iccid);
+            }
 
             logMsg = $"[JobCardEditViewModel] Properties set: Make={Make}, Model={Model}, Imei={Imei}, Iccid={Iccid}";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
@@ -196,6 +278,33 @@ public partial class JobCardEditViewModel : ViewModelBase
         }
     }
 
+    private void LoadClients()
+    {
+        ClientNames.Clear();
+        using var db = new AppDbContext();
+        foreach (var name in db.Clients
+                     .AsNoTracking()
+                     .Select(c => c.Name)
+                     .Where(n => !string.IsNullOrWhiteSpace(n))
+                     .Distinct()
+                     .OrderBy(n => n)
+                     .ToList())
+        {
+            ClientNames.Add(name);
+        }
+    }
+
+    private void AddClientNameIfMissing(string? companyName)
+    {
+        if (string.IsNullOrWhiteSpace(companyName))
+            return;
+
+        if (ClientNames.Any(x => string.Equals(x, companyName, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        ClientNames.Add(companyName.Trim());
+    }
+
     private void UpdateAvailableModels()
     {
         AvailableModels.Clear();
@@ -208,55 +317,228 @@ public partial class JobCardEditViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
-    private async Task FetchFromTeltonika()
+    private async Task AutoLookupFromIccidAsync(string? iccidValue)
     {
-        StatusMessage = null;
-        IsFetching = true;
+        var normalized = NormalizeDigits(iccidValue);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            _lastAutoLookupIccid = null;
+            FlickswitchStatusMessage = null;
+            FlickswitchRulesText = null;
+            FlickswitchBalanceStatusMessage = null;
+            ClearSimBalanceData();
+            return;
+        }
+
+        if (normalized.Length < 5)
+        {
+            FlickswitchRulesText = null;
+            FlickswitchBalanceStatusMessage = null;
+            ClearSimBalanceData();
+            return;
+        }
+
+        if (string.Equals(_lastAutoLookupIccid, normalized, StringComparison.Ordinal))
+            return;
+
+        FlickswitchRulesText = null;
+        FlickswitchBalanceStatusMessage = null;
+        ClearSimBalanceData();
+
+        _flickswitchLookupCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _flickswitchLookupCts = cts;
 
         try
         {
-            var service = new TeltonikaFotaService();
-            
-            if (!service.IsConfigured())
+            await Task.Delay(700, cts.Token);
+            await LookupSimFromFlickswitchAsync(isAutomatic: true, cts.Token);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
+    private async Task LookupSimFromFlickswitchAsync(bool isAutomatic, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(Iccid) && string.IsNullOrWhiteSpace(SimNumber))
+        {
+            FlickswitchStatusMessage = "Enter ICCID or SIM Number before lookup.";
+            return;
+        }
+
+        var service = new FlickswitchSimControlService(_appState.Settings);
+        if (!service.IsConfigured())
+        {
+            FlickswitchStatusMessage = "Flickswitch API key is not configured in Settings.";
+            return;
+        }
+
+        var configuredApiKey = _appState.Settings.FlickswitchApiKey?.Trim();
+        if (!string.IsNullOrWhiteSpace(configuredApiKey)
+            && configuredApiKey.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            FlickswitchStatusMessage = "Flickswitch API key looks invalid (a URL was entered). Update it in Settings.";
+            return;
+        }
+
+        IsLookingUpFlickswitch = true;
+        FlickswitchStatusMessage = isAutomatic
+            ? "Looking up SIM in Flickswitch..."
+            : null;
+
+        try
+        {
+            var sim = await service.FindByIccidOrPhoneAsync(Iccid, SimNumber, cancellationToken);
+            if (sim == null)
             {
-                StatusMessage = "Teltonika API key not configured. Please set it in Settings.";
+                FlickswitchRulesText = null;
+                ClearSimBalanceData();
+                FlickswitchStatusMessage = string.IsNullOrWhiteSpace(service.LastError)
+                    ? "No matching SIM found in Flickswitch."
+                    : $"Flickswitch lookup failed: {service.LastError}";
                 return;
             }
 
-            TeltonikaDeviceInfo? deviceInfo = null;
-
-            // Try to fetch by IMEI first if we have it
-            if (!string.IsNullOrWhiteSpace(Imei))
+            _suppressIccidAutoLookup = true;
+            try
             {
-                deviceInfo = await service.GetDeviceInfoAsync(Imei.Trim());
+                if (!string.IsNullOrWhiteSpace(sim.Iccid))
+                    Iccid = sim.Iccid.Trim();
             }
-            // Otherwise try by serial number
-            else if (!string.IsNullOrWhiteSpace(SerialNumber))
+            finally
             {
-                deviceInfo = await service.GetDeviceInfoAsync(SerialNumber.Trim());
+                _suppressIccidAutoLookup = false;
             }
 
-            if (deviceInfo != null)
+            if (!string.IsNullOrWhiteSpace(sim.SimNumber))
+                SimNumber = sim.SimNumber.Trim();
+
+            var normalizedIccid = NormalizeDigits(Iccid);
+            if (!string.IsNullOrWhiteSpace(normalizedIccid))
+                _lastAutoLookupIccid = normalizedIccid;
+
+            var distinctRules = sim.Rules
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            FlickswitchRulesText = distinctRules.Count == 0
+                ? "No active rules returned by Flickswitch."
+                : string.Join(Environment.NewLine, distinctRules.Select(x => $"- {x}"));
+
+            // Try to refresh balances and then fetch latest snapshot.
+            var baseline = sim;
+            var refresh = await service.RequestSimBalancesRefreshAsync(Iccid, SimNumber, null, cancellationToken);
+            sim = await WaitForUpdatedBalanceSnapshotAsync(service, baseline, cancellationToken) ?? sim;
+            SimAirtimeBalance = sim.AirtimeBalance;
+            SimDataBalanceMb = sim.DataBalanceMb;
+            SimSmsBalance = sim.SmsBalance;
+            SimLastBalanceCheckAt = sim.LastBalanceCheckAt;
+
+            var hasBalanceData = HasSimBalanceData;
+            var hasFreshUpdate = IsBalanceSnapshotFresh(baseline, sim);
+            if (refresh.ok)
             {
-                Imei = deviceInfo.Imei;
-                SerialNumber = deviceInfo.SerialNumber;
-                Iccid = deviceInfo.Iccid;
-                StatusMessage = "✓ Device information fetched from Teltonika FOTA";
+                FlickswitchBalanceStatusMessage = hasFreshUpdate
+                    ? "SIM balances refreshed."
+                    : "SIM balances loaded from latest available snapshot.";
+            }
+            else if (hasBalanceData)
+            {
+                FlickswitchBalanceStatusMessage = "SIM balances loaded from latest available snapshot.";
             }
             else
             {
-                StatusMessage = "Device not found in Teltonika FOTA. Try entering IMEI or Serial Number manually.";
+                FlickswitchBalanceStatusMessage = string.IsNullOrWhiteSpace(refresh.message)
+                    ? "Could not refresh SIM balances."
+                    : $"Balance refresh failed: {refresh.message}";
             }
+
+            FlickswitchStatusMessage = string.IsNullOrWhiteSpace(sim.Status)
+                ? "SIM details loaded from Flickswitch."
+                : $"SIM details loaded from Flickswitch. Status: {sim.Status}";
+        }
+        catch (TaskCanceledException)
+        {
         }
         catch (Exception ex)
         {
-            StatusMessage = $"Error: {ex.Message}";
+            FlickswitchStatusMessage = $"Flickswitch lookup failed: {ex.Message}";
         }
         finally
         {
-            IsFetching = false;
+            IsLookingUpFlickswitch = false;
         }
+    }
+
+    private void OnSimBalanceValuesChanged()
+    {
+        OnPropertyChanged(nameof(HasSimBalanceData));
+        OnPropertyChanged(nameof(SimAirtimeBalanceDisplay));
+        OnPropertyChanged(nameof(SimDataBalanceDisplay));
+        OnPropertyChanged(nameof(SimSmsBalanceDisplay));
+        OnPropertyChanged(nameof(SimLastBalanceCheckDisplay));
+    }
+
+    private void ClearSimBalanceData()
+    {
+        SimAirtimeBalance = null;
+        SimDataBalanceMb = null;
+        SimSmsBalance = null;
+        SimLastBalanceCheckAt = null;
+    }
+
+    private async Task<FlickswitchSimInfo?> WaitForUpdatedBalanceSnapshotAsync(
+        FlickswitchSimControlService service,
+        FlickswitchSimInfo? baseline,
+        CancellationToken cancellationToken)
+    {
+        FlickswitchSimInfo? latest = baseline;
+
+        for (var attempt = 0; attempt < 4; attempt++)
+        {
+            if (attempt > 0)
+                await Task.Delay(1000, cancellationToken);
+
+            var current = await service.FindByIccidOrPhoneAsync(Iccid, SimNumber, cancellationToken);
+            if (current is null)
+                continue;
+
+            latest = current;
+            if (IsBalanceSnapshotFresh(baseline, current))
+                return current;
+        }
+
+        return latest;
+    }
+
+    private static bool IsBalanceSnapshotFresh(FlickswitchSimInfo? baseline, FlickswitchSimInfo current)
+    {
+        if (baseline is null)
+            return true;
+
+        if (current.LastBalanceCheckAt.HasValue)
+        {
+            if (!baseline.LastBalanceCheckAt.HasValue)
+                return true;
+
+            if (current.LastBalanceCheckAt.Value > baseline.LastBalanceCheckAt.Value)
+                return true;
+        }
+
+        return current.AirtimeBalance != baseline.AirtimeBalance
+               || current.DataBalanceMb != baseline.DataBalanceMb
+               || current.SmsBalance != baseline.SmsBalance;
+    }
+
+    private static string NormalizeDigits(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value.Where(char.IsDigit).ToArray());
     }
 
     [RelayCommand]
@@ -267,7 +549,13 @@ public partial class JobCardEditViewModel : ViewModelBase
     {
         if (!IsEditable)
         {
-            _appState.SetStatus("Cannot edit completed job cards unless you are an administrator.");
+            _appState.SetStatus("Completed job cards are read-only and cannot be edited.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(Company))
+        {
+            _appState.SetStatus("Company is required.");
             return;
         }
 
@@ -275,6 +563,7 @@ public partial class JobCardEditViewModel : ViewModelBase
         var job = db.JobCards.Find(_jobCardId);
         if (job == null) { _close(); return; }
 
+        job.Company = Company.Trim();
         job.Registration = string.IsNullOrWhiteSpace(Registration) ? "" : Registration.Trim().ToUpperInvariant();
         job.FleetNumber = string.IsNullOrWhiteSpace(FleetNumber) ? null : FleetNumber.Trim();
         job.Make = string.IsNullOrWhiteSpace(Make) ? null : Make.Trim();
@@ -291,3 +580,4 @@ public partial class JobCardEditViewModel : ViewModelBase
         _close();
     }
 }
+

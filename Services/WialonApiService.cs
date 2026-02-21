@@ -49,6 +49,15 @@ public class WialonUnitSyncResult
     public string Message { get; init; } = "";
 }
 
+public class WialonAccountProvisionResult
+{
+    public bool IsSuccess { get; init; }
+    public bool AlreadyExists { get; init; }
+    public long? ResourceId { get; init; }
+    public long? UserId { get; init; }
+    public string Message { get; init; } = "";
+}
+
 public class WialonApiService
 {
     private const long UnitSearchFlags = 8398087; // Base unit fields + profile fields (pflds)
@@ -82,6 +91,16 @@ public class WialonApiService
         }
 
         public string UniqueId { get; }
+    }
+    private sealed class DuplicateAccountNameConflictException : Exception
+    {
+        public DuplicateAccountNameConflictException(string accountName)
+            : base($"Account name '{accountName}' already exists in Wialon.")
+        {
+            AccountName = accountName;
+        }
+
+        public string AccountName { get; }
     }
 
     private readonly string _baseUrl = "https://hst-api.wialon.eu/";
@@ -577,6 +596,305 @@ public class WialonApiService
                 IsSuccess = false,
                 Message = $"Wialon sync failed: {ex.Message}"
             };
+        }
+    }
+
+    public async Task<WialonAccountProvisionResult> CreateClientAccountAsync(string clientName, string parentAccountOrUser = "Executive Account")
+    {
+        var accountName = PrepareFieldValue(clientName);
+        if (string.IsNullOrWhiteSpace(accountName))
+        {
+            return new WialonAccountProvisionResult
+            {
+                IsSuccess = false,
+                Message = "Client name is required to create a Wialon account."
+            };
+        }
+
+        if (string.IsNullOrEmpty(_sessionId))
+        {
+            return new WialonAccountProvisionResult
+            {
+                IsSuccess = false,
+                Message = "Not connected to Wialon."
+            };
+        }
+
+        var resources = await GetResourcesInternalAsync();
+        var normalizedAccountName = NormalizeComparableText(accountName);
+        var existingResource = resources.FirstOrDefault(r =>
+            string.Equals(NormalizeComparableText(r.Name), normalizedAccountName, StringComparison.Ordinal));
+        if (existingResource is not null)
+        {
+            return new WialonAccountProvisionResult
+            {
+                IsSuccess = true,
+                AlreadyExists = true,
+                ResourceId = existingResource.Id,
+                Message = $"Wialon account '{existingResource.Name}' already exists."
+            };
+        }
+
+        var users = await GetUsersInternalAsync();
+        var creatorUser = FindUserForAccessPolicy(users, resources, parentAccountOrUser);
+        if (creatorUser is null && _userId > 0)
+        {
+            creatorUser = users.FirstOrDefault(u => u.Id == _userId) ?? new WialonUser(_userId, $"User {_userId}", 0);
+        }
+
+        if (creatorUser is null)
+        {
+            return new WialonAccountProvisionResult
+            {
+                IsSuccess = false,
+                Message = $"Could not find parent account/user '{parentAccountOrUser}' and could not resolve the current token user."
+            };
+        }
+
+        var billingPlan = await ResolveChildBillingPlanAsync();
+        if (string.IsNullOrWhiteSpace(billingPlan))
+        {
+            return new WialonAccountProvisionResult
+            {
+                IsSuccess = false,
+                Message = "No assignable child billing plan was found for this Wialon account."
+            };
+        }
+
+        long? createdUserId = null;
+        long? createdResourceId = null;
+        try
+        {
+            createdUserId = await CreateAccountUserAsync(creatorUser.Id, accountName);
+            // Wialon account creation requires a child user as account creator/resource creator.
+            createdResourceId = await CreateAccountResourceAsync(createdUserId.Value, accountName);
+            await ExecuteApiAsync("account/create_account", new
+            {
+                itemId = createdResourceId.Value,
+                plan = billingPlan
+            });
+
+            return new WialonAccountProvisionResult
+            {
+                IsSuccess = true,
+                AlreadyExists = false,
+                ResourceId = createdResourceId,
+                UserId = createdUserId,
+                Message = $"Wialon account '{accountName}' created under '{parentAccountOrUser}'. Wialon sets Creator to the child account user."
+            };
+        }
+        catch (DuplicateAccountNameConflictException)
+        {
+            if (createdUserId.HasValue)
+            {
+                await TryDeleteItemAsync(createdUserId.Value);
+            }
+
+            return new WialonAccountProvisionResult
+            {
+                IsSuccess = true,
+                AlreadyExists = true,
+                ResourceId = null,
+                UserId = null,
+                Message = $"Wialon account name '{accountName}' already exists. Using existing account."
+            };
+        }
+        catch (Exception ex)
+        {
+            if (createdResourceId.HasValue)
+            {
+                await TryDeleteItemAsync(createdResourceId.Value);
+            }
+
+            if (createdUserId.HasValue)
+            {
+                await TryDeleteItemAsync(createdUserId.Value);
+            }
+
+            return new WialonAccountProvisionResult
+            {
+                IsSuccess = false,
+                AlreadyExists = false,
+                ResourceId = createdResourceId,
+                UserId = createdUserId,
+                Message = $"Failed to create Wialon account '{accountName}': {ex.Message}"
+            };
+        }
+    }
+
+    private async Task<string?> ResolveChildBillingPlanAsync()
+    {
+        var response = await ExecuteApiAsync("core/get_account_data", new { type = 1 });
+        if (response.ValueKind != JsonValueKind.Object)
+            return null;
+
+        if (response.TryGetProperty("subPlans", out var subPlansElement) && subPlansElement.ValueKind == JsonValueKind.Array)
+        {
+            var plans = subPlansElement
+                .EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => PrepareFieldValue(x.GetString()))
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Cast<string>()
+                .ToList();
+
+            if (plans.Count > 0)
+            {
+                var preferred = plans.FirstOrDefault(p => NormalizeComparableText(p).Contains("client", StringComparison.OrdinalIgnoreCase));
+                return preferred ?? plans[0];
+            }
+        }
+
+        if (response.TryGetProperty("plan", out var planElement) && planElement.ValueKind == JsonValueKind.String)
+        {
+            return PrepareFieldValue(planElement.GetString());
+        }
+
+        return null;
+    }
+
+    private async Task<long> CreateAccountUserAsync(long creatorUserId, string accountName)
+    {
+        const int maxAttempts = 6;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var userName = BuildAccountUserName(accountName, attempt);
+            try
+            {
+                var response = await ExecuteApiAsync("core/create_user", new
+                {
+                    creatorId = creatorUserId,
+                    name = userName,
+                    password = GenerateAccountPassword(),
+                    dataFlags = 1
+                });
+
+                var createdId = ExtractCreatedItemId(response);
+                if (createdId > 0)
+                    return createdId.Value;
+
+                throw new Exception("Wialon did not return a valid user ID.");
+            }
+            catch (Exception ex) when (IsDuplicateNameError(ex) && attempt < maxAttempts - 1)
+            {
+                // Retry with a different generated login.
+            }
+        }
+
+        throw new Exception("Failed to create a unique Wialon user for the new account.");
+    }
+
+    private async Task<long> CreateAccountResourceAsync(long resourceCreatorUserId, string accountName)
+    {
+        try
+        {
+            var response = await ExecuteApiAsync("core/create_resource", new
+            {
+                creatorId = resourceCreatorUserId,
+                name = accountName,
+                dataFlags = 1,
+                skipCreatorCheck = 1
+            });
+
+            var createdId = ExtractCreatedItemId(response);
+            if (createdId > 0)
+                return createdId.Value;
+
+            throw new Exception("Wialon did not return a valid resource ID.");
+        }
+        catch (Exception ex) when (IsDuplicateNameError(ex))
+        {
+            var resources = await GetResourcesInternalAsync();
+            var existing = resources.FirstOrDefault(r =>
+                string.Equals(NormalizeComparableText(r.Name), NormalizeComparableText(accountName), StringComparison.Ordinal));
+            if (existing is not null)
+                return existing.Id;
+
+            throw new DuplicateAccountNameConflictException(accountName);
+        }
+    }
+
+    private static long? ExtractCreatedItemId(JsonElement response)
+    {
+        if (response.ValueKind == JsonValueKind.Number && response.TryGetInt64(out var numericId) && numericId > 0)
+            return numericId;
+
+        if (response.ValueKind == JsonValueKind.Object)
+        {
+            if (response.TryGetProperty("id", out var idElement) && idElement.TryGetInt64(out var directId) && directId > 0)
+                return directId;
+
+            if (response.TryGetProperty("item", out var itemElement) &&
+                itemElement.ValueKind == JsonValueKind.Object &&
+                itemElement.TryGetProperty("id", out var itemIdElement) &&
+                itemIdElement.TryGetInt64(out var itemId) &&
+                itemId > 0)
+            {
+                return itemId;
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsDuplicateNameError(Exception ex)
+    {
+        return ex.Message.Contains("1002", StringComparison.OrdinalIgnoreCase)
+            || ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ReadJsonText(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.String => element.GetString() ?? string.Empty,
+            JsonValueKind.Number => element.ToString(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            JsonValueKind.Null => "null",
+            _ => element.ToString()
+        };
+    }
+
+    private static string BuildAccountUserName(string accountName, int attempt)
+    {
+        var baseName = NormalizeComparableText(accountName);
+        if (string.IsNullOrWhiteSpace(baseName))
+            baseName = "client";
+
+        // Prefer readable logins: ca_<clientname>, then ca_<clientname>_01, _02...
+        var suffix = attempt == 0 ? string.Empty : $"_{attempt:00}";
+        var maxBaseLength = 50 - "ca_".Length - suffix.Length;
+        if (maxBaseLength < 1)
+            maxBaseLength = 1;
+
+        if (baseName.Length > maxBaseLength)
+            baseName = baseName.Substring(0, maxBaseLength);
+
+        var userName = $"ca_{baseName}{suffix}";
+
+        if (userName.Length < 4)
+            userName = "ca_client";
+
+        return userName;
+    }
+
+    private static string GenerateAccountPassword()
+    {
+        var nonce = Guid.NewGuid().ToString("N");
+        return $"Sting!{nonce[..10]}1";
+    }
+
+    private async Task TryDeleteItemAsync(long itemId)
+    {
+        try
+        {
+            await ExecuteApiAsync("item/delete_item", new { itemId });
+        }
+        catch
+        {
+            // Best effort cleanup only.
         }
     }
 
@@ -1470,7 +1788,9 @@ public class WialonApiService
                 // Check for error in response
                 if (root.TryGetProperty("error", out var errorElement))
                 {
-                    var errorMsg = errorElement.GetString() ?? "Unknown error";
+                    var errorMsg = ReadJsonText(errorElement);
+                    if (string.IsNullOrWhiteSpace(errorMsg))
+                        errorMsg = "Unknown error";
                     LastError = $"Wialon API Error: {errorMsg}";
                     System.Diagnostics.Debug.WriteLine($"Wialon Error: {errorMsg}");
                     return false;
@@ -1804,7 +2124,9 @@ public class WialonApiService
                 // Check for API error
                 if (root.TryGetProperty("error", out var errorElement))
                 {
-                    var errorMsg = errorElement.GetString() ?? "Unknown error";
+                    var errorMsg = ReadJsonText(errorElement);
+                    if (string.IsNullOrWhiteSpace(errorMsg))
+                        errorMsg = "Unknown error";
                     throw new Exception($"Wialon API Error: {errorMsg}");
                 }
                 

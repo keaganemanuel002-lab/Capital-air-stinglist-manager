@@ -45,7 +45,12 @@ public partial class DashcamsViewModel : ViewModelBase
     [RelayCommand]
     public void AddNew()
     {
-        var d = new Dashcam { PurchasedAt = DateTime.Now };
+        var d = new Dashcam
+        {
+            Installed = DateTime.Now.ToString("dd/MM/yyyy"),
+            InteriorCam = "yes",
+            RearCam = "yes"
+        };
         using var db = new AppDbContext();
         db.Dashcams.Add(d);
         db.SaveChanges();
@@ -209,6 +214,16 @@ public partial class DashcamsViewModel : ViewModelBase
         if (!string.IsNullOrWhiteSpace(term))
         {
             query = query.Where(d =>
+                Matches(d.Vehicle, term) ||
+                Matches(d.DeviceId, term) ||
+                Matches(d.WifiPassword, term) ||
+                Matches(d.IsupPassword, term) ||
+                Matches(d.InteriorCam, term) ||
+                Matches(d.RearCam, term) ||
+                Matches(d.Installed, term) ||
+                Matches(d.Location, term) ||
+                Matches(d.Issue, term) ||
+                Matches(d.UpgradeSteps, term) ||
                 Matches(d.SerialNumber, term) ||
                 Matches(d.Model, term) ||
                 Matches(d.AllocatedVehicleRegistration, term) ||

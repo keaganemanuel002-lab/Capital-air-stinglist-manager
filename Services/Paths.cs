@@ -26,6 +26,9 @@ public static class Paths
 
     public static string DbPath => Path.Combine(BaseDir, "sting.db");
     public static string AttachmentsDir => Path.Combine(BaseDir, "attachments");
+    public static string GeneratedDir => Path.Combine(BaseDir, "generated");
+    public static string GeneratedQuotesDir => Path.Combine(GeneratedDir, "quotes");
+    public static string GeneratedJobCardsDir => Path.Combine(GeneratedDir, "jobcards");
     public static string BackupsDir => Path.Combine(BaseDir, "backups");
     public static string ProductCatalogPath => Path.Combine(BaseDir, "products.json");
 
@@ -39,6 +42,9 @@ public static class Paths
         EnsureLocal();
         Directory.CreateDirectory(BaseDir);
         Directory.CreateDirectory(AttachmentsDir);
+        Directory.CreateDirectory(GeneratedDir);
+        Directory.CreateDirectory(GeneratedQuotesDir);
+        Directory.CreateDirectory(GeneratedJobCardsDir);
         Directory.CreateDirectory(BackupsDir);
     }
 }

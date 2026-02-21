@@ -40,10 +40,12 @@ public partial class StingListRow : ObservableObject
 
 public partial class StingListViewModel : PagedViewModelBase
 {
+    private const string InactiveStatus = "Inactive";
     private readonly Window _window;
     private readonly AppState _appState;
     private readonly List<StingListRow> _allRows = new();
     private WialonApiService? _wialonService;
+    private string? _wialonTokenInUse;
     private bool _suppressFilterReload;
     private bool _isLoadingFromWialon;
 
@@ -73,7 +75,7 @@ public partial class StingListViewModel : PagedViewModelBase
             "Any",
             "Current",
             BillingStatus.Active.ToString(),
-            "Not Loaded",
+            InactiveStatus,
             BillingStatus.Removed.ToString()
         });
 
@@ -95,6 +97,12 @@ public partial class StingListViewModel : PagedViewModelBase
         && !string.Equals(SelectedRow.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase)
         && !SelectedRow.IsArchived;
 
+    public bool CanStartTransfer =>
+        SelectedRow != null
+        && SelectedRow.HasLocalBillingEntry
+        && !string.Equals(SelectedRow.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase)
+        && !SelectedRow.IsArchived;
+
     public bool CanModifySelectedRow => CanArchive && SelectedRow?.HasLocalBillingEntry == true;
 
     partial void OnShowArchivedChanged(bool value) => FirstPageCommand.Execute(null);
@@ -103,6 +111,7 @@ public partial class StingListViewModel : PagedViewModelBase
     partial void OnSelectedRowChanged(StingListRow? value)
     {
         OnPropertyChanged(nameof(CanStartRemoval));
+        OnPropertyChanged(nameof(CanStartTransfer));
         OnPropertyChanged(nameof(CanModifySelectedRow));
     }
 
@@ -153,8 +162,9 @@ public partial class StingListViewModel : PagedViewModelBase
                 r.LocalBillingEntryId == selectedKey.LocalBillingEntryId);
         }
 
-        _appState.SetStatus($"Loaded STING entries from Wialon: page {PageNumber} ({Rows.Count} of {filteredRows.Count})");
+        _appState.SetStatus($"Loaded STING entries: page {PageNumber} ({Rows.Count} of {filteredRows.Count})");
         OnPropertyChanged(nameof(CanStartRemoval));
+        OnPropertyChanged(nameof(CanStartTransfer));
         OnPropertyChanged(nameof(CanModifySelectedRow));
     }
 
@@ -171,11 +181,11 @@ public partial class StingListViewModel : PagedViewModelBase
             {
                 query = query.Where(r =>
                     string.Equals(r.Status, BillingStatus.Active.ToString(), StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(r.Status, "Not Loaded", StringComparison.OrdinalIgnoreCase));
+                    || IsInactiveStatus(r.Status));
             }
-            else if (string.Equals(SelectedStatus, "Not Loaded", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(SelectedStatus, InactiveStatus, StringComparison.OrdinalIgnoreCase))
             {
-                query = query.Where(r => string.Equals(r.Status, "Not Loaded", StringComparison.OrdinalIgnoreCase));
+                query = query.Where(r => IsInactiveStatus(r.Status));
             }
             else
             {
@@ -299,21 +309,55 @@ public partial class StingListViewModel : PagedViewModelBase
         if (_isLoadingFromWialon)
             return;
 
+        var localCount = LoadRowsFromLocalBillingEntries();
         var token = _appState.Settings.WialonApiToken;
         if (string.IsNullOrWhiteSpace(token))
         {
-            _allRows.Clear();
-            FirstPageCommand.Execute(null);
-            _appState.SetStatus("STING list now loads from Wialon. Add your Wialon token in Settings.");
+            if (_wialonService is not null)
+            {
+                try
+                {
+                    await _wialonService.LogoutAndDisposeAsync();
+                }
+                catch
+                {
+                    // Best effort cleanup only.
+                }
+
+                _wialonService = null;
+            }
+
+            _wialonTokenInUse = null;
+            _appState.SetStatus(localCount > 0
+                ? $"Loaded {localCount} STING entries from local data. Wialon IMEI status check is disabled (no token)."
+                : "No STING entries found in local data.");
             return;
         }
 
         _isLoadingFromWialon = true;
         try
         {
-            _appState.SetStatus("Loading STING list from Wialon...");
+            _appState.SetStatus($"Loaded {localCount} STING entries from local data. Verifying IMEIs in Wialon...");
 
-            _wialonService ??= new WialonApiService(token);
+            var normalizedToken = token.Trim();
+            if (_wialonService is null || !string.Equals(_wialonTokenInUse, normalizedToken, StringComparison.Ordinal))
+            {
+                if (_wialonService is not null)
+                {
+                    try
+                    {
+                        await _wialonService.LogoutAndDisposeAsync();
+                    }
+                    catch
+                    {
+                        // Best effort cleanup only.
+                    }
+                }
+
+                _wialonService = new WialonApiService(normalizedToken);
+                _wialonTokenInUse = normalizedToken;
+            }
+
             var connected = await _wialonService.TestConnectionAsync();
             if (!connected)
             {
@@ -321,26 +365,55 @@ public partial class StingListViewModel : PagedViewModelBase
                     ? "Unknown error"
                     : _wialonService.LastError;
 
-                _allRows.Clear();
-                FirstPageCommand.Execute(null);
-                _appState.SetStatus($"Failed to connect to Wialon for STING list: {err}");
+                _appState.SetStatus(localCount > 0
+                    ? $"Loaded {localCount} STING entries from local data. Wialon IMEI status check unavailable ({err})."
+                    : $"No STING entries found in local data. Wialon IMEI status check unavailable ({err}).");
                 return;
             }
 
-            var reports = await LoadAllReportsAsync(_wialonService);
-            MapReportsToRows(reports);
+            await ApplyWialonImeiStatusesAsync(_wialonService);
 
             PageNumber = 1;
             LoadPage();
-            _appState.SetStatus($"Loaded {_allRows.Count} STING entries from Wialon.");
+            var activeCount = _allRows.Count(r => string.Equals(r.Status, BillingStatus.Active.ToString(), StringComparison.OrdinalIgnoreCase));
+            var inactiveCount = _allRows.Count(r => IsInactiveStatus(r.Status));
+            _appState.SetStatus($"Loaded {_allRows.Count} STING entries. Wialon IMEI check complete: {activeCount} active, {inactiveCount} inactive.");
         }
         catch (Exception ex)
         {
-            _appState.SetStatus($"Failed to load STING list from Wialon: {ex.Message}");
+            _appState.SetStatus(localCount > 0
+                ? $"Loaded {localCount} STING entries from local data. Wialon IMEI status check unavailable ({ex.Message})."
+                : $"No STING entries found in local data. Wialon IMEI status check unavailable ({ex.Message}).");
         }
         finally
         {
             _isLoadingFromWialon = false;
+        }
+    }
+
+    private async Task ApplyWialonImeiStatusesAsync(WialonApiService service)
+    {
+        var imeiStatusCache = new Dictionary<string, bool>(StringComparer.Ordinal);
+
+        foreach (var row in _allRows)
+        {
+            if (string.Equals(row.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var imei = NormalizeDigits(row.Imei);
+            if (string.IsNullOrWhiteSpace(imei))
+            {
+                row.Status = InactiveStatus;
+                continue;
+            }
+
+            if (!imeiStatusCache.TryGetValue(imei, out var isLoaded))
+            {
+                isLoaded = await service.IsImeiLoadedAsync(imei);
+                imeiStatusCache[imei] = isLoaded;
+            }
+
+            row.Status = isLoaded ? BillingStatus.Active.ToString() : InactiveStatus;
         }
     }
 
@@ -365,11 +438,15 @@ public partial class StingListViewModel : PagedViewModelBase
             .ToDictionary(g => g.Key, g => g.First().Entry, StringComparer.Ordinal);
 
         _allRows.Clear();
+        var matchedLocalEntryIds = new HashSet<int>();
 
         var fallbackId = 1;
         foreach (var report in reports)
         {
             var localMatch = FindLocalMatch(report, localByImei, localByCompanyReg);
+            if (localMatch is not null)
+                matchedLocalEntryIds.Add(localMatch.Id);
+
             var activeFrom = localMatch?.ActiveFrom ?? (report.CreatedAt == default ? DateTime.UtcNow : report.CreatedAt);
             var status = !string.IsNullOrWhiteSpace(report.Status)
                 ? report.Status
@@ -397,6 +474,72 @@ public partial class StingListViewModel : PagedViewModelBase
                 ActiveFrom = activeFrom
             });
         }
+
+        var unmatchedLocalEntries = billingEntries
+            .Where(entry => !matchedLocalEntryIds.Contains(entry.Id))
+            .ToList();
+
+        foreach (var entry in unmatchedLocalEntries)
+        {
+            _allRows.Add(CreateRowFromLocalBillingEntry(entry));
+        }
+    }
+
+    private int LoadRowsFromLocalBillingEntries()
+    {
+        using var db = new AppDbContext();
+        var billingEntries = db.BillingEntries
+            .AsNoTracking()
+            .OrderByDescending(x => x.ActiveFrom)
+            .ToList();
+
+        MapLocalBillingEntriesToRows(billingEntries);
+        PageNumber = 1;
+        LoadPage();
+        return _allRows.Count;
+    }
+
+    private void MapLocalBillingEntriesToRows(IReadOnlyCollection<BillingEntry> billingEntries)
+    {
+        _allRows.Clear();
+        foreach (var entry in billingEntries)
+        {
+            _allRows.Add(CreateRowFromLocalBillingEntry(entry));
+        }
+    }
+
+    private static StingListRow CreateRowFromLocalBillingEntry(BillingEntry entry)
+    {
+        return new StingListRow
+        {
+            Id = -Math.Max(1, entry.Id),
+            LocalBillingEntryId = entry.Id,
+            Company = entry.Company,
+            Registration = entry.Registration,
+            FleetNumber = entry.FleetNumber,
+            Make = entry.Make,
+            Model = entry.Model,
+            Colour = entry.Colour,
+            VinNumber = entry.VinNumber,
+            TrackingUnitMake = entry.TrackingUnitMake,
+            Imei = entry.Imei,
+            SerialNumber = entry.SerialNumber,
+            Iccid = entry.Iccid,
+            SimNumber = entry.SimNumber,
+            Notes = entry.Notes,
+            Status = entry.Status == BillingStatus.Removed ? BillingStatus.Removed.ToString() : InactiveStatus,
+            IsArchived = entry.ArchivedAt != null,
+            ActiveFrom = entry.ActiveFrom == default ? DateTime.UtcNow : entry.ActiveFrom
+        };
+    }
+
+    private static bool IsInactiveStatus(string? status)
+    {
+        if (string.IsNullOrWhiteSpace(status))
+            return false;
+
+        return string.Equals(status, InactiveStatus, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(status, BillingStatus.NotLoaded.ToDisplayString(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static BillingEntry? FindLocalMatch(
@@ -550,6 +693,77 @@ public partial class StingListViewModel : PagedViewModelBase
     }
 
     [RelayCommand]
+    private async Task StartTransfer()
+    {
+        if (SelectedRow is null)
+        {
+            _appState.SetStatus("No STING entry selected.");
+            return;
+        }
+
+        if (SelectedRow.LocalBillingEntryId is null)
+        {
+            _appState.SetStatus("Cannot create transfer job card: selected row is not linked to a local billing entry.");
+            return;
+        }
+
+        if (SelectedRow.IsArchived || string.Equals(SelectedRow.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase))
+        {
+            _appState.SetStatus("Cannot create transfer job card for removed/archived entries.");
+            return;
+        }
+
+        using var db = new AppDbContext();
+        var sourceEntry = db.BillingEntries.FirstOrDefault(x => x.Id == SelectedRow.LocalBillingEntryId.Value);
+        if (sourceEntry is null)
+        {
+            _appState.SetStatus("The selected billing entry no longer exists.");
+            return;
+        }
+
+        var nextJobCardNumber = (db.JobCards.Select(x => (int?)x.JobCardNumber).Max() ?? 0) + 1;
+        var transferJob = new JobCard
+        {
+            JobCardNumber = nextJobCardNumber,
+            Type = JobType.Transfer,
+            Status = JobStatus.Open,
+            Company = sourceEntry.Company,
+            Registration = sourceEntry.Registration,
+            FleetNumber = sourceEntry.FleetNumber,
+            Make = sourceEntry.Make,
+            Model = sourceEntry.Model,
+            Colour = sourceEntry.Colour,
+            VinNumber = sourceEntry.VinNumber,
+            TrackingUnitMake = sourceEntry.TrackingUnitMake,
+            Imei = sourceEntry.Imei,
+            SerialNumber = sourceEntry.SerialNumber,
+            Iccid = sourceEntry.Iccid,
+            SimNumber = sourceEntry.SimNumber,
+            Notes = $"Transfer request from {sourceEntry.Company} / {sourceEntry.Registration}"
+        };
+
+        db.JobCards.Add(transferJob);
+        db.SaveChanges();
+
+        var transferReference = JobCardReferenceFormatter.Format(transferJob.Type, transferJob.JobCardNumber);
+
+        new AuditService().Log(
+            _appState.OperatorName,
+            "JOB_TRANSFER_CREATE",
+            "JobCard",
+            transferJob.Id,
+            transferJob.Registration,
+            $"Transfer job card {transferReference} created from STING list");
+
+        var dlg = new StingListManager.Views.JobCardEditWindow();
+        dlg.DataContext = new JobCardEditViewModel(transferJob.Id, () => dlg.Close(), _appState);
+        await dlg.ShowDialog(_window);
+
+        _appState.SetStatus(
+            $"Transfer job card {transferReference} created. Update destination details in Job Cards, then mark it completed.");
+    }
+
+    [RelayCommand]
     private void StartRemoval()
     {
         var logPath = Path.Combine(Path.GetTempPath(), "sting_debug.log");
@@ -578,6 +792,7 @@ public partial class StingListViewModel : PagedViewModelBase
 
         var quote = new Quote
         {
+            QuoteNumber = QuoteNumberAllocator.GetNext(db),
             Type = QuoteType.Removal,
             Status = QuoteStatus.Draft,
             Company = SelectedRow.Company,
@@ -592,9 +807,22 @@ public partial class StingListViewModel : PagedViewModelBase
             SerialNumber = SelectedRow.SerialNumber,
             Iccid = SelectedRow.Iccid,
             SimNumber = SelectedRow.SimNumber,
-            AmountExVat = 0m,
+            AmountExVat = _appState.Settings.DefaultRemovalFeeExVat,
             Notes = $"Removal for unit: {SelectedRow.Registration}"
         };
+
+        quote.LineItems.Add(new QuoteLineItem
+        {
+            LineNumber = 1,
+            ProductType = "Removal Fee",
+            ProductCode = "AUTO-REMOVAL-FEE",
+            ProductName = "Removal Fee",
+            Quantity = 1,
+            UnitPriceExVat = _appState.Settings.DefaultRemovalFeeExVat,
+            LineTotalExVat = _appState.Settings.DefaultRemovalFeeExVat,
+            IsVatExempt = false,
+            Description = "Auto-added removal fee"
+        });
 
         logMsg =
             $"[StartRemoval] Quote created with: Make={quote.Make}, Model={quote.Model}, Imei={quote.Imei}, Iccid={quote.Iccid}, SerialNumber={quote.SerialNumber}";

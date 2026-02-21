@@ -2,97 +2,111 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="StingListManager.Views.DashboardView"
              x:CompileBindings="False">
-  <ScrollViewer>
-    <StackPanel Spacing="12">
-      <DockPanel>
-        <StackPanel DockPanel.Dock="Left">
-          <TextBlock Text="Dashboard" Classes="h1"/>
-          <TextBlock Text="Operational overview" Classes="muted"/>
-        </StackPanel>
-        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Spacing="8">
-          <ComboBox Width="140" ItemsSource="{Binding TimeRanges}" SelectedItem="{Binding SelectedTimeRange}"/>
-          <TextBlock Text="{Binding RangeLabel}" VerticalAlignment="Center" Opacity="0.7"/>
-          <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
-        </StackPanel>
-      </DockPanel>
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Spacing="14">
 
-      <!-- KPI Tiles -->
+      <Border Classes="surface">
+        <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="10">
+          <StackPanel Grid.Row="0" Grid.Column="0" Spacing="2">
+            <TextBlock Text="Dashboard" Classes="h1"/>
+            <TextBlock Text="Operational overview for quotes, job cards, removals, and billing." Classes="muted"/>
+          </StackPanel>
+
+          <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Spacing="8">
+            <ComboBox Width="160"
+                      ItemsSource="{Binding TimeRanges}"
+                      SelectedItem="{Binding SelectedTimeRange}"/>
+            <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
+          </StackPanel>
+
+          <Border Grid.Row="1"
+                  Grid.ColumnSpan="2"
+                  Classes="card"
+                  Padding="10,8">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+              <TextBlock Grid.Column="0"
+                         Text="Date Range:"
+                         Classes="muted"
+                         VerticalAlignment="Center"/>
+              <TextBlock Grid.Column="1"
+                         Text="{Binding RangeLabel}"
+                         FontWeight="SemiBold"
+                         VerticalAlignment="Center"/>
+            </Grid>
+          </Border>
+        </Grid>
+      </Border>
+
       <ItemsControl ItemsSource="{Binding Kpis}">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
-            <WrapPanel />
+            <WrapPanel Orientation="Horizontal" ItemWidth="230" ItemHeight="108"/>
           </ItemsPanelTemplate>
         </ItemsControl.ItemsPanel>
         <ItemsControl.ItemTemplate>
           <DataTemplate>
-            <Button Width="210"
-                    Margin="5"
+            <Button Margin="0,0,10,10"
+                    Padding="0"
                     Classes="card"
                     Command="{Binding DataContext.KpiClickCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
                     CommandParameter="{Binding Target}">
-              <StackPanel>
-                <TextBlock Text="{Binding Title}" Classes="muted"/>
-                <TextBlock Text="{Binding Value}" FontSize="18" FontWeight="SemiBold"/>
-                <TextBlock Text="{Binding SubValue}" Classes="muted" FontSize="11"/>
-              </StackPanel>
+              <Grid RowDefinitions="4,Auto" MinHeight="96">
+                <Border Grid.Row="0" Background="#2563EB" CornerRadius="10,10,0,0"/>
+                <StackPanel Grid.Row="1" Margin="12,10,12,10" Spacing="3">
+                  <TextBlock Text="{Binding Title}" Classes="muted" FontSize="12"/>
+                  <TextBlock Text="{Binding Value}" FontSize="28" FontWeight="SemiBold"/>
+                  <TextBlock Text="{Binding SubValue}" Classes="muted" FontSize="12"/>
+                </StackPanel>
+              </Grid>
             </Button>
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
 
-      <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="14" RowSpacing="12">
-        <!-- Trends -->
+      <Grid ColumnDefinitions="1.3*,1*" RowDefinitions="Auto,Auto" ColumnSpacing="14" RowSpacing="12">
         <Border Grid.Column="0" Classes="card">
           <StackPanel Spacing="8">
-            <TextBlock Text="Trends (Quotes vs Job Cards)" FontWeight="SemiBold"/>
-            <ItemsControl ItemsSource="{Binding Trends}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <Grid ColumnDefinitions="60,*,*" Margin="0,2">
-                    <TextBlock Grid.Column="0" Text="{Binding Label}" Opacity="0.6"/>
-                    <Border Grid.Column="1" Height="8" Background="#4C8BF5" Width="{Binding QuoteBarWidth}" CornerRadius="3"/>
-                    <Border Grid.Column="2" Height="8" Background="#34A853" Width="{Binding JobBarWidth}" CornerRadius="3" Margin="6,0,0,0"/>
-                  </Grid>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="■ Quotes" Foreground="#4C8BF5"/>
-              <TextBlock Text="■ Job Cards" Foreground="#34A853"/>
-            </StackPanel>
+            <TextBlock Text="Daily Activity" FontWeight="SemiBold" FontSize="16"/>
+            <TextBlock Text="Latest 14 days in the selected range." Classes="muted" FontSize="12"/>
+            <DataGrid ItemsSource="{Binding Trends}" IsReadOnly="True" Height="330">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="Day" Binding="{Binding Label}" Width="*"/>
+                <DataGridTextColumn Header="Quotes" Binding="{Binding QuoteCount}" Width="*"/>
+                <DataGridTextColumn Header="Job Cards" Binding="{Binding JobCount}" Width="*"/>
+              </DataGrid.Columns>
+            </DataGrid>
           </StackPanel>
         </Border>
 
-        <!-- Status Breakdown -->
         <Border Grid.Column="1" Classes="card">
-          <StackPanel Spacing="8">
-            <TextBlock Text="Status Breakdown" FontWeight="SemiBold"/>
+          <StackPanel Spacing="10">
+            <TextBlock Text="Status Breakdown" FontWeight="SemiBold" FontSize="16"/>
 
             <TextBlock Text="Quotes" Classes="muted"/>
             <ItemsControl ItemsSource="{Binding QuoteStatusBreakdown}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <StackPanel Margin="0,2">
+                  <StackPanel Margin="0,0,0,6" Spacing="3">
                     <DockPanel>
-                      <TextBlock Text="{Binding Label}" DockPanel.Dock="Left"/>
-                      <TextBlock Text="{Binding Count}" DockPanel.Dock="Right"/>
+                      <TextBlock Text="{Binding Label}" FontWeight="SemiBold" DockPanel.Dock="Left"/>
+                      <TextBlock Text="{Binding ShareText}" Classes="muted" DockPanel.Dock="Right"/>
                     </DockPanel>
-                    <ProgressBar Minimum="0" Maximum="{Binding Total}" Value="{Binding Count}" Height="6"/>
+                    <ProgressBar Minimum="0" Maximum="{Binding Total}" Value="{Binding Count}" Height="8"/>
                   </StackPanel>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <TextBlock Text="Job Cards" Classes="muted" Margin="0,8,0,0"/>
+            <TextBlock Text="Job Cards" Classes="muted" Margin="0,6,0,0"/>
             <ItemsControl ItemsSource="{Binding JobStatusBreakdown}">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <StackPanel Margin="0,2">
+                  <StackPanel Margin="0,0,0,6" Spacing="3">
                     <DockPanel>
-                      <TextBlock Text="{Binding Label}" DockPanel.Dock="Left"/>
-                      <TextBlock Text="{Binding Count}" DockPanel.Dock="Right"/>
+                      <TextBlock Text="{Binding Label}" FontWeight="SemiBold" DockPanel.Dock="Left"/>
+                      <TextBlock Text="{Binding ShareText}" Classes="muted" DockPanel.Dock="Right"/>
                     </DockPanel>
-                    <ProgressBar Minimum="0" Maximum="{Binding Total}" Value="{Binding Count}" Height="6"/>
+                    <ProgressBar Minimum="0" Maximum="{Binding Total}" Value="{Binding Count}" Height="8"/>
                   </StackPanel>
                 </DataTemplate>
               </ItemsControl.ItemTemplate>
@@ -100,11 +114,11 @@
           </StackPanel>
         </Border>
 
-        <!-- Top Clients -->
         <Border Grid.Column="0" Grid.Row="1" Classes="card">
           <StackPanel Spacing="8">
-            <TextBlock Text="Top Clients" FontWeight="SemiBold"/>
-            <DataGrid ItemsSource="{Binding TopClients}" IsReadOnly="True" Height="180">
+            <TextBlock Text="Top Clients" FontWeight="SemiBold" FontSize="16"/>
+            <TextBlock Text="Highest quote volume and value." Classes="muted" FontSize="12"/>
+            <DataGrid ItemsSource="{Binding TopClients}" IsReadOnly="True" Height="220">
               <DataGrid.Columns>
                 <DataGridTextColumn Header="Client" Binding="{Binding Client}" Width="2*"/>
                 <DataGridTextColumn Header="Quotes" Binding="{Binding Count}" Width="*"/>
@@ -114,23 +128,27 @@
           </StackPanel>
         </Border>
 
-        <!-- Recent Activity -->
         <Border Grid.Column="1" Grid.Row="1" Classes="card">
           <StackPanel Spacing="8">
-            <TextBlock Text="Recent Activity" FontWeight="SemiBold"/>
-            <ItemsControl ItemsSource="{Binding RecentActivity}">
-              <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                  <StackPanel Margin="0,4">
-                    <DockPanel>
-                      <TextBlock Text="{Binding Title}" FontWeight="SemiBold" DockPanel.Dock="Left"/>
-                      <TextBlock Text="{Binding When}" Classes="muted" DockPanel.Dock="Right"/>
-                    </DockPanel>
-                    <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="11"/>
-                  </StackPanel>
-                </DataTemplate>
-              </ItemsControl.ItemTemplate>
-            </ItemsControl>
+            <TextBlock Text="Recent Activity" FontWeight="SemiBold" FontSize="16"/>
+            <TextBlock Text="Latest quotes, job cards, and removals." Classes="muted" FontSize="12"/>
+            <ScrollViewer Height="220" VerticalScrollBarVisibility="Auto">
+              <ItemsControl ItemsSource="{Binding RecentActivity}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Border BorderBrush="#E2E8F0" BorderThickness="0,0,0,1" Padding="0,6">
+                      <StackPanel Spacing="2">
+                        <DockPanel>
+                          <TextBlock Text="{Binding Title}" FontWeight="SemiBold" DockPanel.Dock="Left"/>
+                          <TextBlock Text="{Binding When}" Classes="muted" DockPanel.Dock="Right" FontSize="12"/>
+                        </DockPanel>
+                        <TextBlock Text="{Binding Detail}" Classes="muted" FontSize="12"/>
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
           </StackPanel>
         </Border>
       </Grid>

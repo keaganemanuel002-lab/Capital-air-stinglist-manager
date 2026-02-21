@@ -24,7 +24,8 @@ public partial class QuoteDetailsViewModel : ViewModelBase
     private readonly Action _closeAction;
     private readonly AppState _appState;
 
-    public string Title => $"Quote #{QuoteNumber}";
+    public string Title => $"Quote {QuoteReference}";
+    public string QuoteReference => QuoteReferenceFormatter.Format(QuoteNumber);
 
     [ObservableProperty] private int quoteNumber;
     [ObservableProperty] private string quoteType = "";
@@ -48,6 +49,7 @@ public partial class QuoteDetailsViewModel : ViewModelBase
 
     [ObservableProperty] private bool hasJobCard;
     [ObservableProperty] private int jobCardNumber;
+    [ObservableProperty] private string jobCardReference = "";
     [ObservableProperty] private string? jobType;
     [ObservableProperty] private string? jobStatus;
     [ObservableProperty] private DateTime? jobCreatedAt;
@@ -133,6 +135,7 @@ public partial class QuoteDetailsViewModel : ViewModelBase
         {
             HasJobCard = true;
             JobCardNumber = jobCard.JobCardNumber;
+            JobCardReference = JobCardReferenceFormatter.Format(jobCard.Type, jobCard.JobCardNumber);
             JobType = jobCard.Type.ToString();
             JobStatus = jobCard.Status.ToString();
             JobCreatedAt = jobCard.CreatedAt;
@@ -150,5 +153,11 @@ public partial class QuoteDetailsViewModel : ViewModelBase
     private void Close()
     {
         _closeAction();
+    }
+
+    partial void OnQuoteNumberChanged(int value)
+    {
+        OnPropertyChanged(nameof(QuoteReference));
+        OnPropertyChanged(nameof(Title));
     }
 }

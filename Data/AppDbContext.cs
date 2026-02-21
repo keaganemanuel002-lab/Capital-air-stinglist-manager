@@ -1,5 +1,8 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
+using System;
+using System.Linq;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
 
@@ -44,6 +47,7 @@ public class AppDbContext : DbContext
         var result = 0;
         DbRetry.Run(() =>
         {
+            NormalizeTrackedEntities();
             ConfigureSqlitePragmas(this);
             result = base.SaveChanges();
         });
@@ -55,6 +59,15 @@ public class AppDbContext : DbContext
     {
         // Fast search indexes
         modelBuilder.Entity<BillingEntry>().HasIndex(b => b.RegistrationNorm);
+        modelBuilder.Entity<BillingEntry>().HasIndex(b => b.ImeiNorm)
+            .IsUnique()
+            .HasFilter("\"ArchivedAt\" IS NULL AND (\"Status\" = 0 OR \"Status\" = 2) AND \"ImeiNorm\" <> ''");
+        modelBuilder.Entity<BillingEntry>().HasIndex(b => b.IccidNorm)
+            .IsUnique()
+            .HasFilter("\"ArchivedAt\" IS NULL AND (\"Status\" = 0 OR \"Status\" = 2) AND \"IccidNorm\" <> ''");
+        modelBuilder.Entity<BillingEntry>().HasIndex(b => b.SerialNumberNorm)
+            .IsUnique()
+            .HasFilter("\"ArchivedAt\" IS NULL AND (\"Status\" = 0 OR \"Status\" = 2) AND \"SerialNumberNorm\" <> ''");
         modelBuilder.Entity<BillingEntry>().HasIndex(b => b.Company);
         modelBuilder.Entity<BillingEntry>().HasIndex(b => b.ArchivedAt);
         modelBuilder.Entity<BillingEntry>().HasIndex(b => b.ActiveFrom);
@@ -63,11 +76,15 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<JobCard>().HasIndex(j => j.Company);
         modelBuilder.Entity<JobCard>().HasIndex(j => j.CreatedAt);
         modelBuilder.Entity<JobCard>().HasIndex(j => j.Status);
+        modelBuilder.Entity<JobCard>().HasIndex(j => j.JobCardNumber).IsUnique();
         
         modelBuilder.Entity<Quote>().HasIndex(q => q.Registration);
         modelBuilder.Entity<Quote>().HasIndex(q => q.Company);
         modelBuilder.Entity<Quote>().HasIndex(q => q.CreatedAt);
         modelBuilder.Entity<Quote>().HasIndex(q => q.Status);
+        modelBuilder.Entity<Quote>().HasIndex(q => q.QuoteNumber).IsUnique();
+
+        modelBuilder.Entity<Client>().HasIndex(c => c.NameNorm).IsUnique();
         
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.Registration);
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.DateRequestReceived);
@@ -88,5 +105,84 @@ public class AppDbContext : DbContext
             .OnDelete(DeleteBehavior.Cascade);
 
         base.OnModelCreating(modelBuilder);
+    }
+
+    private void NormalizeTrackedEntities()
+    {
+        NormalizeBillingEntries();
+        NormalizeClients();
+    }
+
+    private void NormalizeBillingEntries()
+    {
+        foreach (var entry in ChangeTracker.Entries<BillingEntry>())
+        {
+            if (entry.State is not EntityState.Added and not EntityState.Modified)
+                continue;
+
+            var entity = entry.Entity;
+            entity.Registration = NormalizeRegistration(entity.Registration);
+            entity.RegistrationNorm = entity.Registration;
+            entity.ImeiNorm = NormalizeDigits(entity.Imei);
+            entity.IccidNorm = NormalizeDigits(entity.Iccid);
+            entity.SerialNumberNorm = NormalizeText(entity.SerialNumber);
+        }
+    }
+
+    private void NormalizeClients()
+    {
+        foreach (var entry in ChangeTracker.Entries<Client>())
+        {
+            if (entry.State is not EntityState.Added and not EntityState.Modified)
+                continue;
+
+            var entity = entry.Entity;
+            entity.Name = NormalizeClientName(entity.Name);
+            entity.NameNorm = NormalizeComparableText(entity.Name);
+        }
+    }
+
+    private static string NormalizeRegistration(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return value.Trim().ToUpperInvariant();
+    }
+
+    private static string NormalizeText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return value.Trim().ToUpperInvariant();
+    }
+
+    private static string NormalizeDigits(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value.Where(char.IsDigit).ToArray());
+    }
+
+    private static string NormalizeClientName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string NormalizeComparableText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value
+            .Trim()
+            .ToLowerInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
     }
 }

@@ -23,6 +23,8 @@
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
       <Button Content="Export to Excel" Command="{Binding ExportToExcelCommand}"/>
+      <Button Content="Start Transfer" Command="{Binding StartTransferCommand}"
+        IsEnabled="{Binding CanStartTransfer}"/>
       <Button Content="Start Removal" Command="{Binding StartRemovalCommand}"
         Classes="primary"
         IsEnabled="{Binding CanStartRemoval}"/>
@@ -43,8 +45,6 @@
       <ComboBox Width="180"
                 ItemsSource="{Binding AvailableRegistrations}"
                 SelectedItem="{Binding RegistrationFilter}"/>
-      <DatePicker Width="140" SelectedDate="{Binding StartDate}"/>
-      <DatePicker Width="140" SelectedDate="{Binding EndDate}"/>
       <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}"/>
     </StackPanel>
 

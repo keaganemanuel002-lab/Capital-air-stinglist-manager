@@ -32,11 +32,42 @@ public partial class AppState : ObservableObject
     [ObservableProperty] private string role = "Admin";
     [ObservableProperty] private string statusMessage = "Ready.";
     [ObservableProperty] private string statusTime = "";
+    [ObservableProperty] private bool statusIsError;
 
-    public void SetStatus(string message)
+    public void SetStatus(string message, bool isError = false)
     {
         StatusMessage = message;
         StatusTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
+        StatusIsError = isError || LooksLikeError(message);
+    }
+
+    private static bool LooksLikeError(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        var value = message.Trim();
+        var errorMarkers = new[]
+        {
+            "error",
+            "failed",
+            "cannot",
+            "can't",
+            "not permitted",
+            "not found",
+            "missing",
+            "invalid",
+            "blocked",
+            "exception"
+        };
+
+        foreach (var marker in errorMarkers)
+        {
+            if (value.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 
     public void SaveSettings()

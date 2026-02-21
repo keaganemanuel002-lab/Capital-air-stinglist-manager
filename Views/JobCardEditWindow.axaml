@@ -11,9 +11,25 @@
 
     <TextBlock Text="Edit Job Card" Classes="h2"/>
 
+    <TextBlock Text="{Binding EditableWarning}"
+               IsVisible="{Binding !IsEditable}"
+               Foreground="#B91C1C"
+               FontWeight="SemiBold"/>
+
+    <StackPanel Spacing="12"
+                IsHitTestVisible="{Binding IsEditable}"
+                Opacity="{Binding EditSectionOpacity}">
+
     <StackPanel>
       <TextBlock Text="Company" Classes="muted"/>
-      <TextBox Text="{Binding Company}" IsReadOnly="True"/>
+      <ComboBox IsVisible="{Binding ShowTransferCompanyPicker}"
+                ItemsSource="{Binding ClientNames}"
+                SelectedItem="{Binding SelectedClientName}"
+                Text="{Binding Company, UpdateSourceTrigger=PropertyChanged}"
+                IsEditable="True"/>
+      <TextBox IsVisible="{Binding ShowReadOnlyCompany}"
+               Text="{Binding Company}"
+               IsReadOnly="True"/>
     </StackPanel>
 
     <StackPanel Orientation="Horizontal" Spacing="10">
@@ -69,7 +85,7 @@
     <StackPanel Orientation="Horizontal" Spacing="10">
       <StackPanel Width="252">
         <TextBlock Text="Tracking Unit Make" Classes="muted"/>
-        <TextBox Text="{Binding TrackingUnitMake}" Watermark="e.g. Teltonika, Concox"/>
+        <TextBox Text="{Binding TrackingUnitMake}" Watermark="e.g. Concox, Queclink"/>
       </StackPanel>
       <StackPanel Width="252">
         <TextBlock Text="IMEI Number" Classes="muted"/>
@@ -84,7 +100,7 @@
       </StackPanel>
       <StackPanel Width="165">
         <TextBlock Text="ICCID" Classes="muted"/>
-        <TextBox Text="{Binding Iccid}"/>
+        <TextBox Text="{Binding Iccid, UpdateSourceTrigger=PropertyChanged}"/>
       </StackPanel>
       <StackPanel Width="165">
         <TextBlock Text="SIM Number" Classes="muted"/>
@@ -94,32 +110,66 @@
 
     <Border Classes="card" Margin="0,8,0,0">
       <StackPanel Spacing="8">
-        <DockPanel>
-          <TextBlock Text="Teltonika FOTA Integration" 
-                     FontWeight="SemiBold" 
-                     FontSize="12"
-                     DockPanel.Dock="Left"/>
-          <Button Content="Fetch Device Info" 
-                  Command="{Binding FetchFromTeltonikaCommand}"
-                  IsEnabled="{Binding !IsFetching}"
-                  HorizontalAlignment="Right"
-                  DockPanel.Dock="Right"/>
-        </DockPanel>
+        <TextBlock Text="Flickswitch SIM Control"
+                   FontWeight="SemiBold"
+                   FontSize="12"/>
 
-        <TextBlock Text="Auto-populate IMEI, Serial Number, and ICCID from Teltonika FOTA service" 
+        <TextBlock Text="Type ICCID and the app will automatically populate SIM Number and rules from Flickswitch."
                    FontSize="11"
                    Classes="muted"/>
 
-        <TextBlock Text="{Binding StatusMessage}" 
+        <TextBlock Text="Looking up in Flickswitch..."
+                   IsVisible="{Binding IsLookingUpFlickswitch}"
+                   FontSize="11"
+                   Classes="muted"/>
+
+        <TextBlock Text="{Binding FlickswitchStatusMessage}"
                    Foreground="Green"
                    FontSize="12"
                    Opacity="0.9"/>
       </StackPanel>
     </Border>
 
+    <StackPanel IsVisible="{Binding HasFlickswitchRules}" Margin="0,4,0,0">
+      <TextBlock Text="Current SIM Rules" Classes="muted"/>
+      <Border Background="#F5F5F5" CornerRadius="4" Padding="8">
+        <TextBlock Text="{Binding FlickswitchRulesText}" TextWrapping="Wrap"/>
+      </Border>
+    </StackPanel>
+    </StackPanel>
+
+    <StackPanel Margin="0,4,0,0">
+      <TextBlock Text="SIM Balances" Classes="muted"/>
+      <Border Background="#F5F5F5" CornerRadius="4" Padding="8">
+        <StackPanel Spacing="4">
+          <TextBlock Text="{Binding FlickswitchBalanceStatusMessage}"
+                     Classes="muted"
+                     FontSize="11"
+                     TextWrapping="Wrap"/>
+
+          <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Airtime:" Classes="muted"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SimAirtimeBalanceDisplay}"/>
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Data:" Classes="muted"/>
+            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SimDataBalanceDisplay}"/>
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="SMS:" Classes="muted"/>
+            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SimSmsBalanceDisplay}"/>
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Last Check:" Classes="muted"/>
+            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SimLastBalanceCheckDisplay}"/>
+          </Grid>
+        </StackPanel>
+      </Border>
+    </StackPanel>
+
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
       <Button Content="Cancel" Command="{Binding CancelCommand}"/>
-      <Button Content="Save" Command="{Binding SaveCommand}" Classes="primary"/>
+      <Button Content="Save"
+              Command="{Binding SaveCommand}"
+              IsEnabled="{Binding IsEditable}"
+              Classes="primary"/>
     </StackPanel>
 
     </StackPanel>

@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.EntityFrameworkCore;
 using StingListManager.Data;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
@@ -14,6 +15,9 @@ namespace StingListManager.ViewModels;
 public partial class ScheduleRow : ObservableObject
 {
     public int JobCardId { get; set; }
+    public int JobCardNumber { get; set; }
+    public string JobCardReference { get; set; } = "";
+    public string QuoteReference { get; set; } = "-";
     public string Type { get; set; } = "";
     public string Status { get; set; } = "";
     public string Company { get; set; } = "";
@@ -49,7 +53,10 @@ public partial class InstallationsViewModel : ViewModelBase
     {
         using var db = new AppDbContext();
 
-        var q = db.JobCards.AsQueryable();
+        // Installations page should represent installation job cards only.
+        var q = db.JobCards
+            .AsNoTracking()
+            .Where(j => j.Type == JobType.Install);
 
         if (ShowOpenOnly)
             q = q.Where(j => j.Status == JobStatus.Open);
@@ -67,12 +74,32 @@ public partial class InstallationsViewModel : ViewModelBase
             .ThenByDescending(j => j.CreatedAt)
             .ToList();
 
+        var quoteIds = items
+            .Where(j => j.QuoteId.HasValue)
+            .Select(j => j.QuoteId!.Value)
+            .Distinct()
+            .ToList();
+
+        var quoteRefById = db.Quotes
+            .AsNoTracking()
+            .Where(x => quoteIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.QuoteNumber })
+            .ToList()
+            .ToDictionary(x => x.Id, x => QuoteReferenceFormatter.Format(x.QuoteNumber));
+
         Rows.Clear();
         foreach (var j in items)
         {
+            var quoteRef = "-";
+            if (j.QuoteId.HasValue && quoteRefById.TryGetValue(j.QuoteId.Value, out var formattedRef))
+                quoteRef = formattedRef;
+
             Rows.Add(new ScheduleRow
             {
                 JobCardId = j.Id,
+                JobCardNumber = j.JobCardNumber,
+                JobCardReference = JobCardReferenceFormatter.Format(j.Type, j.JobCardNumber),
+                QuoteReference = quoteRef,
                 Type = j.Type.ToString(),
                 Status = j.Status.ToString(),
                 Company = j.Company,
@@ -81,7 +108,7 @@ public partial class InstallationsViewModel : ViewModelBase
             });
         }
 
-        _appState.SetStatus($"Loaded {Rows.Count} scheduled jobs.");
+        _appState.SetStatus($"Loaded {Rows.Count} installation job card(s).");
     }
 
     [RelayCommand]

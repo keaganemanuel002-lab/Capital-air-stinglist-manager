@@ -44,6 +44,15 @@ public class StatusBreakdownItem
     public string Label { get; set; } = "";
     public int Count { get; set; }
     public int Total { get; set; }
+    public string ShareText
+    {
+        get
+        {
+            var total = Math.Max(1, Total);
+            var percentage = (int)Math.Round((double)Count * 100.0 / total, MidpointRounding.AwayFromZero);
+            return $"{Count} of {Total} ({percentage}%)";
+        }
+    }
 }
 
 public class TopClientItem
@@ -150,9 +159,12 @@ public partial class DashboardViewModel : ViewModelBase
     private void BuildTrends(List<Quote> quotes, List<JobCard> jobs, DateTime start, DateTime end)
     {
         Trends.Clear();
-        var days = Enumerable.Range(0, (end - start).Days)
+        var allDays = Enumerable.Range(0, (end - start).Days)
             .Select(i => start.AddDays(i))
             .ToList();
+        var days = allDays.Count > 14
+            ? allDays.Skip(allDays.Count - 14).ToList()
+            : allDays;
 
         var quoteCounts = days.ToDictionary(d => d, d => quotes.Count(q => q.CreatedAt.Date == d.Date));
         var jobCounts = days.ToDictionary(d => d, d => jobs.Count(j => j.CreatedAt.Date == d.Date));
@@ -165,7 +177,7 @@ public partial class DashboardViewModel : ViewModelBase
             var j = jobCounts[day];
             Trends.Add(new TrendPoint
             {
-                Label = day.ToString("MM-dd"),
+                Label = day.ToString("dd MMM"),
                 QuoteCount = q,
                 JobCount = j,
                 QuoteBarWidth = 240.0 * q / max,
@@ -251,7 +263,7 @@ public partial class DashboardViewModel : ViewModelBase
             new ActivityItem
             {
                 When = j.CreatedAt.ToString("yyyy-MM-dd HH:mm"),
-                Title = $"Job Card #{j.Id} • {j.Status}",
+                Title = $"Job Card {JobCardReferenceFormatter.Format(j.Type, j.JobCardNumber)} • {j.Status}",
                 Detail = $"{j.Company} • {j.Registration}"
             }
         )));

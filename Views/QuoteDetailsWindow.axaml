@@ -17,7 +17,7 @@
           
           <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Quote Number:" Classes="muted"/>
-            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding QuoteNumber}"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding QuoteReference}"/>
             
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Type:" Classes="muted"/>
             <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding QuoteType}"/>
@@ -116,7 +116,7 @@
           
           <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnSpacing="10" RowSpacing="8">
             <TextBlock Grid.Row="0" Grid.Column="0" Text="Job Card Number:" Classes="muted"/>
-            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding JobCardNumber}"/>
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding JobCardReference}"/>
             
             <TextBlock Grid.Row="1" Grid.Column="0" Text="Type:" Classes="muted"/>
             <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding JobType}"/>

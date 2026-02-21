@@ -27,8 +27,9 @@ public class JobCardPdfService
                 // Header
                 page.Header().Column(col =>
                 {
+                    var jobCardReference = JobCardReferenceFormatter.Format(jobCard);
                     col.Item().Text(_companyName).FontSize(18).SemiBold();
-                    col.Item().Text($"Job Card #{jobCard.JobCardNumber}").FontSize(14).SemiBold();
+                    col.Item().Text($"Job Card {jobCardReference}").FontSize(14).SemiBold();
                     col.Item().Text(DateTime.Now.ToString("dd MMMM yyyy")).FontSize(10).FontColor(Colors.Grey.Darken1);
                 });
 
@@ -176,8 +177,9 @@ public class JobCardPdfService
                 // Footer
                 page.Footer().Column(col =>
                 {
+                    var jobCardReference = JobCardReferenceFormatter.Format(jobCard);
                     col.Item().LineHorizontal(1f);
-                    col.Item().PaddingTop(6).AlignCenter().Text($"Job Card #{jobCard.JobCardNumber} - {_companyName}").FontSize(8).FontColor(Colors.Grey.Darken1);
+                    col.Item().PaddingTop(6).AlignCenter().Text($"Job Card {jobCardReference} - {_companyName}").FontSize(8).FontColor(Colors.Grey.Darken1);
                 });
             });
         }).GeneratePdf();
@@ -200,8 +202,9 @@ public class JobCardPdfService
                     // Header
                     page.Header().Column(col =>
                     {
+                        var jobCardReference = JobCardReferenceFormatter.Format(jobCard);
                         col.Item().Text(_companyName).FontSize(18).SemiBold();
-                        col.Item().Text($"Job Card #{jobCard.JobCardNumber}").FontSize(14).SemiBold();
+                        col.Item().Text($"Job Card {jobCardReference}").FontSize(14).SemiBold();
                         col.Item().Text(DateTime.Now.ToString("dd MMMM yyyy")).FontSize(10).FontColor(Colors.Grey.Darken1);
                     });
 
@@ -349,8 +352,9 @@ public class JobCardPdfService
                     // Footer
                     page.Footer().Column(col =>
                     {
+                        var jobCardReference = JobCardReferenceFormatter.Format(jobCard);
                         col.Item().LineHorizontal(1f);
-                        col.Item().PaddingTop(6).AlignCenter().Text($"Job Card #{jobCard.JobCardNumber} - {_companyName}").FontSize(8).FontColor(Colors.Grey.Darken1);
+                        col.Item().PaddingTop(6).AlignCenter().Text($"Job Card {jobCardReference} - {_companyName}").FontSize(8).FontColor(Colors.Grey.Darken1);
                     });
                 });
             }

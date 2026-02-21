@@ -91,8 +91,11 @@ public class WorkflowService
             logMsg = $"[ApproveQuote] Total units calculated: {totalUnits}";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
 
+            // Reserve a contiguous block of job card numbers for this quote approval.
+            var nextJobCardNumber = (db.JobCards.Select(x => (int?)x.JobCardNumber).Max() ?? 0) + 1;
+            JobCard? firstJob = null;
+
             // Create job cards for each unit
-            int firstJobId = 0;
             for (int i = 0; i < totalUnits; i++)
             {
                 var job = new JobCard
@@ -116,9 +119,7 @@ public class WorkflowService
                     Notes = quote.Notes
                 };
 
-                // Assign next job card number
-                var maxJobCardNumber = db.JobCards.Any() ? db.JobCards.Max(x => x.JobCardNumber) : 0;
-                job.JobCardNumber = maxJobCardNumber + 1;
+                job.JobCardNumber = nextJobCardNumber + i;
 
                 logMsg = $"[ApproveQuote] JobCard {i + 1}/{totalUnits} created. JobCardNumber={job.JobCardNumber}";
                 System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
@@ -126,13 +127,14 @@ public class WorkflowService
                 db.JobCards.Add(job);
                 
                 if (i == 0)
-                    firstJobId = job.Id;
+                    firstJob = job;
             }
 
             logMsg = $"[ApproveQuote] Saving quote and {totalUnits} job cards...";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
             
             var saved = db.SaveChanges();
+            var firstJobId = firstJob?.Id ?? 0;
             logMsg = $"[ApproveQuote] SaveChanges returned: {saved}, FirstJobId={firstJobId}";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
 
@@ -188,6 +190,22 @@ public class WorkflowService
 
         var job = db.JobCards.FirstOrDefault(j => j.Id == jobCardId);
         if (job is null) return (false, "Job card not found.");
+        var jobReference = JobCardReferenceFormatter.Format(job.Type, job.JobCardNumber);
+
+        if (job.Status == JobStatus.Completed)
+            return (false, $"Job card {jobReference} is already completed.");
+
+        if (job.Status == JobStatus.Cancelled)
+            return (false, $"Job card {jobReference} is cancelled and cannot be completed.");
+
+        if (job.Type == JobType.Install || job.Type == JobType.Transfer)
+        {
+            var missingTrackingFields = GetMissingTrackingFields(job);
+            if (missingTrackingFields.Length > 0)
+            {
+                return (false, $"Cannot complete job card. Missing tracking unit information: {string.Join(", ", missingTrackingFields)}.");
+            }
+        }
 
         job.Status = JobStatus.Completed;
         job.CompletedAt = DateTime.UtcNow;
@@ -195,37 +213,49 @@ public class WorkflowService
         if (job.Type == JobType.Install)
         {
             var installStatus = await ResolveInstallBillingStatusAsync(job.Imei, wialonToken);
-
-            // Create active billing entry
-            var be = new BillingEntry
+            var be = FindActiveBillingEntryForUnit(db, job);
+            var createdNewEntry = false;
+            if (be is null)
             {
-                Company = job.Company,
-                Registration = job.Registration,
-                FleetNumber = job.FleetNumber,
-                Make = job.Make,
-                Model = job.Model,
-                Colour = job.Colour,
-                VinNumber = job.VinNumber,
-                TrackingUnitMake = job.TrackingUnitMake,
-                Imei = job.Imei,
-                SerialNumber = job.SerialNumber,
-                Iccid = job.Iccid,
-                SimNumber = job.SimNumber,
-                Notes = job.Notes,
-                Status = installStatus,
-                ActiveFrom = DateTime.UtcNow
-            };
+                be = new BillingEntry
+                {
+                    ActiveFrom = DateTime.UtcNow
+                };
+                db.BillingEntries.Add(be);
+                createdNewEntry = true;
+            }
 
-            // Normalize fields for unique constraint
-            be.RegistrationNorm = be.Registration.Trim().ToUpperInvariant();
-
-            db.BillingEntries.Add(be);
+            be.Company = job.Company;
+            be.Registration = job.Registration;
+            be.FleetNumber = job.FleetNumber;
+            be.Make = job.Make;
+            be.Model = job.Model;
+            be.Colour = job.Colour;
+            be.VinNumber = job.VinNumber;
+            be.TrackingUnitMake = job.TrackingUnitMake;
+            be.Imei = job.Imei;
+            be.SerialNumber = job.SerialNumber;
+            be.Iccid = job.Iccid;
+            be.SimNumber = job.SimNumber;
+            be.Notes = job.Notes;
+            be.Status = installStatus;
+            be.ActiveTo = null;
+            be.ArchivedAt = null;
+            be.Reason = createdNewEntry ? be.Reason : "Updated from completed install job";
 
             try
             {
                 db.SaveChanges();
                 // Log this billing add
-                new AuditService().Log(actor, "BILLING_ADD", "BillingEntry", be.Id, be.Registration, "Created from install job completion");
+                new AuditService().Log(
+                    actor,
+                    createdNewEntry ? "BILLING_ADD" : "BILLING_UPDATE",
+                    "BillingEntry",
+                    be.Id,
+                    be.Registration,
+                    createdNewEntry
+                        ? "Created from install job completion"
+                        : "Updated existing active unit from install job completion");
 
                 var syncResult = await SyncInstallUnitToWialonAsync(job, wialonToken);
                 if (syncResult.ok && be.Status != BillingStatus.Active)
@@ -235,19 +265,94 @@ public class WorkflowService
                 }
 
                 var message = be.Status == BillingStatus.NotLoaded
-                    ? "Install completed and billing entry created with status Not Loaded."
-                    : "Install completed and billing entry created with status Active.";
+                    ? (createdNewEntry
+                        ? "Install completed and billing entry created with status Not Loaded."
+                        : "Install completed and existing billing entry updated with status Not Loaded.")
+                    : (createdNewEntry
+                        ? "Install completed and billing entry created with status Active."
+                        : "Install completed and existing billing entry updated with status Active.");
 
                 if (syncResult.attempted && !string.IsNullOrWhiteSpace(syncResult.message))
                     message = $"{message} {syncResult.message}";
+
+                var flickswitchResult = await SyncSimDescriptionToFlickswitchAsync(job);
+                if (flickswitchResult.attempted && !string.IsNullOrWhiteSpace(flickswitchResult.message))
+                    message = $"{message} {flickswitchResult.message}";
 
                 return (true, message);
             }
             catch (DbUpdateException)
             {
-                // Duplicate (registration already active)
-                return (false, "Billing entry for this registration already exists.");
+                return (false, "Duplicate unit detected. An active billing entry already exists for this IMEI/ICCID/Serial.");
             }
+        }
+        else if (job.Type == JobType.Transfer)
+        {
+            var missingTransferFields = GetMissingTransferFields(job);
+            if (missingTransferFields.Length > 0)
+                return (false, $"Cannot complete transfer. Missing destination details: {string.Join(", ", missingTransferFields)}.");
+
+            var targetRegistrationNorm = NormalizeRegistration(job.Registration);
+            if (string.IsNullOrWhiteSpace(targetRegistrationNorm))
+                return (false, "Cannot complete transfer - destination registration is required.");
+
+            var activeEntries = db.BillingEntries
+                .Where(b => b.ArchivedAt == null && (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded))
+                .OrderByDescending(b => b.ActiveFrom)
+                .ToList();
+
+            var entry = activeEntries
+                .FirstOrDefault(b => IsSameImei(b.Imei, job.Imei));
+
+            entry ??= activeEntries
+                .FirstOrDefault(b => string.Equals(NormalizeRegistration(b.Registration), targetRegistrationNorm, StringComparison.Ordinal));
+
+            if (entry == null)
+                return (false, "Transfer cannot complete - no matching active billing entry found for this unit.");
+
+            var duplicateTargetEntry = activeEntries
+                .FirstOrDefault(b =>
+                    b.Id != entry.Id
+                    && string.Equals(NormalizeRegistration(b.Registration), targetRegistrationNorm, StringComparison.Ordinal));
+
+            if (duplicateTargetEntry != null)
+                return (false, "Transfer cannot complete - another active unit already exists for the destination registration.");
+
+            entry.Company = job.Company.Trim();
+            entry.Registration = job.Registration.Trim().ToUpperInvariant();
+            entry.RegistrationNorm = targetRegistrationNorm;
+            entry.FleetNumber = TrimOrNull(job.FleetNumber);
+            entry.Make = TrimOrNull(job.Make);
+            entry.Model = TrimOrNull(job.Model);
+            entry.Colour = TrimOrNull(job.Colour);
+            entry.VinNumber = TrimOrNull(job.VinNumber);
+            entry.TrackingUnitMake = TrimOrNull(job.TrackingUnitMake);
+            entry.Imei = TrimOrNull(job.Imei);
+            entry.SerialNumber = TrimOrNull(job.SerialNumber);
+            entry.Iccid = TrimOrNull(job.Iccid);
+            entry.SimNumber = TrimOrNull(job.SimNumber);
+            entry.Notes = TrimOrNull(job.Notes);
+            entry.Status = BillingStatus.Active;
+            entry.ActiveTo = null;
+            entry.ArchivedAt = null;
+            entry.Reason = "Transferred";
+
+            db.SaveChanges();
+
+            new AuditService().Log(
+                actor,
+                "BILLING_TRANSFER",
+                "BillingEntry",
+                entry.Id,
+                entry.Registration,
+                $"Transferred unit {entry.Imei ?? "-"} to {entry.Company} / {entry.Registration}");
+
+            var transferMessage = $"Transfer completed. Unit moved to {entry.Company} / {entry.Registration}.";
+            var flickswitchResult = await SyncSimDescriptionToFlickswitchAsync(job);
+            if (flickswitchResult.attempted && !string.IsNullOrWhiteSpace(flickswitchResult.message))
+                transferMessage = $"{transferMessage} {flickswitchResult.message}";
+
+            return (true, transferMessage);
         }
         else // Removal
         {
@@ -279,6 +384,138 @@ public class WorkflowService
             }
 
             return (true, "Removal completed and billing entry archived.");
+        }
+    }
+
+    private static string[] GetMissingTrackingFields(JobCard job)
+    {
+        var missing = new System.Collections.Generic.List<string>();
+
+        if (string.IsNullOrWhiteSpace(job.TrackingUnitMake))
+            missing.Add("Tracking Unit Make");
+
+        if (string.IsNullOrWhiteSpace(job.Imei))
+            missing.Add("IMEI Number");
+
+        if (string.IsNullOrWhiteSpace(job.SerialNumber))
+            missing.Add("Serial Number");
+
+        if (string.IsNullOrWhiteSpace(job.Iccid))
+            missing.Add("ICCID");
+
+        if (string.IsNullOrWhiteSpace(job.SimNumber))
+            missing.Add("SIM Number");
+
+        return missing.ToArray();
+    }
+
+    private static string[] GetMissingTransferFields(JobCard job)
+    {
+        var missing = new System.Collections.Generic.List<string>();
+
+        if (string.IsNullOrWhiteSpace(job.Company))
+            missing.Add("Company");
+
+        if (string.IsNullOrWhiteSpace(job.Registration))
+            missing.Add("Registration");
+
+        return missing.ToArray();
+    }
+
+    private static string NormalizeRegistration(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return value.Trim().ToUpperInvariant();
+    }
+
+    private static string NormalizeDigits(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value.Where(char.IsDigit).ToArray());
+    }
+
+    private static bool IsSameImei(string? left, string? right)
+    {
+        var normalizedLeft = NormalizeDigits(left);
+        var normalizedRight = NormalizeDigits(right);
+
+        if (string.IsNullOrWhiteSpace(normalizedLeft) || string.IsNullOrWhiteSpace(normalizedRight))
+            return false;
+
+        return string.Equals(normalizedLeft, normalizedRight, StringComparison.Ordinal)
+            || normalizedLeft.EndsWith(normalizedRight, StringComparison.Ordinal)
+            || normalizedRight.EndsWith(normalizedLeft, StringComparison.Ordinal);
+    }
+
+    private static bool IsSameIccid(string? left, string? right)
+    {
+        var normalizedLeft = NormalizeDigits(left);
+        var normalizedRight = NormalizeDigits(right);
+
+        if (string.IsNullOrWhiteSpace(normalizedLeft) || string.IsNullOrWhiteSpace(normalizedRight))
+            return false;
+
+        return string.Equals(normalizedLeft, normalizedRight, StringComparison.Ordinal);
+    }
+
+    private static bool IsSameSerial(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
+
+        return string.Equals(left.Trim(), right.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static BillingEntry? FindActiveBillingEntryForUnit(AppDbContext db, JobCard job)
+    {
+        var activeEntries = db.BillingEntries
+            .Where(b => b.ArchivedAt == null && (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded))
+            .OrderByDescending(b => b.ActiveFrom)
+            .ToList();
+
+        return activeEntries.FirstOrDefault(b => IsSameImei(b.Imei, job.Imei))
+            ?? activeEntries.FirstOrDefault(b => IsSameIccid(b.Iccid, job.Iccid))
+            ?? activeEntries.FirstOrDefault(b => IsSameSerial(b.SerialNumber, job.SerialNumber));
+    }
+
+    private static string? TrimOrNull(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static async Task<(bool attempted, bool ok, string message)> SyncSimDescriptionToFlickswitchAsync(JobCard job)
+    {
+        if (string.IsNullOrWhiteSpace(job.Iccid) && string.IsNullOrWhiteSpace(job.SimNumber))
+            return (false, false, string.Empty);
+
+        var company = string.IsNullOrWhiteSpace(job.Company) ? "Unknown Client" : job.Company.Trim();
+        var vin = string.IsNullOrWhiteSpace(job.VinNumber) ? null : job.VinNumber.Trim();
+        var description = string.IsNullOrWhiteSpace(vin)
+            ? company
+            : $"{company} - VIN {vin}";
+
+        var flickswitch = new FlickswitchSimControlService();
+        if (!flickswitch.IsConfigured())
+            return (false, false, string.Empty);
+
+        try
+        {
+            var update = await flickswitch.UpdateSimDescriptionAsync(job.Iccid, job.SimNumber, null, description);
+            if (update.ok)
+                return (true, true, $"Flickswitch description updated to '{description}'.");
+
+            var reason = string.IsNullOrWhiteSpace(flickswitch.LastError)
+                ? update.message
+                : flickswitch.LastError;
+            return (true, false, $"Flickswitch update failed: {reason}");
+        }
+        catch (Exception ex)
+        {
+            return (true, false, $"Flickswitch update failed: {ex.Message}");
         }
     }
 

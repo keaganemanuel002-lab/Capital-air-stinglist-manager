@@ -91,12 +91,44 @@
 
         <Border Classes="card">
           <StackPanel Spacing="10">
-            <TextBlock Text="Teltonika FOTA API Integration" Classes="h2"/>
-            <TextBlock Text="Teltonika API Key (for fetching device IMEI, Serial, ICCID)" Classes="muted"/>
-            <TextBox Text="{Binding TeltonikaApiKey}"
-                     Watermark="Enter your Teltonika FOTA API key"
+            <TextBlock Text="Flickswitch SIM Control" Classes="h2"/>
+            <TextBlock Text="Flickswitch Base URL" Classes="muted"/>
+            <TextBox Text="{Binding FlickswitchBaseUrl}"
+                     Watermark="https://app.simcontrol.co.za"/>
+            <TextBlock Text="Flickswitch API Key" Classes="muted"/>
+            <TextBox Text="{Binding FlickswitchApiKey}"
+                     Watermark="Enter your Flickswitch API key"
                      PasswordChar="*"/>
-            <TextBlock Text="Get your API key from Teltonika FOTA Web platform settings."
+            <TextBlock Text="Used to look up SIM phone numbers and ICCID values in Job Cards."
+                       Classes="muted"
+                       FontSize="11"/>
+            <TextBlock Text="Enter the API token value, not the /api/docs URL."
+                       Classes="muted"
+                       FontSize="11"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Wialon API Integration" Classes="h2"/>
+            <TextBlock Text="Wialon API Token (used to pull the STING list from Wialon)" Classes="muted"/>
+            <TextBox Text="{Binding WialonApiToken}"
+                     Watermark="Enter your Wialon API token"
+                     PasswordChar="*"/>
+            <TextBlock Text="After updating the token, open STING List and click Refresh."
+                       Classes="muted"
+                       FontSize="11"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Wialon Client Provisioning Token" Classes="h2"/>
+            <TextBlock Text="Executive account API token used only when creating new clients/accounts." Classes="muted"/>
+            <TextBox Text="{Binding WialonClientProvisionApiToken}"
+                     Watermark="Enter Executive Account API token"
+                     PasswordChar="*"/>
+            <TextBlock Text="If empty, the app falls back to the standard Wialon API token."
                        Classes="muted"
                        FontSize="11"/>
           </StackPanel>

@@ -19,6 +19,10 @@ public partial class JobCardRow : ObservableObject
 {
     public int Id { get; set; }
     public int JobCardNumber { get; set; }
+    public string JobCardReference { get; set; } = "";
+    public int? QuoteId { get; set; }
+    public string QuoteReference { get; set; } = "-";
+    public JobType JobTypeValue { get; set; }
     public string Type { get; set; } = "";
     public string Status { get; set; } = "";
     public string Company { get; set; } = "";
@@ -35,6 +39,7 @@ public partial class JobCardsViewModel : ViewModelBase
 {
     private readonly Window _window;
     private readonly AppState _appState;
+    private readonly int? _quoteIdFilter;
 
     public ObservableCollection<JobCardRow> Rows { get; } = new();
 
@@ -53,10 +58,11 @@ public partial class JobCardsViewModel : ViewModelBase
     [ObservableProperty] private DateTimeOffset? startDate;
     [ObservableProperty] private DateTimeOffset? endDate;
 
-    public JobCardsViewModel(Window window, AppState appState, DateTime? startDate = null, DateTime? endDate = null)
+    public JobCardsViewModel(Window window, AppState appState, DateTime? startDate = null, DateTime? endDate = null, int? quoteId = null)
     {
         _window = window;
         _appState = appState;
+        _quoteIdFilter = quoteId;
         StatusOptions.Add("All");
         StatusOptions.AddRange(Enum.GetNames(typeof(JobStatus)));
         TypeOptions.Add("All");
@@ -121,17 +127,43 @@ public partial class JobCardsViewModel : ViewModelBase
             query = query.Where(j => j.CreatedAt < endExclusive);
         }
 
-        var items = query
-            .OrderByDescending(j => j.CreatedAt)
+        if (_quoteIdFilter.HasValue)
+        {
+            var quoteId = _quoteIdFilter.Value;
+            query = query.Where(j => j.QuoteId == quoteId);
+        }
+
+        var items = _quoteIdFilter.HasValue
+            ? query.OrderBy(j => j.JobCardNumber).ThenBy(j => j.CreatedAt).ToList()
+            : query.OrderByDescending(j => j.CreatedAt).ToList();
+
+        var quoteIds = items
+            .Where(j => j.QuoteId.HasValue)
+            .Select(j => j.QuoteId!.Value)
+            .Distinct()
             .ToList();
+
+        var quoteRefById = db.Quotes.AsNoTracking()
+            .Where(q => quoteIds.Contains(q.Id))
+            .Select(q => new { q.Id, q.QuoteNumber })
+            .ToList()
+            .ToDictionary(q => q.Id, q => QuoteReferenceFormatter.Format(q.QuoteNumber));
 
         Rows.Clear();
         foreach (var j in items)
         {
+            var quoteRef = "-";
+            if (j.QuoteId.HasValue && quoteRefById.TryGetValue(j.QuoteId.Value, out var formattedRef))
+                quoteRef = formattedRef;
+
             Rows.Add(new JobCardRow
             {
                 Id = j.Id,
                 JobCardNumber = j.JobCardNumber,
+                JobCardReference = JobCardReferenceFormatter.Format(j.Type, j.JobCardNumber),
+                QuoteId = j.QuoteId,
+                QuoteReference = quoteRef,
+                JobTypeValue = j.Type,
                 Type = j.Type.ToString(),
                 Status = j.Status.ToString(),
                 Company = j.Company,
@@ -174,10 +206,11 @@ public partial class JobCardsViewModel : ViewModelBase
     [RelayCommand]
     private async Task EditSelected()
     {
-        if (SelectedRow is null) return;
+        var row = ResolveSelectedRow();
+        if (row is null) return;
 
         var dlg = new StingListManager.Views.JobCardEditWindow();
-        dlg.DataContext = new JobCardEditViewModel(SelectedRow.Id, () => dlg.Close(), _appState);
+        dlg.DataContext = new JobCardEditViewModel(row.Id, () => dlg.Close(), _appState);
 
         await dlg.ShowDialog(_window);
 
@@ -187,22 +220,53 @@ public partial class JobCardsViewModel : ViewModelBase
     [RelayCommand]
     private async Task CompleteSelected()
     {
-        if (!CanCompleteJobs) { _appState.SetStatus("Not permitted."); return; }
-        if (SelectedRow is null) return;
+        if (!CanCompleteJobs)
+        {
+            _appState.SetStatus("Not permitted.");
+            await DialogService.Alert(_window, "Not Permitted", "You do not have permission to complete job cards.");
+            return;
+        }
 
-        var wf = new WorkflowService();
-        var result = await wf.CompleteJobCardAsync(SelectedRow.Id, _appState.OperatorName, _appState.Settings.WialonApiToken);
-        _appState.SetStatus(result.message);
-        Load();
+        var row = ResolveSelectedRow();
+        if (row is null)
+        {
+            _appState.SetStatus("Please select a job card to complete.");
+            await DialogService.Alert(_window, "No Selection", "Please select a job card first.");
+            return;
+        }
+
+        try
+        {
+            _appState.SetStatus($"Completing {row.JobCardReference}...");
+
+            var wf = new WorkflowService();
+            var result = await wf.CompleteJobCardAsync(row.Id, _appState.OperatorName, _appState.Settings.WialonApiToken);
+            _appState.SetStatus(result.message, !result.ok);
+
+            if (!result.ok)
+            {
+                await DialogService.Alert(_window, "Complete Job Card Failed", result.message);
+                return;
+            }
+
+            Load();
+        }
+        catch (Exception ex)
+        {
+            var message = $"Error completing job card: {ex.Message}";
+            _appState.SetStatus(message, true);
+            await DialogService.Alert(_window, "Complete Job Card Failed", message);
+        }
     }
 
     [RelayCommand]
     private async Task OpenDocuments()
     {
-        if (SelectedRow is null) return;
+        var row = ResolveSelectedRow();
+        if (row is null) return;
 
         var wnd = new StingListManager.Views.DocumentsWindow();
-        var vm = new JobCardDocumentsViewModel(_window, _appState, SelectedRow.Id);
+        var vm = new JobCardDocumentsViewModel(_window, _appState, row.Id);
 
         var view = new StingListManager.Views.JobCardDocumentsView
         {
@@ -250,9 +314,16 @@ public partial class JobCardsViewModel : ViewModelBase
                 pdfBytes = pdfService.BuildMultipleJobCardsPdf(jobCards);
             }
 
+            var firstJob = jobCards.First();
+            var lastJob = jobCards.Last();
+            var firstReference = JobCardReferenceFormatter.Format(firstJob.Type, firstJob.JobCardNumber);
+            var lastReference = JobCardReferenceFormatter.Format(lastJob.Type, lastJob.JobCardNumber);
             var suggestedFileName = jobCards.Count == 1
-                ? $"JobCard_{jobCards[0].JobCardNumber}_{jobCards[0].Registration}.pdf"
-                : $"JobCards_{jobCards.Count}_items_{DateTime.Now:yyyyMMdd}.pdf";
+                ? $"JobCard_{firstReference}.pdf"
+                : $"JobCards_{firstReference}-{lastReference}.pdf";
+
+            var managedPath = AttachmentStorageService.BuildUniqueFilePath(Paths.GeneratedJobCardsDir, suggestedFileName);
+            await File.WriteAllBytesAsync(managedPath, pdfBytes);
 
             var file = await _window.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
@@ -264,15 +335,29 @@ public partial class JobCardsViewModel : ViewModelBase
                 }
             });
 
-            if (file is null) return;
+            if (file is null)
+            {
+                _appState.SetStatus($"Generated {jobCards.Count} job card PDF(s) in Generated\\JobCards: {Path.GetFileName(managedPath)}");
+                return;
+            }
 
             await File.WriteAllBytesAsync(file.Path.LocalPath, pdfBytes);
 
-            _appState.SetStatus($"Exported {jobCards.Count} job card(s) to PDF: {Path.GetFileName(file.Path.LocalPath)}");
+            _appState.SetStatus(
+                $"Exported {jobCards.Count} job card(s) to PDF: {Path.GetFileName(file.Path.LocalPath)}. " +
+                $"Managed copy: {Path.GetFileName(managedPath)}");
         }
         catch (Exception ex)
         {
             _appState.SetStatus($"Error exporting PDF: {ex.Message}");
         }
+    }
+
+    private JobCardRow? ResolveSelectedRow()
+    {
+        if (SelectedRow != null)
+            return SelectedRow;
+
+        return SelectedRows?.FirstOrDefault();
     }
 }

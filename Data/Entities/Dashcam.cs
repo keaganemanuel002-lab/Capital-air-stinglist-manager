@@ -8,6 +8,79 @@ public class Dashcam : ObservableObject
 {
     public int Id { get; set; }
 
+    // Spreadsheet-aligned fields
+    private string? _vehicle;
+    public string? Vehicle
+    {
+        get => _vehicle;
+        set => SetProperty(ref _vehicle, value);
+    }
+
+    private string? _deviceId;
+    public string? DeviceId
+    {
+        get => _deviceId;
+        set => SetProperty(ref _deviceId, value);
+    }
+
+    private string? _wifiPassword;
+    public string? WifiPassword
+    {
+        get => _wifiPassword;
+        set => SetProperty(ref _wifiPassword, value);
+    }
+
+    private string? _isupPassword;
+    public string? IsupPassword
+    {
+        get => _isupPassword;
+        set => SetProperty(ref _isupPassword, value);
+    }
+
+    private string? _interiorCam;
+    public string? InteriorCam
+    {
+        get => _interiorCam;
+        set => SetProperty(ref _interiorCam, value);
+    }
+
+    private string? _rearCam;
+    public string? RearCam
+    {
+        get => _rearCam;
+        set => SetProperty(ref _rearCam, value);
+    }
+
+    // Kept as text because spreadsheet contains values like
+    // "27/07/2022 (Reinstalled 25/06/2025)".
+    private string? _installed;
+    public string? Installed
+    {
+        get => _installed;
+        set => SetProperty(ref _installed, value);
+    }
+
+    private string? _location;
+    public string? Location
+    {
+        get => _location;
+        set => SetProperty(ref _location, value);
+    }
+
+    private string? _issue;
+    public string? Issue
+    {
+        get => _issue;
+        set => SetProperty(ref _issue, value);
+    }
+
+    private string? _upgradeSteps;
+    public string? UpgradeSteps
+    {
+        get => _upgradeSteps;
+        set => SetProperty(ref _upgradeSteps, value);
+    }
+
     private string? _serialNumber;
     public string? SerialNumber
     {

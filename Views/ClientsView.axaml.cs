@@ -52,15 +52,20 @@ public partial class ClientsView : UserControl
             () => window.Close(),
             savedId =>
             {
-                if (vm.LoadCommand.CanExecute(null))
-                {
-                    vm.LoadCommand.Execute(null);
-                }
-
-                vm.SelectedRow = vm.Rows.FirstOrDefault(c => c.Id == savedId);
+                _ = ReloadAndSelectAsync(vm, savedId);
             },
             vm.SetStatus);
 
         await window.ShowDialog(owner);
+    }
+
+    private static async Task ReloadAndSelectAsync(ClientsViewModel vm, int savedId)
+    {
+        if (vm.LoadCommand.CanExecute(null))
+        {
+            await vm.LoadCommand.ExecuteAsync(null);
+        }
+
+        vm.SelectedRow = vm.Rows.FirstOrDefault(c => c.Id == savedId);
     }
 }
