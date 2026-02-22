@@ -254,25 +254,25 @@ public partial class JobCardEditViewModel : ViewModelBase
                 EditableWarning = "This job card is completed and is read-only. If the vehicle registration changed, update it below.";
             }
             
-            Company = job.Company;
+            Company = NormalizeUpperText(job.Company, emptyAsNull: false) ?? string.Empty;
             AddClientNameIfMissing(Company);
             SelectedClientName = Company;
-            Registration = job.Registration;
-            CompletedRegistrationUpdate = job.Registration;
-            FleetNumber = job.FleetNumber;
-            Make = job.Make;
-            Model = job.Model;
-            Colour = job.Colour;
-            VinNumber = job.VinNumber;
-            GridLocation = job.GridLocation;
-            TrackingUnitMake = job.TrackingUnitMake;
+            Registration = NormalizeUpperText(job.Registration, emptyAsNull: false) ?? string.Empty;
+            CompletedRegistrationUpdate = Registration;
+            FleetNumber = NormalizeUpperText(job.FleetNumber);
+            Make = NormalizeUpperText(job.Make);
+            Model = NormalizeUpperText(job.Model);
+            Colour = NormalizeUpperText(job.Colour);
+            VinNumber = NormalizeUpperText(job.VinNumber);
+            GridLocation = NormalizeUpperText(job.GridLocation);
+            TrackingUnitMake = NormalizeUpperText(job.TrackingUnitMake);
             _suppressIccidAutoLookup = true;
             try
             {
-                Imei = job.Imei;
-                SerialNumber = job.SerialNumber;
-                Iccid = job.Iccid;
-                SimNumber = job.SimNumber;
+                Imei = NormalizeUpperText(job.Imei);
+                SerialNumber = NormalizeUpperText(job.SerialNumber);
+                Iccid = NormalizeUpperText(job.Iccid);
+                SimNumber = NormalizeUpperText(job.SimNumber);
             }
             finally
             {
@@ -566,6 +566,14 @@ public partial class JobCardEditViewModel : ViewModelBase
         return new string(value.Where(char.IsDigit).ToArray());
     }
 
+    private static string? NormalizeUpperText(string? value, bool emptyAsNull = true)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return emptyAsNull ? null : string.Empty;
+
+        return value.Trim().ToUpperInvariant();
+    }
+
     [RelayCommand]
     private void Cancel() => _close();
 
@@ -618,19 +626,19 @@ public partial class JobCardEditViewModel : ViewModelBase
         var job = db.JobCards.Find(_jobCardId);
         if (job == null) { _close(); return; }
 
-        job.Company = Company.Trim();
-        job.Registration = string.IsNullOrWhiteSpace(Registration) ? "" : Registration.Trim().ToUpperInvariant();
-        job.FleetNumber = string.IsNullOrWhiteSpace(FleetNumber) ? null : FleetNumber.Trim();
-        job.Make = string.IsNullOrWhiteSpace(Make) ? null : Make.Trim();
-        job.Model = string.IsNullOrWhiteSpace(Model) ? null : Model.Trim();
-        job.Colour = string.IsNullOrWhiteSpace(Colour) ? null : Colour.Trim();
-        job.VinNumber = string.IsNullOrWhiteSpace(VinNumber) ? null : VinNumber.Trim();
-        job.GridLocation = string.IsNullOrWhiteSpace(GridLocation) ? null : GridLocation.Trim();
-        job.TrackingUnitMake = string.IsNullOrWhiteSpace(TrackingUnitMake) ? null : TrackingUnitMake.Trim();
-        job.Imei = string.IsNullOrWhiteSpace(Imei) ? null : Imei.Trim();
-        job.SerialNumber = string.IsNullOrWhiteSpace(SerialNumber) ? null : SerialNumber.Trim();
-        job.Iccid = string.IsNullOrWhiteSpace(Iccid) ? null : Iccid.Trim();
-        job.SimNumber = string.IsNullOrWhiteSpace(SimNumber) ? null : SimNumber.Trim();
+        job.Company = NormalizeUpperText(Company, emptyAsNull: false) ?? string.Empty;
+        job.Registration = NormalizeUpperText(Registration, emptyAsNull: false) ?? string.Empty;
+        job.FleetNumber = NormalizeUpperText(FleetNumber);
+        job.Make = NormalizeUpperText(Make);
+        job.Model = NormalizeUpperText(Model);
+        job.Colour = NormalizeUpperText(Colour);
+        job.VinNumber = NormalizeUpperText(VinNumber);
+        job.GridLocation = NormalizeUpperText(GridLocation);
+        job.TrackingUnitMake = NormalizeUpperText(TrackingUnitMake);
+        job.Imei = NormalizeUpperText(Imei);
+        job.SerialNumber = NormalizeUpperText(SerialNumber);
+        job.Iccid = NormalizeUpperText(Iccid);
+        job.SimNumber = NormalizeUpperText(SimNumber);
         db.SaveChanges();
 
         _close();

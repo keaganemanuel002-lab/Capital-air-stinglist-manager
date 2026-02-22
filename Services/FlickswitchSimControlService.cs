@@ -127,9 +127,9 @@ public class FlickswitchSimControlService
             return (false, LastError);
         }
 
-        if (!TryBuildUpdateIdentifier(iccid, phoneNumber, imsi, out var identifierName, out var identifierValue))
+        if (!TryBuildUpdateIdentifier(iccid, phoneNumber, imsi, out var identifierName, out var identifierValue, out var validationError))
         {
-            LastError = "ICCID, SIM Number, or IMSI is required to update SIM description.";
+            LastError = validationError;
             return (false, LastError);
         }
 
@@ -151,9 +151,9 @@ public class FlickswitchSimControlService
             return (false, LastError);
         }
 
-        if (!TryBuildUpdateIdentifier(iccid, phoneNumber, imsi, out var identifierName, out var identifierValue))
+        if (!TryBuildUpdateIdentifier(iccid, phoneNumber, imsi, out var identifierName, out var identifierValue, out var validationError))
         {
-            LastError = "ICCID, SIM Number, or IMSI is required to request balances.";
+            LastError = validationError;
             return (false, LastError);
         }
 
@@ -260,54 +260,48 @@ public class FlickswitchSimControlService
         }
 
         string? authError = null;
-        string? methodError = null;
-        var httpMethods = new[] { HttpMethod.Patch, HttpMethod.Put, HttpMethod.Post };
-
-        foreach (var httpMethod in httpMethods)
+        foreach (var mode in new[] { AuthMode.Bearer, AuthMode.RawAuthorization, AuthMode.ApiKeyHeader })
         {
-            foreach (var mode in new[] { AuthMode.Bearer, AuthMode.RawAuthorization, AuthMode.ApiKeyHeader })
+            using var request = BuildRequest(HttpMethod.Patch, endpoint, mode, BuildUpdateDescriptionContent(description));
+
+            try
             {
-                using var request = BuildRequest(httpMethod, endpoint, mode, BuildUpdateDescriptionContent(description));
+                using var response = await _httpClient.SendAsync(request, cancellationToken);
+                var body = await response.Content.ReadAsStringAsync(cancellationToken);
 
-                try
+                if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
-                    using var response = await _httpClient.SendAsync(request, cancellationToken);
-                    var body = await response.Content.ReadAsStringAsync(cancellationToken);
-
-                    if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
-                    {
-                        authError = $"HTTP {(int)response.StatusCode} ({mode} auth mode)";
-                        continue;
-                    }
-
-                    if (response.StatusCode is HttpStatusCode.MethodNotAllowed or HttpStatusCode.NotFound)
-                    {
-                        methodError = $"HTTP {(int)response.StatusCode} using {httpMethod.Method}";
-                        break;
-                    }
-
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        LastError = FormatHttpError(response.StatusCode, body);
-                        return (false, LastError);
-                    }
-
-                    LastError = null;
-                    return (true, "SIM description updated in Flickswitch.");
+                    authError = $"HTTP {(int)response.StatusCode} ({mode} auth mode)";
+                    continue;
                 }
-                catch (OperationCanceledException)
+
+                if (response.StatusCode is HttpStatusCode.MethodNotAllowed)
                 {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    LastError = $"Request failed while calling Flickswitch: {ex.Message}";
+                    LastError = "HTTP 405: Flickswitch update requires PATCH /api/sims.";
                     return (false, LastError);
                 }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    LastError = FormatHttpError(response.StatusCode, body);
+                    return (false, LastError);
+                }
+
+                LastError = null;
+                return (true, "SIM description updated in Flickswitch.");
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LastError = $"Request failed while calling Flickswitch: {ex.Message}";
+                return (false, LastError);
             }
         }
 
-        LastError = authError ?? methodError ?? "Flickswitch SIM update failed.";
+        LastError = authError ?? "Flickswitch authorization failed.";
         return (false, LastError);
     }
 
@@ -422,34 +416,45 @@ public class FlickswitchSimControlService
         string? phoneNumber,
         string? imsi,
         out string identifierName,
-        out string identifierValue)
+        out string identifierValue,
+        out string validationError)
     {
+        var hasAnyInput = !string.IsNullOrWhiteSpace(iccid)
+                          || !string.IsNullOrWhiteSpace(phoneNumber)
+                          || !string.IsNullOrWhiteSpace(imsi);
+
         var normalizedIccid = NormalizeDigits(iccid);
-        if (!string.IsNullOrWhiteSpace(normalizedIccid))
+        if (!string.IsNullOrWhiteSpace(normalizedIccid) && IsValidIccid(normalizedIccid))
         {
             identifierName = "iccid";
             identifierValue = normalizedIccid;
+            validationError = string.Empty;
             return true;
         }
 
         var normalizedMsisdn = NormalizeMsisdn(phoneNumber);
-        if (!string.IsNullOrWhiteSpace(normalizedMsisdn))
+        if (!string.IsNullOrWhiteSpace(normalizedMsisdn) && IsValidMsisdn(normalizedMsisdn))
         {
             identifierName = "msisdn";
             identifierValue = normalizedMsisdn;
+            validationError = string.Empty;
             return true;
         }
 
         var normalizedImsi = NormalizeDigits(imsi);
-        if (!string.IsNullOrWhiteSpace(normalizedImsi))
+        if (!string.IsNullOrWhiteSpace(normalizedImsi) && IsValidImsi(normalizedImsi))
         {
             identifierName = "imsi";
             identifierValue = normalizedImsi;
+            validationError = string.Empty;
             return true;
         }
 
         identifierName = string.Empty;
         identifierValue = string.Empty;
+        validationError = hasAnyInput
+            ? "No valid SIM identifier was provided. ICCID must be 18-22 digits, SIM Number must be 10-15 digits, or IMSI must be 14-16 digits."
+            : "ICCID, SIM Number, or IMSI is required.";
         return false;
     }
 
@@ -714,6 +719,22 @@ public class FlickswitchSimControlService
             return "+" + new string(trimmed.Skip(1).Where(char.IsDigit).ToArray());
 
         return new string(trimmed.Where(char.IsDigit).ToArray());
+    }
+
+    private static bool IsValidIccid(string value)
+    {
+        return value.Length is >= 18 and <= 22;
+    }
+
+    private static bool IsValidMsisdn(string value)
+    {
+        var digits = NormalizeDigits(value);
+        return digits.Length is >= 10 and <= 15;
+    }
+
+    private static bool IsValidImsi(string value)
+    {
+        return value.Length is >= 14 and <= 16;
     }
 
     private static bool TryGetPropertyIgnoreCase(JsonElement element, string propertyName, out JsonElement value)

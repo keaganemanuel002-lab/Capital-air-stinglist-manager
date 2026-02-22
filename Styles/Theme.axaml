@@ -1,5 +1,6 @@
 <Styles xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:behaviors="using:StingListManager.Behaviors">
   <Styles.Resources>
     <!-- Core palette -->
     <Color x:Key="AccentColor">#2563EB</Color>
@@ -26,6 +27,9 @@
   </Style>
   <Style Selector="TextBlock">
     <Setter Property="FontSize" Value="13"/>
+  </Style>
+  <Style Selector="TextBox">
+    <Setter Property="behaviors:UppercaseTextBoxBehavior.IsEnabled" Value="True"/>
   </Style>
 
   <!-- Typography helpers -->

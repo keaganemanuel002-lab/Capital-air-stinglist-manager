@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:behaviors="using:StingListManager.Behaviors"
              x:Class="StingListManager.Views.WialonReportsView"
              x:CompileBindings="False">
   <StackPanel Spacing="12">
@@ -14,6 +15,7 @@
           <StackPanel Spacing="4">
             <TextBlock Text="API Token" Classes="muted"/>
             <TextBox Text="{Binding WialonToken}" 
+                     behaviors:UppercaseTextBoxBehavior.IsEnabled="False"
                      Watermark="Enter your Wialon API token..." 
                      Height="36"/>
           </StackPanel>

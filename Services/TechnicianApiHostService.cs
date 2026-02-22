@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using StingListManager.Data;
 using StingListManager.Data.Entities;
 
@@ -83,6 +84,11 @@ public sealed class TechnicianApiHostService : IDisposable
                 ApplicationName = typeof(TechnicianApiHostService).Assembly.FullName,
                 ContentRootPath = AppContext.BaseDirectory
             });
+
+            // Desktop app is a GUI app; suppress ASP.NET console logs so no noisy host console output.
+            builder.Logging.ClearProviders();
+            builder.Logging.AddDebug();
+            builder.Logging.SetMinimumLevel(LogLevel.Warning);
 
             builder.WebHost.UseUrls($"http://0.0.0.0:{_port}");
 
@@ -575,9 +581,15 @@ public sealed class TechnicianApiHostService : IDisposable
         var settings = new SettingsService().Load();
         var workflow = new WorkflowService();
         var result = workflow.CompleteJobCard(jobCardId, actor, settings.WialonApiToken);
-        return result.ok
-            ? (true, "Job card was moved to Completed.")
-            : (false, $"Auto-complete failed: {result.message}");
+        if (!result.ok)
+            return (false, $"Auto-complete failed: {result.message}");
+
+        var parts = JobCompletionNotificationParser.Parse(result.message);
+        if (parts.IntegrationWarnings.Count == 0)
+            return (true, parts.PrimaryMessage);
+
+        var warningText = string.Join("; ", parts.IntegrationWarnings);
+        return (true, $"{parts.PrimaryMessage} Integration warning: {warningText}");
     }
 
     private static bool HasAllVerificationPhotos(int jobCardId)

@@ -173,9 +173,7 @@ public partial class BillingListViewModel : ViewModelBase
                 FleetNumber = $"{liveTrackingUnits} live",
                 VehicleDescription =
                     $"STING {quoteSummary.StingCount} | STING PLUS {quoteSummary.StingPlusCount} | STING FM {quoteSummary.StingFmCount}",
-                Code = quoteSummary.HasLiveTracking
-                    ? "Live tracking: Yes (all client units)"
-                    : "Live tracking: No",
+                Code = string.Empty,
                 PackageCharge = "CLIENT TOTAL",
                 Notes = packageSourceNote,
                 Reason = "",

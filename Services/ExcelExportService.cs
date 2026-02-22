@@ -174,16 +174,13 @@ public class ExcelExportService
         using var wb = new XLWorkbook();
         var ws = wb.Worksheets.Add("Billing List");
 
-        // Header - matching finance template
+        // Header - matches Billing List page columns
         ws.Cell(1, 1).Value = "#";
         ws.Cell(1, 2).Value = "COMPANY";
         ws.Cell(1, 3).Value = "REG.";
         ws.Cell(1, 4).Value = "FLT. NO";
         ws.Cell(1, 5).Value = "VEHICLE DESCRIPTION";
         ws.Cell(1, 6).Value = "CODE";
-        ws.Cell(1, 7).Value = "";
-        ws.Cell(1, 8).Value = "NOTES";
-        ws.Cell(1, 9).Value = "Reason";
 
         // Data rows - grouped by company with per-company row numbering
         int r = 2;
@@ -201,9 +198,6 @@ public class ExcelExportService
                 ws.Cell(r, 4).Value = entry.FleetNumber ?? "";
                 ws.Cell(r, 5).Value = BuildVehicleDescription(entry);
                 ws.Cell(r, 6).Value = BuildCode(entry);
-                ws.Cell(r, 7).Value = "";
-                ws.Cell(r, 8).Value = entry.Notes ?? "";
-                ws.Cell(r, 9).Value = entry.Reason ?? "";
                 r++;
                 rowNumber++;
             }

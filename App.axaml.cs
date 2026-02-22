@@ -6,6 +6,7 @@ using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
 using System.Linq;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using System.IO;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
@@ -81,109 +82,148 @@ public partial class App : Application
                 }
             };
 
-            try
-            {
-                // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
-                // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
-                DisableAvaloniaDataAnnotationValidation();
-
-                Paths.Ensure();
-                var baseDir = Paths.BaseDir;
-
-                if (!_instanceLock.TryLock(baseDir))
-                {
-                    var exitButton = new Button { Content = "Exit", Width = 90, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
-                    exitButton.Click += (_, _) => desktop.Shutdown();
-
-                    var panel = new StackPanel
-                    {
-                        Spacing = 12,
-                        Margin = new Thickness(20),
-                        Children =
-                        {
-                            new TextBlock { Text = "App already running for this data location.", FontSize = 16 },
-                            new TextBlock { Text = baseDir, Opacity = 0.7 },
-                            exitButton
-                        }
-                    };
-
-                    var lockWindow = new Window
-                    {
-                        Title = "StingListManager",
-                        Width = 520,
-                        Height = 180,
-                        CanResize = false,
-                        WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                        Content = panel
-                    };
-
-                    desktop.MainWindow = lockWindow;
-                    base.OnFrameworkInitializationCompleted();
-                    return;
-                }
-
-                using (var db = new AppDbContext())
-                {
-                    AppDbContext.ConfigureSqlitePragmas(db);
-                    db.Database.Migrate();
-                    BackfillClients(db);
-                    AuthService.EnsureDefaultAdminUser(db);
-                }
-
-                RunAutoBackupIfDue();
-                var loginWindow = new LoginWindow();
-                loginWindow.Closed += (_, _) =>
-                {
-                    if (!loginWindow.LoginSucceeded)
-                    {
-                        desktop.Shutdown();
-                        return;
-                    }
-
-                    var mainWindow = new MainWindow(
-                        loginWindow.AuthenticatedUsername,
-                        loginWindow.AuthenticatedRole);
-                    desktop.MainWindow = mainWindow;
-                    mainWindow.Show();
-                };
-
-                desktop.MainWindow = loginWindow;
-            }
-            catch (Exception ex)
-            {
-                LogStartupError(ex);
-
-                var exitButton = new Button { Content = "Exit", Width = 90, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
-                exitButton.Click += (_, _) => desktop.Shutdown();
-
-                var panel = new StackPanel
-                {
-                    Spacing = 10,
-                    Margin = new Thickness(20),
-                    Children =
-                    {
-                        new TextBlock { Text = "Startup failed. See log file:", FontSize = 16 },
-                        new TextBlock { Text = Paths.StartupLogPath, Opacity = 0.7 },
-                        new TextBlock { Text = ex.Message, Opacity = 0.8 },
-                        exitButton
-                    }
-                };
-
-                var errorWindow = new Window
-                {
-                    Title = "StingListManager",
-                    Width = 640,
-                    Height = 220,
-                    CanResize = false,
-                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                    Content = panel
-                };
-
-                desktop.MainWindow = errorWindow;
-            }
+            var splash = new StartupSplashWindow();
+            desktop.MainWindow = splash;
+            splash.Show();
+            _ = InitializeDesktopStartupAsync(desktop, splash);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private async Task InitializeDesktopStartupAsync(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        StartupSplashWindow splash)
+    {
+        try
+        {
+            DisableAvaloniaDataAnnotationValidation();
+            await Dispatcher.UIThread.InvokeAsync(() => splash.SetStatus("Preparing local data location..."));
+
+            Paths.Ensure();
+            var baseDir = Paths.BaseDir;
+
+            await Dispatcher.UIThread.InvokeAsync(() => splash.SetStatus("Checking running instance lock..."));
+            if (!_instanceLock.TryLock(baseDir))
+            {
+                var lockWindow = BuildLockWindow(desktop, baseDir);
+                desktop.MainWindow = lockWindow;
+                lockWindow.Show();
+                splash.Close();
+                return;
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() => splash.SetStatus("Applying database migrations..."));
+            await Task.Run(() =>
+            {
+                using var db = new AppDbContext();
+                AppDbContext.ConfigureSqlitePragmas(db);
+                db.Database.Migrate();
+                BackfillClients(db);
+                AuthService.EnsureDefaultAdminUser(db);
+            });
+
+            await Dispatcher.UIThread.InvokeAsync(() => splash.SetStatus("Finalizing startup checks..."));
+            await Task.Run(RunAutoBackupIfDue);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var loginWindow = BuildLoginWindow(desktop);
+                desktop.MainWindow = loginWindow;
+                loginWindow.Show();
+                splash.Close();
+            });
+        }
+        catch (Exception ex)
+        {
+            LogStartupError(ex);
+
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var errorWindow = BuildStartupErrorWindow(desktop, ex);
+                desktop.MainWindow = errorWindow;
+                errorWindow.Show();
+                splash.Close();
+            });
+        }
+    }
+
+    private static LoginWindow BuildLoginWindow(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        var loginWindow = new LoginWindow();
+        loginWindow.Closed += (_, _) =>
+        {
+            if (!loginWindow.LoginSucceeded)
+            {
+                desktop.Shutdown();
+                return;
+            }
+
+            var mainWindow = new MainWindow(
+                loginWindow.AuthenticatedUsername,
+                loginWindow.AuthenticatedRole);
+            desktop.MainWindow = mainWindow;
+            mainWindow.Show();
+        };
+
+        return loginWindow;
+    }
+
+    private static Window BuildLockWindow(IClassicDesktopStyleApplicationLifetime desktop, string baseDir)
+    {
+        var exitButton = new Button { Content = "Exit", Width = 90, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        exitButton.Click += (_, _) => desktop.Shutdown();
+
+        var panel = new StackPanel
+        {
+            Spacing = 12,
+            Margin = new Thickness(20),
+            Children =
+            {
+                new TextBlock { Text = "App already running for this data location.", FontSize = 16 },
+                new TextBlock { Text = baseDir, Opacity = 0.7 },
+                exitButton
+            }
+        };
+
+        return new Window
+        {
+            Title = "StingListManager",
+            Width = 520,
+            Height = 180,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Content = panel
+        };
+    }
+
+    private static Window BuildStartupErrorWindow(IClassicDesktopStyleApplicationLifetime desktop, Exception ex)
+    {
+        var exitButton = new Button { Content = "Exit", Width = 90, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        exitButton.Click += (_, _) => desktop.Shutdown();
+
+        var panel = new StackPanel
+        {
+            Spacing = 10,
+            Margin = new Thickness(20),
+            Children =
+            {
+                new TextBlock { Text = "Startup failed. See log file:", FontSize = 16 },
+                new TextBlock { Text = Paths.StartupLogPath, Opacity = 0.7 },
+                new TextBlock { Text = ex.Message, Opacity = 0.8 },
+                exitButton
+            }
+        };
+
+        return new Window
+        {
+            Title = "StingListManager",
+            Width = 640,
+            Height = 220,
+            CanResize = false,
+            WindowStartupLocation = WindowStartupLocation.CenterScreen,
+            Content = panel
+        };
     }
 
     private static void LogStartupError(Exception ex)

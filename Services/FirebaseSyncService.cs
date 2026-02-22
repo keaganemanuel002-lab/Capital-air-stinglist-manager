@@ -1046,10 +1046,22 @@ public sealed class FirebaseSyncService : IDisposable
 
         if (completeResult.ok)
         {
+            var parts = JobCompletionNotificationParser.Parse(completeResult.message);
             _statusSink?.Invoke(
-                $"Firebase sync auto-completed {GetJobReference(jobCardId)} after technician verification photos.",
+                $"Firebase sync auto-completed {GetJobReference(jobCardId)} after technician verification photos. {parts.PrimaryMessage}",
                 false);
-            return completeResult.message;
+
+            foreach (var info in parts.IntegrationInfo)
+            {
+                _statusSink?.Invoke($"Integration: {info}", false);
+            }
+
+            foreach (var warning in parts.IntegrationWarnings)
+            {
+                _statusSink?.Invoke($"Integration warning: {warning}", true);
+            }
+
+            return parts.PrimaryMessage;
         }
 
         _statusSink?.Invoke(

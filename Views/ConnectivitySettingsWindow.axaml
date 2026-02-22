@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:behaviors="using:StingListManager.Behaviors"
         x:Class="StingListManager.Views.ConnectivitySettingsWindow"
         x:CompileBindings="False"
         Width="1200"
@@ -7,6 +8,11 @@
         MinWidth="980"
         MinHeight="640"
         Title="Connectivity Settings">
+  <Window.Styles>
+    <Style Selector="TextBox">
+      <Setter Property="behaviors:UppercaseTextBoxBehavior.IsEnabled" Value="False"/>
+    </Style>
+  </Window.Styles>
   <Border Padding="12" Classes="surface">
     <ScrollViewer VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled">

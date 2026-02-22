@@ -277,12 +277,25 @@ public partial class JobCardsViewModel : ViewModelBase
 
             var wf = new WorkflowService();
             var result = await wf.CompleteJobCardAsync(row.Id, _appState.OperatorName, _appState.Settings.WialonApiToken);
-            _appState.SetStatus(result.message, !result.ok);
 
             if (!result.ok)
             {
+                _appState.SetStatus(result.message, true);
                 await DialogService.Alert(_window, "Complete Job Card Failed", result.message);
                 return;
+            }
+
+            var completionParts = JobCompletionNotificationParser.Parse(result.message);
+            _appState.SetStatus(completionParts.PrimaryMessage, false);
+
+            foreach (var info in completionParts.IntegrationInfo)
+            {
+                _appState.SetStatus($"Integration: {info}", false);
+            }
+
+            foreach (var warning in completionParts.IntegrationWarnings)
+            {
+                _appState.SetStatus($"Integration warning: {warning}", true);
             }
 
             await Load();
