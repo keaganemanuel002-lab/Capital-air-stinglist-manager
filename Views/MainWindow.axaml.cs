@@ -9,10 +9,14 @@ public partial class MainWindow : Window
     private const double CollapsedSidebarWidth = 74;
     private const double ExpandedSidebarWidth = 260;
 
-    public MainWindow()
+    public MainWindow() : this(null, null)
+    {
+    }
+
+    public MainWindow(string? signedInUser, string? signedInRole)
     {
         InitializeComponent();
-        DataContext = new MainWindowViewModel(this);
+        DataContext = new MainWindowViewModel(this, signedInUser, signedInRole);
         Closed += MainWindow_Closed;
         CollapseSidebar();
     }

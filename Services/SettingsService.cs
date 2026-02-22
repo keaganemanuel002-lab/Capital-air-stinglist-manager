@@ -36,6 +36,13 @@ public class AppSettings
     public bool TechnicianApiEnabled { get; set; } = true;
     public int TechnicianApiPort { get; set; } = 5075;
     public string? TechnicianApiKey { get; set; } = null;
+    public string? TechnicianLoginPin { get; set; } = "1234";
+    public bool FirebaseSyncEnabled { get; set; } = false;
+    public bool FirestorePrimaryDataEnabled { get; set; } = false;
+    public string? FirebaseProjectId { get; set; } = null;
+    public string? FirebaseStorageBucket { get; set; } = null;
+    public string? FirebaseServiceAccountJsonPath { get; set; } = null;
+    public int FirebaseSyncIntervalSeconds { get; set; } = 2;
     public List<FilterPreset> StingPresets { get; set; } = new();
 }
 

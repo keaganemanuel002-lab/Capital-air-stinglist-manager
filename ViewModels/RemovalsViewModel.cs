@@ -167,13 +167,34 @@ public partial class RemovalsViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void CreateRemovalQuote()
+    private async Task CreateRemovalQuote()
     {
         if (SelectedRow is null) return;
 
         using var db = new AppDbContext();
         var c = db.CancellationEntries.FirstOrDefault(x => x.Id == SelectedRow.Id);
         if (c is null) return;
+
+        var activeEntry = db.BillingEntries
+            .Where(b => b.ArchivedAt == null
+                        && (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded)
+                        && b.Company == c.Client
+                        && b.Registration == c.Registration)
+            .OrderByDescending(b => b.ActiveFrom)
+            .FirstOrDefault();
+
+        var createRemovalJobCard = true;
+        if (activeEntry is not null && !WarrantyService.IsWithinWarranty(activeEntry.ActiveFrom))
+        {
+            createRemovalJobCard = await DialogService.Confirm(
+                _window,
+                "Out of Warranty Removal",
+                "This unit is out of warranty.\n\nCreate a removal job card?\n\nYes = create removal job card when quote is approved\nNo = approve removal quote without creating a job card");
+        }
+
+        var removalNotes = $"Removal request for {c.Registration}";
+        if (!createRemovalJobCard)
+            removalNotes = $"{removalNotes} {WorkflowService.NoRemovalJobCardMarker}";
 
         // Create removal quote linked to this cancellation
         var q = new Quote
@@ -184,8 +205,17 @@ public partial class RemovalsViewModel : ViewModelBase
             Company = c.Client,
             Registration = c.Registration,
             FleetNumber = c.FleetNumber,
+            Make = activeEntry?.Make,
+            Model = activeEntry?.Model,
+            Colour = activeEntry?.Colour,
+            VinNumber = activeEntry?.VinNumber,
+            TrackingUnitMake = activeEntry?.TrackingUnitMake,
+            Imei = activeEntry?.Imei,
+            SerialNumber = activeEntry?.SerialNumber,
+            Iccid = activeEntry?.Iccid,
+            SimNumber = activeEntry?.SimNumber,
             AmountExVat = _appState.Settings.DefaultRemovalFeeExVat,
-            Notes = $"Removal request for {c.Registration}"
+            Notes = removalNotes
         };
 
         q.LineItems.Add(new QuoteLineItem
@@ -208,7 +238,11 @@ public partial class RemovalsViewModel : ViewModelBase
         c.Status = CancellationStatus.Quoted;
         db.SaveChanges();
 
-        _appState.SetStatus("Removal quote created (Draft). Approve it under Quotes.");
+        var quoteReference = QuoteReferenceFormatter.Format(q.QuoteNumber);
+        var message = createRemovalJobCard
+            ? $"Removal quote {quoteReference} created (Draft). Approve it under Quotes to create a removal job card."
+            : $"Removal quote {quoteReference} created (Draft). It is marked to approve without a job card.";
+        _appState.SetStatus(message);
         Load();
     }
 }

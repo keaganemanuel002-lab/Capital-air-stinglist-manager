@@ -38,6 +38,8 @@
         <DataGridTextColumn Header="Quote" Binding="{Binding QuoteReference}" Width="0.9*"/>
         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
+        <DataGridTextColumn Header="Photos" Binding="{Binding PhotoCount}" Width="0.8*"/>
+        <DataGridTextColumn Header="Last Photo" Binding="{Binding LastPhotoAt, StringFormat=yyyy-MM-dd HH:mm}" Width="1.4*"/>
         <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2*"/>
         <DataGridTextColumn Header="Reg" Binding="{Binding Registration}" Width="1.2*"/>
         <DataGridTextColumn Header="Make" Binding="{Binding Make}" Width="1.2*"/>

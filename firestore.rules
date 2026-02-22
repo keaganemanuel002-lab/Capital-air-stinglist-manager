@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Technician APK login source (published by desktop sync).
+    match /mobile_users/{userId} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow write: if false;
+    }
+
+    // Live technician job feeds.
+    match /job_cards_open/{jobCardId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /job_cards_completed/{jobCardId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Technician photo submissions (desktop service account marks import status).
+    match /photo_submissions/{submissionId} {
+      allow create: if signedIn();
+      allow read: if signedIn();
+      allow update, delete: if false;
+    }
+
+    // Default deny for everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

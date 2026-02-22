@@ -76,6 +76,7 @@
         <DataGridTextColumn Header="ICCID" Binding="{Binding Iccid}" Width="1.3*"/>
         <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="1.5*"/>
         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.8*"/>
+        <DataGridTextColumn Header="Warranty" Binding="{Binding Warranty}" Width="1.2*"/>
         <DataGridTextColumn Header="Active From" Binding="{Binding ActiveFrom, StringFormat=yyyy-MM-dd HH:mm}" Width="1.5*"/>
       </DataGrid.Columns>
     </DataGrid>

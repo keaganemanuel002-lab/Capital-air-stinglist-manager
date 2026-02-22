@@ -1,64 +1,116 @@
-# Technician Mobile Portal (Android)
+# Technician Mobile + Firebase Hybrid Sync
 
-This app now hosts a mobile-friendly technician portal from the desktop app itself.
-It also includes a native Android project:
+This app supports a hybrid technician workflow:
 
-- `mobile/TechnicianAndroidApp`
+- Technician APK logs in with **Username + Password** (desktop user account).
+- Only active users with role **Tech** or **Admin** can sign in.
+- Technician can upload job card photos.
+- Desktop app imports uploaded photos into local Job Card attachments.
 
 ## What technicians can do
 
-- View **open job cards**
-- Upload **job card photos** from phone camera/gallery
-- Add photo notes
+- View open job cards.
+- Upload job card photos from camera/gallery.
+- Add notes per photo.
+- Log in with Username + Password.
 
-Uploads are saved as `JobPhoto` attachments in the same database and attachments folder used by the desktop app.
-
-## Enable and configure
+## Desktop setup
 
 1. Open desktop app.
 2. Go to `Settings`.
 3. In **Field Technician Mobile Access**:
-   - Enable the API.
+   - Enable Technician API.
    - Confirm port (default `5075`).
-   - Set or generate API key.
-4. Restart desktop app.
+4. In **Users** page:
+   - Create technician user accounts.
+   - Assign role `Tech` (or `Admin`).
+   - Ensure user is active.
+5. In **Firebase Hybrid Sync (Option 1)**:
+   - Enable Firebase Sync.
+   - Set Firebase Project ID.
+   - Set Firebase Storage Bucket.
+   - Select Firebase service account JSON file.
+   - Set sync interval.
+6. Restart desktop app.
 
-## Technician usage
+## Android APK setup
 
-1. Connect phone to same Wi-Fi/LAN as desktop.
-2. Open one portal URL shown in Settings (for example `http://<desktop-ip>:5075/technician`).
-3. Enter API key.
-4. Tap **Refresh Open Job Cards**.
-5. Select/take photo and upload.
+Project: `mobile/TechnicianAndroidApp`
 
-## Native Android APK (phase 2)
+1. Open `mobile/TechnicianAndroidApp/gradle.properties`.
+2. Set:
+   - `TECH_API_BASE_URL=http://<desktop-ip>:5075`
+   - `FIREBASE_ENABLED=true`
+   - `FIREBASE_API_KEY=...`
+   - `FIREBASE_APP_ID=...`
+   - `FIREBASE_PROJECT_ID=...`
+   - `FIREBASE_STORAGE_BUCKET=...`
+3. Build APK (`.\gradlew.bat assembleDebug`).
+4. Install APK on technician phone.
+5. Technician logs in with Username + Password (Tech/Admin user).
 
-Use project: `mobile/TechnicianAndroidApp`
+## Firebase Rules (required)
 
-1. Install Android Studio.
-2. Open folder `mobile/TechnicianAndroidApp`.
-3. Let Gradle sync/download dependencies.
-4. Build APK:
-   - Android Studio menu: `Build` -> `Build Bundle(s) / APK(s)` -> `Build APK(s)`.
-5. Install on technician phone.
-6. In app, enter:
-   - API Base URL: `http://<desktop-ip>:5075`
-   - Technician API Key: from desktop `Settings`.
+If mobile login shows `permission_denied`, deploy the repo rules:
 
-Notes:
-- Phone and desktop must be on same network.
-- Ensure desktop firewall allows inbound TCP on the configured technician API port.
+1. Open terminal in repo root.
+2. Select project:
+   - `firebase use ca-sting-list-app`
+3. Deploy rules:
+   - `firebase deploy --only firestore:rules,storage`
 
-## Desktop verification
+Rules files used:
 
-- Open `Job Cards` -> select card -> `Documents`.
-- Uploaded photos appear under attachments as `Job Photo`.
+- `firestore.rules`
+- `storage.rules`
 
-## API endpoints
+These rules allow authenticated technician app access to:
 
-- `GET /api/tech/health`
+- `mobile_users` (read)
+- `job_cards_open` / `job_cards_completed` (read)
+- `photo_submissions` (create/read)
+- storage path `job-cards/*` (read/write)
+
+## Firebase collections used
+
+- `job_cards_open/{jobCardId}`
+  - Open job card snapshot published by desktop.
+- `mobile_users/{usernameNorm}`
+  - Active `Tech`/`Admin` users published by desktop for mobile auth.
+- `photo_submissions/{autoId}`
+  - Written by APK after photo upload.
+  - Desktop imports and updates status.
+
+Expected submission fields:
+
+- `jobCardId`
+- `jobCardReference`
+- `technicianName`
+- `notes`
+- `storagePath` (`gs://...`)
+- `importStatus` (`pending` -> `imported`/`failed`)
+- `createdAtUtc`
+
+Import result fields written by desktop:
+
+- `importedAtUtc`
+- `importMessage`
+- `localAttachmentId`
+
+## API endpoints (desktop)
+
+- `POST /api/tech/auth/login`
 - `GET /api/tech/job-cards/open`
-- `GET /api/tech/job-cards/{jobCardId}/photos`
-- `POST /api/tech/job-cards/{jobCardId}/photos` (multipart form-data)
+- `POST /api/tech/job-cards/{jobCardId}/photos`
 
-Auth: `X-Tech-Key` header (or `apiKey` query parameter).
+Auth:
+
+- Login endpoint uses Username + Password payload.
+- Other endpoints use `Authorization: Bearer <session-token>`.
+
+## Notes
+
+- If `FIREBASE_ENABLED=true`, mobile auth/job list/photo upload work from internet (desktop does not need to be on same LAN).
+- If `FIREBASE_ENABLED=false`, phone and desktop must be on same LAN for login/job list/photo upload.
+- Firebase photo sync requires valid Firebase config and service account permissions.
+- Install/Transfer completion still requires at least one `JobPhoto` attachment.

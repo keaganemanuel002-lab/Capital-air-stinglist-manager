@@ -25,6 +25,7 @@ public class JobCard
     public string? Model { get; set; }
     public string? Colour { get; set; }
     public string? VinNumber { get; set; }
+    public string? GridLocation { get; set; }
 
     // Tracking unit info (for installs, and for selecting which unit to remove)
     public string? TrackingUnitMake { get; set; }

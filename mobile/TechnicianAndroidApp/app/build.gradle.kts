@@ -3,6 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val techApiBaseUrl = (project.findProperty("TECH_API_BASE_URL") as String?)
+    ?: "http://192.168.3.79:5075"
+val firebaseEnabled = ((project.findProperty("FIREBASE_ENABLED") as String?) ?: "false").toBoolean()
+val firebaseApiKey = (project.findProperty("FIREBASE_API_KEY") as String?) ?: ""
+val firebaseAppId = (project.findProperty("FIREBASE_APP_ID") as String?) ?: ""
+val firebaseProjectId = (project.findProperty("FIREBASE_PROJECT_ID") as String?) ?: ""
+val firebaseStorageBucket = (project.findProperty("FIREBASE_STORAGE_BUCKET") as String?) ?: ""
+
 android {
     namespace = "za.co.capitalair.fieldtech"
     compileSdk = 34
@@ -13,6 +21,12 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("String", "TECH_API_BASE_URL", "\"$techApiBaseUrl\"")
+        buildConfigField("boolean", "FIREBASE_ENABLED", firebaseEnabled.toString())
+        buildConfigField("String", "FIREBASE_API_KEY", "\"$firebaseApiKey\"")
+        buildConfigField("String", "FIREBASE_APP_ID", "\"$firebaseAppId\"")
+        buildConfigField("String", "FIREBASE_PROJECT_ID", "\"$firebaseProjectId\"")
+        buildConfigField("String", "FIREBASE_STORAGE_BUCKET", "\"$firebaseStorageBucket\"")
     }
 
     buildTypes {
@@ -35,6 +49,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 
@@ -53,6 +68,8 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.02")
     implementation(composeBom)
     androidTestImplementation(composeBom)
+    val firebaseBom = platform("com.google.firebase:firebase-bom:33.6.0")
+    implementation(firebaseBom)
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.2")
@@ -67,4 +84,9 @@ dependencies {
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    implementation("com.google.firebase:firebase-auth-ktx")
+    implementation("com.google.firebase:firebase-firestore-ktx")
+    implementation("com.google.firebase:firebase-storage-ktx")
+    implementation("com.google.firebase:firebase-messaging-ktx")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 }

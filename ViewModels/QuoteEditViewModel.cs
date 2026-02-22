@@ -86,10 +86,12 @@ namespace StingListManager.ViewModels
     public partial class QuoteEditViewModel : ViewModelBase
     {
         private const string AutoRemovalFeeCode = "AUTO-REMOVAL-FEE";
+        private const string AutoRemovalFeeDescription = "Auto-added removal fee";
         private const string AutoMonthlyStingCode = "AUTO-MONTHLY-STING";
         private const string AutoMonthlyStingPlusCode = "AUTO-MONTHLY-STING-PLUS";
         private const string AutoMonthlyStingFmCode = "AUTO-MONTHLY-STING-FM";
         private bool _isApplyingAutomaticLineItems;
+        private readonly HashSet<QuoteLineItemRow> _lineItemRecalcGuard = new();
         private readonly Action _close;
         private readonly int? _quoteId;
         private readonly AppState _appState;
@@ -260,37 +262,65 @@ namespace StingListManager.ViewModels
         {
             if (_isApplyingAutomaticLineItems)
             {
+                if (!string.Equals(item.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(item.Description, AutoRemovalFeeDescription, StringComparison.OrdinalIgnoreCase))
+                {
+                    item.Description = string.Empty;
+                }
+
                 item.LineTotalExVat = item.UnitPriceExVat * item.Quantity;
                 return;
             }
 
-            var matchedProduct = _catalogService.FindByCode(Products, item.ProductCode)
-                ?? _catalogService.FindByName(Products, item.ProductName);
+            // Protect against recursive change notifications while normalizing row values.
+            if (!_lineItemRecalcGuard.Add(item))
+            {
+                return;
+            }
 
-            if (matchedProduct != null)
+            try
             {
-                item.ProductCode = matchedProduct.Code;
-                item.ProductName = matchedProduct.Name;
-                item.UnitPriceExVat = matchedProduct.BasePriceExVat;
-                item.IsVatExempt = matchedProduct.IsVatExempt;
-            }
-            else
-            {
-                var tempQuote = new Quote
+                var matchedProduct = _catalogService.FindByCode(Products, item.ProductCode)
+                    ?? _catalogService.FindByName(Products, item.ProductName);
+
+                if (matchedProduct != null)
                 {
-                    ProductType = item.ProductName,
-                    AmountExVat = 0
-                };
-                var calculated = _pricingService.CalculateExVatAmount(tempQuote);
-                if (calculated > 0)
-                {
-                    item.UnitPriceExVat = calculated;
+                    item.ProductCode = matchedProduct.Code;
+                    item.ProductName = matchedProduct.Name;
+                    item.UnitPriceExVat = matchedProduct.BasePriceExVat;
+                    item.IsVatExempt = matchedProduct.IsVatExempt;
                 }
-                item.IsVatExempt = false;
+                else
+                {
+                    var tempQuote = new Quote
+                    {
+                        ProductType = item.ProductName,
+                        AmountExVat = 0
+                    };
+                    var calculated = _pricingService.CalculateExVatAmount(tempQuote);
+                    if (calculated > 0)
+                    {
+                        item.UnitPriceExVat = calculated;
+                    }
+                    item.IsVatExempt = false;
+                }
+
+                // If an auto removal-fee row is converted to another product (e.g. App Live Tracking),
+                // clear the auto marker so it is no longer treated as an auto row.
+                if (!string.Equals(item.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(item.Description, AutoRemovalFeeDescription, StringComparison.OrdinalIgnoreCase))
+                {
+                    item.Description = string.Empty;
+                }
+
+                item.LineTotalExVat = item.UnitPriceExVat * item.Quantity;
+                EnsureAutomaticLineItems();
+                RecalculateTotals();
             }
-            item.LineTotalExVat = item.UnitPriceExVat * item.Quantity;
-            EnsureAutomaticLineItems();
-            RecalculateTotals();
+            finally
+            {
+                _lineItemRecalcGuard.Remove(item);
+            }
         }
 
         [RelayCommand]
@@ -395,7 +425,14 @@ namespace StingListManager.ViewModels
                 if (IsRemovalQuote)
                 {
                     RemoveAutoMonthlyLines();
-                    EnsureRemovalFeeLine();
+                    if (ShouldAutoAddRemovalFee())
+                    {
+                        EnsureRemovalFeeLine();
+                    }
+                    else
+                    {
+                        RemoveAutoRemovalFeeLines();
+                    }
                 }
                 else
                 {
@@ -417,9 +454,20 @@ namespace StingListManager.ViewModels
             RecalculateTotals();
         }
 
+        private bool ShouldAutoAddRemovalFee()
+        {
+            var manualRows = LineItems.Where(x => !IsAutoRow(x)).ToList();
+            if (manualRows.Count == 0)
+                return true;
+
+            // Live-tracking-only removals should not auto-add removal fee.
+            var hasNonLiveTrackingManualLine = manualRows.Any(x => !IsLiveTrackingLine(x));
+            return hasNonLiveTrackingManualLine;
+        }
+
         private void EnsureRemovalFeeLine()
         {
-            var autoRows = LineItems.Where(IsAutoRemovalFeeLine).ToList();
+            var autoRows = LineItems.Where(IsAnyRemovalFeeLine).ToList();
             foreach (var extra in autoRows.Skip(1))
             {
                 LineItems.Remove(extra);
@@ -439,7 +487,7 @@ namespace StingListManager.ViewModels
             row.Quantity = 1;
             row.UnitPriceExVat = _appState.Settings.DefaultRemovalFeeExVat;
             row.IsVatExempt = false;
-            row.Description = "Auto-added removal fee";
+            row.Description = AutoRemovalFeeDescription;
             row.LineTotalExVat = row.UnitPriceExVat * row.Quantity;
         }
 
@@ -521,7 +569,43 @@ namespace StingListManager.ViewModels
 
         private static bool IsAutoRemovalFeeLine(QuoteLineItemRow row)
         {
-            return string.Equals(row.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase);
+            if (string.Equals(row.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return string.Equals(row.Description, AutoRemovalFeeDescription, StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(row.Description, "Auto-added removal fee", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAnyRemovalFeeLine(QuoteLineItemRow row)
+        {
+            if (IsAutoRemovalFeeLine(row))
+                return true;
+
+            if (string.Equals(row.ProductCode, "REMOVAL-FEE", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return string.Equals(row.ProductName, "Removal Fee", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(row.ProductName, "Removal fee", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsLiveTrackingLine(QuoteLineItemRow row)
+        {
+            if (string.Equals(row.ProductCode, "APP-LIVE-TRACKING", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (!string.IsNullOrWhiteSpace(row.ProductName)
+                && row.ProductName.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.ProductCode)
+                && row.ProductCode.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         private static bool IsAutoMonthlyLine(QuoteLineItemRow row)

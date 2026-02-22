@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +13,17 @@ using StingListManager.Data.Entities;
 using StingListManager.Services;
 
 namespace StingListManager.ViewModels;
+
+public partial class TechnicianPhotoRow : ObservableObject
+{
+    public int Id { get; set; }
+    public string FileName { get; set; } = "";
+    public string AddedAtDisplay { get; set; } = "";
+    public string AddedByDisplay { get; set; } = "";
+    public string VerificationType { get; set; } = "Photo";
+    public string StoredPath { get; set; } = "";
+    public string? PreviewUri { get; set; }
+}
 
 public partial class JobCardEditViewModel : ViewModelBase
 {
@@ -33,6 +45,7 @@ public partial class JobCardEditViewModel : ViewModelBase
     [ObservableProperty] private string? model;
     [ObservableProperty] private string? colour;
     [ObservableProperty] private string? vinNumber;
+    [ObservableProperty] private string? gridLocation;
     [ObservableProperty] private string? trackingUnitMake;
     [ObservableProperty] private string? imei;
     [ObservableProperty] private string? serialNumber;
@@ -50,18 +63,28 @@ public partial class JobCardEditViewModel : ViewModelBase
     [ObservableProperty] private bool showModelsList;
     [ObservableProperty] private bool isEditable = true;
     [ObservableProperty] private string editableWarning = "";
+    [ObservableProperty] private bool canUpdateCompletedRegistration;
+    [ObservableProperty] private string completedRegistrationUpdate = "";
     [ObservableProperty] private bool isTransferCard;
     [ObservableProperty] private string? selectedClientName;
+    [ObservableProperty] private int technicianPhotoCount;
+    [ObservableProperty] private DateTimeOffset? lastTechnicianPhotoAt;
+    [ObservableProperty] private TechnicianPhotoRow? selectedTechnicianPhoto;
 
     public ObservableCollection<string> AvailableMakes { get; } = new();
     public ObservableCollection<string> AvailableModels { get; } = new();
     public ObservableCollection<string> FilteredMakes { get; } = new();
     public ObservableCollection<string> FilteredModels { get; } = new();
     public ObservableCollection<string> ClientNames { get; } = new();
+    public ObservableCollection<TechnicianPhotoRow> TechnicianPhotos { get; } = new();
     public bool ShowTransferCompanyPicker => IsTransferCard;
     public bool ShowReadOnlyCompany => !IsTransferCard;
     public double EditSectionOpacity => IsEditable ? 1.0 : 0.95;
     public bool HasFlickswitchRules => !string.IsNullOrWhiteSpace(FlickswitchRulesText);
+    public bool HasTechnicianPhotos => TechnicianPhotos.Count > 0;
+    public string LastTechnicianPhotoDisplay => LastTechnicianPhotoAt.HasValue
+        ? LastTechnicianPhotoAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+        : "-";
     public bool HasSimBalanceData =>
         SimAirtimeBalance.HasValue
         || SimDataBalanceMb.HasValue
@@ -94,6 +117,16 @@ public partial class JobCardEditViewModel : ViewModelBase
     partial void OnFlickswitchRulesTextChanged(string? value)
     {
         OnPropertyChanged(nameof(HasFlickswitchRules));
+    }
+
+    partial void OnLastTechnicianPhotoAtChanged(DateTimeOffset? value)
+    {
+        OnPropertyChanged(nameof(LastTechnicianPhotoDisplay));
+    }
+
+    partial void OnTechnicianPhotoCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasTechnicianPhotos));
     }
 
     partial void OnSimAirtimeBalanceChanged(decimal? value) => OnSimBalanceValuesChanged();
@@ -200,40 +233,38 @@ public partial class JobCardEditViewModel : ViewModelBase
         _close = close;
         _appState = appState;
 
-        LoadClients();
-
         // Load all available makes
         RefreshAvailableMakes();
 
         using var db = new AppDbContext();
         var job = db.JobCards.Find(jobCardId);
-        
-        var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "sting_debug.log");
-        
+
         if (job != null)
         {
             _currentStatus = job.Status;
             IsTransferCard = job.Type == JobType.Transfer;
+            if (IsTransferCard)
+                LoadClients();
             
             // Completed job cards are locked for editing (including transfer cards).
             if (job.Status == JobStatus.Completed)
             {
                 IsEditable = false;
-                EditableWarning = "This job card is completed and is read-only.";
+                CanUpdateCompletedRegistration = true;
+                EditableWarning = "This job card is completed and is read-only. If the vehicle registration changed, update it below.";
             }
-
-            var logMsg = $"[JobCardEditViewModel] Loaded JobCard {jobCardId}: Make={job.Make}, Model={job.Model}, Imei={job.Imei}, Iccid={job.Iccid}, SerialNumber={job.SerialNumber}";
-            System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
             
             Company = job.Company;
             AddClientNameIfMissing(Company);
             SelectedClientName = Company;
             Registration = job.Registration;
+            CompletedRegistrationUpdate = job.Registration;
             FleetNumber = job.FleetNumber;
             Make = job.Make;
             Model = job.Model;
             Colour = job.Colour;
             VinNumber = job.VinNumber;
+            GridLocation = job.GridLocation;
             TrackingUnitMake = job.TrackingUnitMake;
             _suppressIccidAutoLookup = true;
             try
@@ -253,20 +284,14 @@ public partial class JobCardEditViewModel : ViewModelBase
                 _ = AutoLookupFromIccidAsync(Iccid);
             }
 
-            logMsg = $"[JobCardEditViewModel] Properties set: Make={Make}, Model={Model}, Imei={Imei}, Iccid={Iccid}";
-            System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
-
             // Load models for the selected make
             if (!string.IsNullOrWhiteSpace(Make))
             {
                 UpdateAvailableModels();
             }
         }
-        else
-        {
-            var logMsg = $"[JobCardEditViewModel] JobCard {jobCardId} not found!";
-            System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
-        }
+
+        LoadTechnicianPhotoSummary();
     }
 
     private void RefreshAvailableMakes()
@@ -545,6 +570,36 @@ public partial class JobCardEditViewModel : ViewModelBase
     private void Cancel() => _close();
 
     [RelayCommand]
+    private void RefreshTechnicianPhotos()
+    {
+        LoadTechnicianPhotoSummary();
+    }
+
+    [RelayCommand]
+    private void OpenSelectedTechnicianPhoto()
+    {
+        if (SelectedTechnicianPhoto is null)
+            return;
+
+        OpenTechnicianPhoto(SelectedTechnicianPhoto);
+    }
+
+    [RelayCommand]
+    private void OpenTechnicianPhoto(TechnicianPhotoRow? row)
+    {
+        if (row is null || string.IsNullOrWhiteSpace(row.StoredPath))
+            return;
+
+        if (!File.Exists(row.StoredPath))
+        {
+            _appState.SetStatus("Photo file was not found on disk.");
+            return;
+        }
+
+        new AttachmentStorageService().OpenAttachment(row.StoredPath);
+    }
+
+    [RelayCommand]
     private void Save()
     {
         if (!IsEditable)
@@ -570,6 +625,7 @@ public partial class JobCardEditViewModel : ViewModelBase
         job.Model = string.IsNullOrWhiteSpace(Model) ? null : Model.Trim();
         job.Colour = string.IsNullOrWhiteSpace(Colour) ? null : Colour.Trim();
         job.VinNumber = string.IsNullOrWhiteSpace(VinNumber) ? null : VinNumber.Trim();
+        job.GridLocation = string.IsNullOrWhiteSpace(GridLocation) ? null : GridLocation.Trim();
         job.TrackingUnitMake = string.IsNullOrWhiteSpace(TrackingUnitMake) ? null : TrackingUnitMake.Trim();
         job.Imei = string.IsNullOrWhiteSpace(Imei) ? null : Imei.Trim();
         job.SerialNumber = string.IsNullOrWhiteSpace(SerialNumber) ? null : SerialNumber.Trim();
@@ -578,6 +634,110 @@ public partial class JobCardEditViewModel : ViewModelBase
         db.SaveChanges();
 
         _close();
+    }
+
+    [RelayCommand]
+    private void SaveCompletedRegistration()
+    {
+        if (!CanUpdateCompletedRegistration)
+        {
+            _appState.SetStatus("Registration correction is only available for completed job cards.");
+            return;
+        }
+
+        var workflow = new WorkflowService();
+        var result = workflow.UpdateCompletedJobCardRegistration(
+            _jobCardId,
+            CompletedRegistrationUpdate,
+            _appState.OperatorName);
+
+        _appState.SetStatus(result.message, !result.ok);
+        if (!result.ok)
+            return;
+
+        var normalized = string.IsNullOrWhiteSpace(CompletedRegistrationUpdate)
+            ? string.Empty
+            : CompletedRegistrationUpdate.Trim().ToUpperInvariant();
+
+        Registration = normalized;
+        CompletedRegistrationUpdate = normalized;
+    }
+
+    private void LoadTechnicianPhotoSummary()
+    {
+        using var db = new AppDbContext();
+        var photos = db.Attachments
+            .AsNoTracking()
+            .Where(a => a.OwnerType == AttachmentOwnerType.JobCard
+                        && a.OwnerId == _jobCardId
+                        && a.Kind == AttachmentKind.JobPhoto)
+            .OrderByDescending(a => a.AddedAt)
+            .ToList();
+
+        TechnicianPhotos.Clear();
+        foreach (var photo in photos)
+        {
+            TechnicianPhotos.Add(new TechnicianPhotoRow
+            {
+                Id = photo.Id,
+                FileName = photo.FileName,
+                AddedAtDisplay = photo.AddedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
+                AddedByDisplay = string.IsNullOrWhiteSpace(photo.AddedBy) ? "-" : photo.AddedBy,
+                VerificationType = ParseVerificationType(photo.Notes),
+                StoredPath = photo.StoredPath,
+                PreviewUri = BuildPreviewUri(photo.StoredPath)
+            });
+        }
+
+        TechnicianPhotoCount = photos.Count;
+        SelectedTechnicianPhoto = TechnicianPhotos.FirstOrDefault();
+        if (photos.Count == 0)
+        {
+            LastTechnicianPhotoAt = null;
+            return;
+        }
+
+        var latest = photos.Max(a => a.AddedAt);
+        if (latest.Kind == DateTimeKind.Unspecified)
+            latest = DateTime.SpecifyKind(latest, DateTimeKind.Utc);
+
+        LastTechnicianPhotoAt = new DateTimeOffset(latest);
+    }
+
+    private static string ParseVerificationType(string? notes)
+    {
+        if (string.IsNullOrWhiteSpace(notes))
+            return "Photo";
+
+        var markerStart = notes.IndexOf("[Verification:", StringComparison.OrdinalIgnoreCase);
+        if (markerStart < 0)
+            return "Photo";
+
+        markerStart += "[Verification:".Length;
+        var markerEnd = notes.IndexOf(']', markerStart);
+        if (markerEnd <= markerStart)
+            return "Photo";
+
+        var token = notes.Substring(markerStart, markerEnd - markerStart).Trim();
+        return string.IsNullOrWhiteSpace(token) ? "Photo" : token;
+    }
+
+    private static string? BuildPreviewUri(string? storedPath)
+    {
+        if (string.IsNullOrWhiteSpace(storedPath))
+            return null;
+
+        if (!File.Exists(storedPath))
+            return null;
+
+        try
+        {
+            return new Uri(storedPath).AbsoluteUri;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
 

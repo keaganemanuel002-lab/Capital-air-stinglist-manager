@@ -1,14 +1,70 @@
+using System;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia;
+using Avalonia.Threading;
 
 namespace StingListManager.Services;
 
 public static class DialogService
 {
+    public static void Notify(string title, string message, int autoCloseMilliseconds = 4000)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+
+        var owner = GetMainWindow();
+        var dlg = new Window
+        {
+            Title = string.IsNullOrWhiteSpace(title) ? "Notification" : title,
+            Width = 460,
+            Height = 140,
+            WindowStartupLocation = owner != null
+                ? WindowStartupLocation.CenterOwner
+                : WindowStartupLocation.CenterScreen,
+            CanResize = false,
+            Topmost = true,
+            ShowInTaskbar = false
+        };
+
+        var content = new StackPanel
+        {
+            Margin = new Avalonia.Thickness(16),
+            Spacing = 8,
+            Children =
+            {
+                new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap }
+            }
+        };
+
+        dlg.Content = content;
+
+        if (owner != null)
+            dlg.Show(owner);
+        else
+            dlg.Show();
+
+        _ = Task.Run(async () =>
+        {
+            await Task.Delay(Math.Max(autoCloseMilliseconds, 1200));
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                try
+                {
+                    if (dlg.IsVisible)
+                        dlg.Close();
+                }
+                catch
+                {
+                    // ignore notification close failures
+                }
+            });
+        });
+    }
+
     public static Task Alert(string title, string message)
     {
         var owner = GetMainWindow();

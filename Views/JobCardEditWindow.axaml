@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="StingListManager.Views.JobCardEditWindow"
+        x:Name="RootWindow"
         x:CompileBindings="False"
         Width="560" Height="900"
         WindowStartupLocation="CenterOwner"
@@ -15,6 +16,27 @@
                IsVisible="{Binding !IsEditable}"
                Foreground="#B91C1C"
                FontWeight="SemiBold"/>
+
+    <Border Classes="card"
+            IsVisible="{Binding CanUpdateCompletedRegistration}">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Completed Job Card Registration Update"
+                   FontWeight="SemiBold"
+                   FontSize="12"/>
+        <TextBlock Text="Use this only when a vehicle registration has changed. This updates the completed job card and linked STING/Billing entry."
+                   Classes="muted"
+                   FontSize="11"
+                   TextWrapping="Wrap"/>
+        <StackPanel Width="220">
+          <TextBlock Text="New Registration" Classes="muted"/>
+          <TextBox Text="{Binding CompletedRegistrationUpdate}"/>
+        </StackPanel>
+        <Button Content="Update Registration"
+                Command="{Binding SaveCompletedRegistrationCommand}"
+                HorizontalAlignment="Left"
+                Classes="primary"/>
+      </StackPanel>
+    </Border>
 
     <StackPanel Spacing="12"
                 IsHitTestVisible="{Binding IsEditable}"
@@ -78,6 +100,11 @@
       <TextBox Text="{Binding VinNumber}"/>
     </StackPanel>
 
+    <StackPanel>
+      <TextBlock Text="Grid Location (Install Point)" Classes="muted"/>
+      <TextBox Text="{Binding GridLocation}" Watermark="e.g. Bay 3, Yard A, Gate 2"/>
+    </StackPanel>
+
     <Separator Margin="0,8"/>
 
     <TextBlock Text="Tracking Unit Information" Classes="h2"/>
@@ -137,6 +164,73 @@
       </Border>
     </StackPanel>
     </StackPanel>
+
+    <Border Classes="card" Margin="0,4,0,0">
+      <StackPanel Spacing="6">
+        <TextBlock Text="Technician Photos"
+                   FontWeight="SemiBold"
+                   FontSize="12"/>
+        <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+          <TextBlock Grid.Row="0" Grid.Column="0" Text="Uploaded Photos:" Classes="muted"/>
+          <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TechnicianPhotoCount}"/>
+          <TextBlock Grid.Row="1" Grid.Column="0" Text="Last Uploaded:" Classes="muted"/>
+          <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LastTechnicianPhotoDisplay}"/>
+        </Grid>
+        <TextBlock Text="These are photo attachments uploaded from the technician APK."
+                   Classes="muted"
+                   FontSize="11"
+                   TextWrapping="Wrap"/>
+        <TextBlock Text="No technician photos uploaded yet."
+                   IsVisible="{Binding !HasTechnicianPhotos}"
+                   Classes="muted"
+                   FontSize="11"/>
+
+        <ListBox IsVisible="{Binding HasTechnicianPhotos}"
+                 ItemsSource="{Binding TechnicianPhotos}"
+                 SelectedItem="{Binding SelectedTechnicianPhoto}"
+                 MaxHeight="240">
+          <ListBox.ItemTemplate>
+            <DataTemplate>
+              <Border Padding="6" Margin="0,0,0,6" Background="#F5F7FA" CornerRadius="4">
+                <Grid ColumnDefinitions="64,*,Auto" RowDefinitions="Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="2">
+                  <Border Grid.RowSpan="3" Width="64" Height="48" Background="#DDE3EA" CornerRadius="3">
+                    <Image Source="{Binding PreviewUri}" Stretch="UniformToFill"/>
+                  </Border>
+
+                  <TextBlock Grid.Column="1"
+                             Grid.Row="0"
+                             Text="{Binding FileName}"
+                             FontWeight="SemiBold"
+                             TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Grid.Column="1"
+                             Grid.Row="1"
+                             Text="{Binding VerificationType}"
+                             Classes="muted"/>
+                  <TextBlock Grid.Column="1"
+                             Grid.Row="2"
+                             Text="{Binding AddedAtDisplay}"
+                             Classes="muted"/>
+
+                  <Button Grid.Column="2"
+                          Grid.Row="0"
+                          Content="Open"
+                          Command="{Binding #RootWindow.DataContext.OpenTechnicianPhotoCommand}"
+                          CommandParameter="{Binding}"/>
+                </Grid>
+              </Border>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Button Content="Open Selected"
+                Command="{Binding OpenSelectedTechnicianPhotoCommand}"
+                IsVisible="{Binding HasTechnicianPhotos}"
+                HorizontalAlignment="Left"/>
+        <Button Content="Refresh Photo Summary"
+                Command="{Binding RefreshTechnicianPhotosCommand}"
+                HorizontalAlignment="Left"/>
+      </StackPanel>
+    </Border>
 
     <StackPanel Margin="0,4,0,0">
       <TextBlock Text="SIM Balances" Classes="muted"/>

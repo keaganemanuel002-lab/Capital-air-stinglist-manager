@@ -32,6 +32,20 @@ logs/
 .env.local
 appsettings.*.json
 
+# Android / Gradle
+**/.gradle/
+**/build/
+**/local.properties
+
+# Temporary files
+tmp_*.json
+tmp_*.txt
+tmp_*.html
+
+# Local verification artifacts
+artifacts/
+mobile/TechnicianAndroidStudioClean/
+
 # OS
 .DS_Store
 Thumbs.db

@@ -54,6 +54,7 @@
         <DataGridTextColumn Header="#" Binding="{Binding QuoteReference}" Width="1*"/>
         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
+        <DataGridTextColumn Header="Workflow" Binding="{Binding WorkflowBadge}" Width="2*"/>
         <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2.2*"/>
         <DataGridTextColumn Header="Amount (Ex VAT)" Binding="{Binding AmountExVat, StringFormat=R{0:0.00}}" Width="1.2*"/>
         <DataGridTextColumn Header="VAT (15%)" Binding="{Binding VatAmount, StringFormat=R{0:0.00}}" Width="1.2*"/>

@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.LoginWindow"
+        x:CompileBindings="False"
+        Width="420" Height="340"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Title="Capital Air - Login">
+
+  <Border Margin="16" Classes="card">
+    <StackPanel Spacing="10">
+      <TextBlock Text="Capital Air (Pty) Ltd" Classes="h2"/>
+      <TextBlock Text="Technician / Staff Login"
+                 Classes="muted"/>
+      <TextBlock Text="First login (new install): username admin, password admin123"
+                 Classes="muted"
+                 TextWrapping="Wrap"/>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Username" Classes="muted"/>
+        <TextBox Text="{Binding Username}"
+                 Watermark="Username"/>
+      </StackPanel>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Password" Classes="muted"/>
+        <TextBox Text="{Binding Password}"
+                 Watermark="Password"/>
+      </StackPanel>
+
+      <TextBlock Text="{Binding Message}"
+                 Foreground="{Binding MessageColor}"
+                 TextWrapping="Wrap"/>
+
+      <StackPanel Orientation="Horizontal"
+                  HorizontalAlignment="Right"
+                  Spacing="8">
+        <Button Content="Exit"
+                Command="{Binding ExitCommand}"/>
+        <Button Content="Login"
+                Classes="primary"
+                IsEnabled="{Binding !IsBusy}"
+                Command="{Binding LoginCommand}"/>
+      </StackPanel>
+    </StackPanel>
+  </Border>
+</Window>

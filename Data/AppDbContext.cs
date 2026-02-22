@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
 
@@ -21,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Dashcam> Dashcams => Set<Dashcam>();
     public DbSet<SdCard> SdCards => Set<SdCard>();
+    public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder options)
     {
@@ -44,6 +47,7 @@ public class AppDbContext : DbContext
 
     public override int SaveChanges()
     {
+        var jobCardsChanged = HasTrackedJobCardMutations();
         var result = 0;
         DbRetry.Run(() =>
         {
@@ -52,7 +56,42 @@ public class AppDbContext : DbContext
             result = base.SaveChanges();
         });
 
+        if (result > 0 && jobCardsChanged)
+            LocalDataChangeNotifier.NotifyJobCardsChanged();
+
         return result;
+    }
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        var jobCardsChanged = HasTrackedJobCardMutations();
+
+        const int retries = 5;
+        const int delayMs = 200;
+
+        for (var i = 0; i < retries - 1; i++)
+        {
+            try
+            {
+                NormalizeTrackedEntities();
+                ConfigureSqlitePragmas(this);
+                var result = await base.SaveChangesAsync(cancellationToken);
+                if (result > 0 && jobCardsChanged)
+                    LocalDataChangeNotifier.NotifyJobCardsChanged();
+                return result;
+            }
+            catch (SqliteException ex) when (ex.Message.Contains("locked", StringComparison.OrdinalIgnoreCase))
+            {
+                await Task.Delay(delayMs, cancellationToken);
+            }
+        }
+
+        NormalizeTrackedEntities();
+        ConfigureSqlitePragmas(this);
+        var finalResult = await base.SaveChangesAsync(cancellationToken);
+        if (finalResult > 0 && jobCardsChanged)
+            LocalDataChangeNotifier.NotifyJobCardsChanged();
+        return finalResult;
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -85,6 +124,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Quote>().HasIndex(q => q.QuoteNumber).IsUnique();
 
         modelBuilder.Entity<Client>().HasIndex(c => c.NameNorm).IsUnique();
+        modelBuilder.Entity<UserAccount>().HasIndex(u => u.UsernameNorm).IsUnique();
         
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.Registration);
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.DateRequestReceived);
@@ -111,6 +151,18 @@ public class AppDbContext : DbContext
     {
         NormalizeBillingEntries();
         NormalizeClients();
+        NormalizeUsers();
+    }
+
+    private bool HasTrackedJobCardMutations()
+    {
+        foreach (var entry in ChangeTracker.Entries<JobCard>())
+        {
+            if (entry.State is EntityState.Added or EntityState.Modified or EntityState.Deleted)
+                return true;
+        }
+
+        return false;
     }
 
     private void NormalizeBillingEntries()
@@ -139,6 +191,20 @@ public class AppDbContext : DbContext
             var entity = entry.Entity;
             entity.Name = NormalizeClientName(entity.Name);
             entity.NameNorm = NormalizeComparableText(entity.Name);
+        }
+    }
+
+    private void NormalizeUsers()
+    {
+        foreach (var entry in ChangeTracker.Entries<UserAccount>())
+        {
+            if (entry.State is not EntityState.Added and not EntityState.Modified)
+                continue;
+
+            var entity = entry.Entity;
+            entity.Username = NormalizeUserName(entity.Username);
+            entity.UsernameNorm = NormalizeComparableText(entity.Username);
+            entity.Role = NormalizeRole(entity.Role);
         }
     }
 
@@ -184,5 +250,29 @@ public class AppDbContext : DbContext
             .ToLowerInvariant()
             .Where(char.IsLetterOrDigit)
             .ToArray());
+    }
+
+    private static string NormalizeUserName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return value.Trim();
+    }
+
+    private static string NormalizeRole(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role))
+            return "Tech";
+
+        var value = role.Trim();
+        return value switch
+        {
+            "Admin" => "Admin",
+            "Ops" => "Ops",
+            "Tech" => "Tech",
+            "ReadOnly" => "ReadOnly",
+            _ => "Tech"
+        };
     }
 }

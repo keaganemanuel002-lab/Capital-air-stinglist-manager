@@ -1,0 +1,162 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.ConnectivitySettingsWindow"
+        x:CompileBindings="False"
+        Width="1200"
+        Height="780"
+        MinWidth="980"
+        MinHeight="640"
+        Title="Connectivity Settings">
+  <Border Padding="12" Classes="surface">
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+      <StackPanel Spacing="12">
+        <TextBlock Text="Connectivity Settings" Classes="h1"/>
+
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Network Status" Classes="h2"/>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <TextBlock Text="●"
+                         Foreground="{Binding ConnectivityStatusBrush}"
+                         FontSize="18"
+                         VerticalAlignment="Center"/>
+              <TextBlock Text="{Binding ConnectivityStatusText}"
+                         FontWeight="SemiBold"
+                         VerticalAlignment="Center"/>
+              <TextBlock Text="{Binding ConnectivityDetailsText}"
+                         Classes="muted"
+                         VerticalAlignment="Center"/>
+              <Button Content="Check Now"
+                      Command="{Binding RefreshConnectivityStatusCommand}"
+                      MinWidth="110"/>
+            </StackPanel>
+            <TextBlock Text="{Binding ConnectivityLastCheckedText}" Classes="muted" FontSize="11"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Data and Backup" Classes="h2"/>
+            <CheckBox Content="Use shared data location (multi-user)" IsChecked="{Binding UseSharedData}"/>
+
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBox Grid.Column="0" Text="{Binding SharedBaseDir}" Watermark="Select shared folder path"/>
+              <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseSharedBaseDirCommand}" MinWidth="100"/>
+            </Grid>
+
+            <TextBlock Text="Restart required after changing data location." Classes="muted" FontSize="11"/>
+            <CheckBox Content="Auto-backup on startup (once per day)" IsChecked="{Binding AutoBackupOnStartup}"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Flickswitch SIM Control" Classes="h2"/>
+            <TextBlock Text="Flickswitch Base URL" Classes="muted"/>
+            <TextBox Text="{Binding FlickswitchBaseUrl}"
+                     Watermark="https://app.simcontrol.co.za"/>
+            <TextBlock Text="Flickswitch API Key" Classes="muted"/>
+            <TextBox Text="{Binding FlickswitchApiKey}"
+                     Watermark="Enter your Flickswitch API key"
+                     PasswordChar="*"/>
+            <TextBlock Text="Used to look up SIM phone numbers and ICCID values in Job Cards."
+                       Classes="muted"
+                       FontSize="11"/>
+            <TextBlock Text="Enter the API token value, not the /api/docs URL."
+                       Classes="muted"
+                       FontSize="11"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Wialon API Integration" Classes="h2"/>
+            <TextBlock Text="Wialon API Token (used to pull the STING list from Wialon)" Classes="muted"/>
+            <TextBox Text="{Binding WialonApiToken}"
+                     Watermark="Enter your Wialon API token"
+                     PasswordChar="*"/>
+            <TextBlock Text="After updating the token, open STING List and click Refresh."
+                       Classes="muted"
+                       FontSize="11"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Wialon Client Provisioning Token" Classes="h2"/>
+            <TextBlock Text="Executive account API token used only when creating new clients/accounts." Classes="muted"/>
+            <TextBox Text="{Binding WialonClientProvisionApiToken}"
+                     Watermark="Enter Executive Account API token"
+                     PasswordChar="*"/>
+            <TextBlock Text="If empty, the app falls back to the standard Wialon API token."
+                       Classes="muted"
+                       FontSize="11"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Firebase Hybrid Sync (Option 1)" Classes="h2"/>
+            <CheckBox Content="Enable Firebase Sync (job feed + photo import)"
+                      IsChecked="{Binding FirebaseSyncEnabled}"/>
+            <CheckBox Content="Use Firestore as primary data store (Phase 1: Clients + Job Cards)"
+                      IsChecked="{Binding FirestorePrimaryDataEnabled}"/>
+
+            <Grid ColumnDefinitions="1*,1*" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="8">
+              <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                <TextBlock Text="Firebase Project ID" Classes="muted"/>
+                <TextBox Text="{Binding FirebaseProjectId}"
+                         Watermark="e.g. capital-air-prod"/>
+              </StackPanel>
+              <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                <TextBlock Text="Firebase Storage Bucket" Classes="muted"/>
+                <TextBox Text="{Binding FirebaseStorageBucket}"
+                         Watermark="e.g. capital-air-prod.appspot.com"/>
+              </StackPanel>
+              <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                <TextBlock Text="Sync Interval (seconds)" Classes="muted"/>
+                <NumericUpDown Minimum="2"
+                               Maximum="3600"
+                               Value="{Binding FirebaseSyncIntervalSeconds}"/>
+              </StackPanel>
+            </Grid>
+
+            <TextBlock Text="Service Account JSON" Classes="muted"/>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <TextBox Grid.Column="0"
+                       Text="{Binding FirebaseServiceAccountJsonPath}"
+                       Watermark="Select Firebase service account JSON file"/>
+              <Button Grid.Column="1"
+                      Content="Browse"
+                      Command="{Binding BrowseFirebaseServiceAccountPathCommand}"/>
+            </Grid>
+
+            <TextBlock Text="Desktop app publishes open job cards to Firestore collection 'job_cards_open'."
+                       Classes="muted"
+                       FontSize="11"/>
+            <TextBlock Text="Desktop app imports new Firebase photo submissions from 'photo_submissions' as Job Photos."
+                       Classes="muted"
+                       FontSize="11"/>
+            <TextBlock Text="Primary data collections now include 'clients' and 'job_cards'."
+                       Classes="muted"
+                       FontSize="11"/>
+            <TextBlock Text="Restart app after changing Firebase settings."
+                       Classes="muted"
+                       FontSize="11"/>
+          </StackPanel>
+        </Border>
+
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <Button Content="Save Settings"
+                  MinWidth="140"
+                  Command="{Binding SaveCommand}"
+                  Classes="primary"/>
+          <Button Content="Close"
+                  MinWidth="110"
+                  Click="CloseWindow"/>
+        </StackPanel>
+      </StackPanel>
+    </ScrollViewer>
+  </Border>
+</Window>

@@ -4,18 +4,21 @@ Native Android app for field technicians.
 
 ## Features
 
-- Load open job cards from desktop technician API
-- Pick image from phone
-- Upload photo to selected job card
+- Login with desktop Username + Password
+- Role-based access (`Tech` or `Admin` only)
+- Load open job cards from desktop API
+- Upload photos for selected job cards
+- Optional Firebase photo submission bridge (hybrid mode)
 
 ## API expected
 
+- `POST /api/tech/auth/login`
 - `GET /api/tech/job-cards/open`
 - `POST /api/tech/job-cards/{jobCardId}/photos`
 
-Header auth:
+Bearer auth after login:
 
-- `X-Tech-Key: <technician-api-key>`
+- `Authorization: Bearer <session-token>`
 
 ## Build
 
@@ -23,9 +26,36 @@ Header auth:
 2. Sync Gradle.
 3. Build APK from Android Studio.
 
-## Runtime config
+## Build from terminal (Gradle wrapper)
 
-Inside app:
+From `mobile/TechnicianAndroidApp`:
 
-- API Base URL: `http://<desktop-ip>:5075`
-- Technician API Key: from desktop app Settings.
+- Windows: `./gradlew.bat assembleDebug`
+- macOS/Linux: `./gradlew assembleDebug`
+
+APK output:
+
+- `app/build/outputs/apk/debug/app-debug.apk`
+
+## Runtime/build config
+
+Set in `gradle.properties`:
+
+- `TECH_API_BASE_URL=http://<desktop-ip>:5075`
+- `FIREBASE_ENABLED=false|true`
+- `FIREBASE_API_KEY=...`
+- `FIREBASE_APP_ID=...`
+- `FIREBASE_PROJECT_ID=...`
+- `FIREBASE_STORAGE_BUCKET=...`
+
+If `FIREBASE_ENABLED=true`, photo uploads are submitted to Firebase (`photo_submissions`) for desktop import.
+If `FIREBASE_ENABLED=false`, photos upload directly to desktop API.
+
+When Firebase mode is enabled, desktop also publishes eligible users to Firestore collection `mobile_users`.
+
+## Firestore/Storage rules
+
+If login fails with `permission_denied`, deploy the repository rules from project root:
+
+- `firebase use ca-sting-list-app`
+- `firebase deploy --only firestore:rules,storage`

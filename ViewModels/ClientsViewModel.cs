@@ -2,11 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.EntityFrameworkCore;
-using StingListManager.Data;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
 
@@ -17,10 +16,12 @@ public partial class ClientsViewModel : ViewModelBase
     private static readonly TimeSpan AutoWialonSyncInterval = TimeSpan.FromMinutes(15);
 
     private readonly AppState _appState;
+    private readonly IDataStore _dataStore;
     private WialonApiService? _wialonService;
     private string? _wialonTokenInUse;
     private HashSet<string>? _activeWialonClientKeys;
     private bool _isLoading;
+    private CancellationTokenSource? _searchLoadCts;
 
     public ObservableCollection<Client> Rows { get; } = new();
 
@@ -36,6 +37,7 @@ public partial class ClientsViewModel : ViewModelBase
     public ClientsViewModel(AppState appState)
     {
         _appState = appState;
+        _dataStore = DataStoreFactory.Create(_appState.Settings);
         _activeWialonClientKeys = BuildWialonFilterKeysFromSettings();
         _ = LoadInternalAsync(forceSync: false);
     }
@@ -57,7 +59,7 @@ public partial class ClientsViewModel : ViewModelBase
         Address = value.Address;
     }
 
-    partial void OnSearchTextChanged(string? value) => LoadLocalRows();
+    partial void OnSearchTextChanged(string? value) => _ = LoadRowsForSearchAsync();
 
     [RelayCommand]
     private async Task Load() => await LoadInternalAsync(forceSync: false);
@@ -75,54 +77,25 @@ public partial class ClientsViewModel : ViewModelBase
     [RelayCommand]
     private async Task Save()
     {
-        if (string.IsNullOrWhiteSpace(Name))
+        var result = await _dataStore.SaveClientAsync(
+            SelectedRow?.Id,
+            Name,
+            ContactPerson,
+            PhoneNumber,
+            EmailAddress,
+            Address);
+
+        if (!result.Success)
         {
-            _appState.SetStatus("Client name is required.");
+            _appState.SetStatus(result.Message, true);
             return;
         }
 
-        using var db = new AppDbContext();
         var normalizedName = Name.Trim();
-        var normalizedComparableName = NormalizeComparableText(normalizedName);
-
-        var selectedId = SelectedRow?.Id ?? 0;
-        var existing = db.Clients.FirstOrDefault(c => c.Id == selectedId);
-        var duplicate = db.Clients
-            .AsNoTracking()
-            .FirstOrDefault(c => c.NameNorm == normalizedComparableName);
-
-        if (existing == null && duplicate != null)
-        {
-            _appState.SetStatus("Client name already exists.");
-            return;
-        }
-
-        if (existing == null)
-        {
-            existing = new Client
-            {
-                Name = normalizedName,
-                ContactPerson = ContactPerson?.Trim(),
-                PhoneNumber = PhoneNumber?.Trim(),
-                EmailAddress = EmailAddress?.Trim(),
-                Address = Address?.Trim(),
-                CreatedAt = DateTime.UtcNow
-            };
-            db.Clients.Add(existing);
-        }
-        else
-        {
-            existing.Name = normalizedName;
-            existing.ContactPerson = ContactPerson?.Trim();
-            existing.PhoneNumber = PhoneNumber?.Trim();
-            existing.EmailAddress = EmailAddress?.Trim();
-            existing.Address = Address?.Trim();
-        }
-
-        db.SaveChanges();
-        await LoadInternalAsync(forceSync: false);
-        SelectedRow = Rows.FirstOrDefault(c => string.Equals(c.Name, normalizedName, StringComparison.OrdinalIgnoreCase));
-        _appState.SetStatus("Client saved.");
+        await LoadRowsAsync(result.Message);
+        SelectedRow = Rows.FirstOrDefault(c =>
+            c.Id == result.Client?.Id
+            || string.Equals(c.Name, normalizedName, StringComparison.OrdinalIgnoreCase));
     }
 
     [RelayCommand]
@@ -131,17 +104,12 @@ public partial class ClientsViewModel : ViewModelBase
         if (SelectedRow == null)
             return;
 
-        using var db = new AppDbContext();
-        var client = db.Clients.FirstOrDefault(c => c.Id == SelectedRow.Id);
-        if (client == null)
+        var deleted = await _dataStore.DeleteClientAsync(SelectedRow.Id);
+        if (!deleted)
             return;
 
-        db.Clients.Remove(client);
-        db.SaveChanges();
-
         SelectedRow = null;
-        await LoadInternalAsync(forceSync: false);
-        _appState.SetStatus("Client deleted.");
+        await LoadRowsAsync("Client deleted.");
     }
 
     private async Task LoadInternalAsync(bool forceSync)
@@ -176,11 +144,9 @@ public partial class ClientsViewModel : ViewModelBase
                 }
             }
 
-            _activeWialonClientKeys ??= BuildWialonFilterKeysFromSettings();
-            LoadLocalRows();
-
             if (!string.IsNullOrWhiteSpace(syncError))
             {
+                await LoadRowsAsync(statusMessage: null);
                 _appState.SetStatus($"Loaded {Rows.Count} clients. Wialon sync failed: {syncError}");
                 return;
             }
@@ -189,22 +155,27 @@ public partial class ClientsViewModel : ViewModelBase
             {
                 if (syncedCount > 0)
                 {
+                    await LoadRowsAsync(statusMessage: null);
                     _appState.SetStatus($"Loaded {Rows.Count} clients. Synced {syncedCount} account(s) from Wialon.");
                     return;
                 }
 
+                await LoadRowsAsync(statusMessage: null);
                 _appState.SetStatus($"Loaded {Rows.Count} clients. Wialon sync is up to date.");
                 return;
             }
 
+            _activeWialonClientKeys ??= BuildWialonFilterKeysFromSettings();
             var lastSync = _appState.Settings.LastWialonClientsSyncUtc;
             if (lastSync is not null)
             {
                 var lastSyncLocal = EnsureUtc(lastSync.Value).ToLocalTime();
+                await LoadRowsAsync(statusMessage: null);
                 _appState.SetStatus($"Loaded {Rows.Count} clients. Last Wialon sync: {lastSyncLocal:yyyy-MM-dd HH:mm}.");
                 return;
             }
 
+            await LoadRowsAsync(statusMessage: null);
             _appState.SetStatus($"Loaded {Rows.Count} clients.");
         }
         finally
@@ -250,6 +221,7 @@ public partial class ClientsViewModel : ViewModelBase
         var wialonNames = resources.Values
             .Select(v => v?.Trim())
             .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v!)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(v => v)
             .ToList();
@@ -259,63 +231,46 @@ public partial class ClientsViewModel : ViewModelBase
                 .Where(k => !string.IsNullOrWhiteSpace(k)),
             StringComparer.Ordinal);
 
-        using var db = new AppDbContext();
-        var existingKeys = new HashSet<string>(
-            db.Clients
-                .AsNoTracking()
-                .Select(c => c.Name)
-                .AsEnumerable()
-                .Select(NormalizeComparableText)
-                .Where(k => !string.IsNullOrWhiteSpace(k)),
-            StringComparer.Ordinal);
+        var inserted = await _dataStore.InsertMissingClientsAsync(wialonNames);
 
-        var inserted = 0;
-        foreach (var name in wialonNames)
-        {
-            var normalizedName = NormalizeComparableText(name);
-            if (string.IsNullOrWhiteSpace(normalizedName) || existingKeys.Contains(normalizedName))
-                continue;
-
-            db.Clients.Add(new Client
-            {
-                Name = name!,
-                CreatedAt = DateTime.UtcNow
-            });
-            existingKeys.Add(normalizedName);
-            inserted++;
-        }
-
-        if (inserted > 0)
-        {
-            db.SaveChanges();
-        }
-
-        return (inserted, activeKeys, wialonNames.Select(x => x!).ToList());
+        return (inserted, activeKeys, wialonNames);
     }
 
-    private void LoadLocalRows()
+    private async Task LoadRowsAsync(string? statusMessage, CancellationToken cancellationToken = default)
     {
-        using var db = new AppDbContext();
-        var query = db.Clients.AsNoTracking().OrderBy(c => c.Name).AsQueryable();
+        _searchLoadCts?.Cancel();
+        _searchLoadCts?.Dispose();
+        _searchLoadCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
-        if (!string.IsNullOrWhiteSpace(SearchText))
+        var token = _searchLoadCts.Token;
+        try
         {
-            var s = SearchText.Trim();
-            query = query.Where(c => c.Name.Contains(s));
+            var rows = await _dataStore.GetClientsAsync(SearchText, _activeWialonClientKeys, token);
+
+            Rows.Clear();
+            foreach (var client in rows)
+            {
+                Rows.Add(client);
+            }
+
+            if (!string.IsNullOrWhiteSpace(statusMessage))
+                _appState.SetStatus(statusMessage);
         }
-
-        var rows = query.ToList();
-        if (_activeWialonClientKeys is not null)
+        catch (OperationCanceledException)
         {
-            rows = rows
-                .Where(c => _activeWialonClientKeys.Contains(NormalizeComparableText(c.Name)))
-                .ToList();
+            // Newer load superseded this one.
         }
+    }
 
-        Rows.Clear();
-        foreach (var client in rows)
+    private async Task LoadRowsForSearchAsync()
+    {
+        try
         {
-            Rows.Add(client);
+            await LoadRowsAsync(statusMessage: null);
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Error loading clients: {ex.Message}", true);
         }
     }
 

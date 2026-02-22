@@ -9,6 +9,7 @@ using Avalonia.Markup.Xaml;
 using System.IO;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using StingListManager.Data;
 using StingListManager.ViewModels;
 using StingListManager.Views;
@@ -37,6 +38,49 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            desktop.ShutdownMode = ShutdownMode.OnLastWindowClose;
+            desktop.Exit += (_, _) =>
+            {
+                try
+                {
+                    _instanceLock.Dispose();
+                }
+                catch
+                {
+                    // ignore lock release failures on exit
+                }
+
+                try
+                {
+                    var stopTask = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await TechnicianApiHostService.Instance.StopAsync();
+                        }
+                        catch
+                        {
+                            // ignore shutdown failures on exit
+                        }
+
+                        try
+                        {
+                            await FirebaseSyncService.Instance.StopAsync();
+                        }
+                        catch
+                        {
+                            // ignore shutdown failures on exit
+                        }
+                    });
+
+                    _ = stopTask.Wait(TimeSpan.FromSeconds(3));
+                }
+                catch
+                {
+                    // ignore shutdown failures on exit
+                }
+            };
+
             try
             {
                 // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
@@ -83,11 +127,27 @@ public partial class App : Application
                     AppDbContext.ConfigureSqlitePragmas(db);
                     db.Database.Migrate();
                     BackfillClients(db);
+                    AuthService.EnsureDefaultAdminUser(db);
                 }
 
                 RunAutoBackupIfDue();
+                var loginWindow = new LoginWindow();
+                loginWindow.Closed += (_, _) =>
+                {
+                    if (!loginWindow.LoginSucceeded)
+                    {
+                        desktop.Shutdown();
+                        return;
+                    }
 
-                desktop.MainWindow = new MainWindow();
+                    var mainWindow = new MainWindow(
+                        loginWindow.AuthenticatedUsername,
+                        loginWindow.AuthenticatedRole);
+                    desktop.MainWindow = mainWindow;
+                    mainWindow.Show();
+                };
+
+                desktop.MainWindow = loginWindow;
             }
             catch (Exception ex)
             {

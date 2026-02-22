@@ -33,6 +33,7 @@ public partial class StingListRow : ObservableObject
     public string? SimNumber { get; set; }
     public string? Notes { get; set; }
     public string Status { get; set; } = "Active";
+    public string Warranty { get; set; } = "";
     public bool IsArchived { get; set; }
     public DateTime ActiveFrom { get; set; }
     public bool HasLocalBillingEntry => LocalBillingEntryId is > 0;
@@ -448,6 +449,7 @@ public partial class StingListViewModel : PagedViewModelBase
                 matchedLocalEntryIds.Add(localMatch.Id);
 
             var activeFrom = localMatch?.ActiveFrom ?? (report.CreatedAt == default ? DateTime.UtcNow : report.CreatedAt);
+            var warrantyDisplay = WarrantyService.GetDisplayText(activeFrom);
             var status = !string.IsNullOrWhiteSpace(report.Status)
                 ? report.Status
                 : BillingStatus.Active.ToDisplayString();
@@ -470,6 +472,7 @@ public partial class StingListViewModel : PagedViewModelBase
                 SimNumber = localMatch?.SimNumber,
                 Notes = FirstNonEmpty(report.Notes, localMatch?.Notes),
                 Status = status,
+                Warranty = warrantyDisplay,
                 IsArchived = localMatch?.ArchivedAt != null,
                 ActiveFrom = activeFrom
             });
@@ -528,6 +531,7 @@ public partial class StingListViewModel : PagedViewModelBase
             SimNumber = entry.SimNumber,
             Notes = entry.Notes,
             Status = entry.Status == BillingStatus.Removed ? BillingStatus.Removed.ToString() : InactiveStatus,
+            Warranty = WarrantyService.GetDisplayText(entry.ActiveFrom == default ? DateTime.UtcNow : entry.ActiveFrom),
             IsArchived = entry.ArchivedAt != null,
             ActiveFrom = entry.ActiveFrom == default ? DateTime.UtcNow : entry.ActiveFrom
         };
@@ -722,6 +726,33 @@ public partial class StingListViewModel : PagedViewModelBase
         }
 
         var nextJobCardNumber = (db.JobCards.Select(x => (int?)x.JobCardNumber).Max() ?? 0) + 1;
+        var transferReference = JobCardReferenceFormatter.Format(JobType.Transfer, nextJobCardNumber);
+
+        var transferQuote = new Quote
+        {
+            QuoteNumber = QuoteNumberAllocator.GetNext(db),
+            Type = QuoteType.Install,
+            Status = QuoteStatus.Draft,
+            Company = sourceEntry.Company,
+            Registration = sourceEntry.Registration,
+            FleetNumber = sourceEntry.FleetNumber,
+            AmountExVat = WorkflowService.TransferInstallFeeExVat,
+            Notes = $"Auto-created transfer installation fee quote for {transferReference}. {WorkflowService.TransferFeeOnlyQuoteMarker}"
+        };
+
+        transferQuote.LineItems.Add(new QuoteLineItem
+        {
+            LineNumber = 1,
+            ProductType = "Transfer Installation Fee",
+            ProductCode = WorkflowService.TransferInstallFeeCode,
+            ProductName = "Transfer Installation Fee",
+            Quantity = 1,
+            UnitPriceExVat = WorkflowService.TransferInstallFeeExVat,
+            LineTotalExVat = WorkflowService.TransferInstallFeeExVat,
+            IsVatExempt = false,
+            Description = "Auto-created transfer installation fee"
+        });
+
         var transferJob = new JobCard
         {
             JobCardNumber = nextJobCardNumber,
@@ -742,10 +773,11 @@ public partial class StingListViewModel : PagedViewModelBase
             Notes = $"Transfer request from {sourceEntry.Company} / {sourceEntry.Registration}"
         };
 
+        db.Quotes.Add(transferQuote);
         db.JobCards.Add(transferJob);
         db.SaveChanges();
 
-        var transferReference = JobCardReferenceFormatter.Format(transferJob.Type, transferJob.JobCardNumber);
+        var transferQuoteReference = QuoteReferenceFormatter.Format(transferQuote.QuoteNumber);
 
         new AuditService().Log(
             _appState.OperatorName,
@@ -760,35 +792,38 @@ public partial class StingListViewModel : PagedViewModelBase
         await dlg.ShowDialog(_window);
 
         _appState.SetStatus(
-            $"Transfer job card {transferReference} created. Update destination details in Job Cards, then mark it completed.");
+            $"Transfer job card {transferReference} created. Draft quote {transferQuoteReference} (R{WorkflowService.TransferInstallFeeExVat:0.00} ex VAT) was also created for transfer installation fees.");
     }
 
     [RelayCommand]
-    private void StartRemoval()
+    private async Task StartRemoval()
     {
-        var logPath = Path.Combine(Path.GetTempPath(), "sting_debug.log");
-        File.AppendAllText(logPath, "[StartRemoval] METHOD CALLED" + Environment.NewLine);
-
         if (SelectedRow is null)
         {
-            File.AppendAllText(logPath, "[StartRemoval] SelectedRow is NULL - returning" + Environment.NewLine);
             _appState.SetStatus("No entry selected.");
             return;
         }
 
         if (SelectedRow.Status == BillingStatus.Removed.ToString() || SelectedRow.IsArchived)
         {
-            const string msg = "Cannot create removal request: This entry is already marked as removed or archived.";
-            File.AppendAllText(logPath, "[StartRemoval] " + msg + Environment.NewLine);
-            _appState.SetStatus(msg);
+            _appState.SetStatus("Cannot create removal request: This entry is already marked as removed or archived.");
             return;
         }
 
-        var logMsg =
-            $"[StartRemoval] SelectedRow data: Company={SelectedRow.Company}, Reg={SelectedRow.Registration}, Make={SelectedRow.Make}, Model={SelectedRow.Model}, Imei={SelectedRow.Imei}, SerialNumber={SelectedRow.SerialNumber}, Iccid={SelectedRow.Iccid}";
-        File.AppendAllText(logPath, logMsg + Environment.NewLine);
+        var isWithinWarranty = WarrantyService.IsWithinWarranty(SelectedRow.ActiveFrom);
+        var createRemovalJobCard = true;
+        if (!isWithinWarranty)
+        {
+            createRemovalJobCard = await DialogService.Confirm(
+                _window,
+                "Out of Warranty Removal",
+                "This unit is out of warranty.\n\nCreate a removal job card?\n\nYes = create removal job card when quote is approved\nNo = approve removal quote without creating a job card");
+        }
 
         using var db = new AppDbContext();
+        var removalNote = $"Removal for unit: {SelectedRow.Registration}";
+        if (!createRemovalJobCard)
+            removalNote = $"{removalNote} {WorkflowService.NoRemovalJobCardMarker}";
 
         var quote = new Quote
         {
@@ -808,7 +843,7 @@ public partial class StingListViewModel : PagedViewModelBase
             Iccid = SelectedRow.Iccid,
             SimNumber = SelectedRow.SimNumber,
             AmountExVat = _appState.Settings.DefaultRemovalFeeExVat,
-            Notes = $"Removal for unit: {SelectedRow.Registration}"
+            Notes = removalNote
         };
 
         quote.LineItems.Add(new QuoteLineItem
@@ -824,18 +859,8 @@ public partial class StingListViewModel : PagedViewModelBase
             Description = "Auto-added removal fee"
         });
 
-        logMsg =
-            $"[StartRemoval] Quote created with: Make={quote.Make}, Model={quote.Model}, Imei={quote.Imei}, Iccid={quote.Iccid}, SerialNumber={quote.SerialNumber}";
-        File.AppendAllText(logPath, logMsg + Environment.NewLine);
-
         db.Quotes.Add(quote);
-        var changes = db.SaveChanges();
-
-        logMsg = $"[StartRemoval] SaveChanges returned {changes}. Quote ID={quote.Id}";
-        File.AppendAllText(logPath, logMsg + Environment.NewLine);
-
-        logMsg = $"[StartRemoval] After save: Make={quote.Make}, Model={quote.Model}, Imei={quote.Imei}, Iccid={quote.Iccid}";
-        File.AppendAllText(logPath, logMsg + Environment.NewLine);
+        db.SaveChanges();
 
         var cancellation = new CancellationEntry
         {
@@ -855,10 +880,11 @@ public partial class StingListViewModel : PagedViewModelBase
         db.CancellationEntries.Add(cancellation);
         db.SaveChanges();
 
-        logMsg = $"[StartRemoval] CancellationEntry created with ID={cancellation.Id} and linked to Quote {quote.Id}";
-        File.AppendAllText(logPath, logMsg + Environment.NewLine);
-
-        _appState.SetStatus("Removal quote created with linked cancellation request. Navigate to Quotes to approve.");
+        var quoteReference = QuoteReferenceFormatter.Format(quote.QuoteNumber);
+        var statusMessage = createRemovalJobCard
+            ? $"Removal quote {quoteReference} created with linked cancellation request. Approve it in Quotes to generate the removal job card."
+            : $"Removal quote {quoteReference} created with linked cancellation request. This out-of-warranty removal is marked to approve without a job card.";
+        _appState.SetStatus(statusMessage);
     }
 
     [RelayCommand]
@@ -908,6 +934,7 @@ public partial class StingListViewModel : PagedViewModelBase
                 Iccid = x.Iccid,
                 Notes = x.Notes,
                 Status = x.Status,
+                Warranty = x.Warranty,
                 ActiveFrom = x.ActiveFrom
             })
             .ToList();

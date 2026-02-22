@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -27,6 +28,7 @@ public partial class QuoteRow : ObservableObject
     public decimal AmountExVat { get; set; }
     public decimal VatAmount { get; set; }
     public decimal AmountIncVat { get; set; }
+    public string WorkflowBadge { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }
 
@@ -35,6 +37,8 @@ public partial class QuotesViewModel : ViewModelBase
     private readonly Window _window;
     private readonly AppState _appState;
     private readonly Action _goJobCards;
+    private readonly IDataStore _dataStore;
+    private CancellationTokenSource? _loadCts;
 
     public ObservableCollection<QuoteRow> Rows { get; } = new();
 
@@ -73,7 +77,7 @@ public partial class QuotesViewModel : ViewModelBase
     
     partial void OnPageNumberChanged(int value)
     {
-        Load();
+        _ = Load();
     }
 
     public QuotesViewModel(Window window, AppState appState, Action goJobCards, DateTime? startDate = null, DateTime? endDate = null)
@@ -81,12 +85,13 @@ public partial class QuotesViewModel : ViewModelBase
         _window = window;
         _appState = appState;
         _goJobCards = goJobCards;
+        _dataStore = DataStoreFactory.Create(_appState.Settings);
         StatusOptions.Add("All");
         StatusOptions.AddRange(Enum.GetNames(typeof(QuoteStatus)));
         TypeOptions.Add("All");
         TypeOptions.AddRange(Enum.GetNames(typeof(QuoteType)));
         SetDefaultDateRange(startDate, endDate);
-        Load();
+        _ = Load();
     }
 
     public bool CanApproveQuotes => _appState.CanApproveQuotes;
@@ -99,78 +104,70 @@ public partial class QuotesViewModel : ViewModelBase
     partial void OnEndDateChanged(DateTimeOffset? value) => ApplyFilters();
 
     [RelayCommand]
-    private void Load()
+    private async Task Load()
     {
-        using var db = new AppDbContext();
-        int skip = (PageNumber - 1) * PageSize;
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
 
-        var query = db.Quotes.AsNoTracking();
-
-        if (!string.Equals(SelectedStatus, "All", StringComparison.OrdinalIgnoreCase)
-            && Enum.TryParse<QuoteStatus>(SelectedStatus, out var status))
+        try
         {
-            query = query.Where(q => q.Status == status);
-        }
-
-        if (!string.Equals(SelectedType, "All", StringComparison.OrdinalIgnoreCase)
-            && Enum.TryParse<QuoteType>(SelectedType, out var type))
-        {
-            query = query.Where(q => q.Type == type);
-        }
-
-        if (!string.IsNullOrWhiteSpace(CompanyFilter))
-        {
-            var s = CompanyFilter.Trim();
-            query = query.Where(q => q.Company.Contains(s));
-        }
-
-        if (!string.IsNullOrWhiteSpace(RegistrationFilter))
-        {
-            var s = RegistrationFilter.Trim();
-            query = query.Where(q => q.Registration != null && q.Registration.Contains(s));
-        }
-
-        if (StartDate != null)
-        {
-            var start = StartDate.Value.Date;
-            query = query.Where(q => q.CreatedAt >= start);
-        }
-
-        if (EndDate != null)
-        {
-            var endExclusive = EndDate.Value.Date.AddDays(1);
-            query = query.Where(q => q.CreatedAt < endExclusive);
-        }
-
-        TotalCount = query.Count();
-
-        var items = query
-            .OrderByDescending(q => q.CreatedAt)
-            .Skip(skip)
-            .Take(PageSize)
-            .ToList();
-        
-        var pricingService = new QuotePricingService(_appState.Settings);
-
-        Rows.Clear();
-        foreach (var q in items)
-        {
-            var priceResult = pricingService.CalculatePrice(q);
-
-            Rows.Add(new QuoteRow
+            var query = new QuoteQuery
             {
-                Id = q.Id,
-                QuoteNumber = q.QuoteNumber,
-                Type = q.Type.ToString(),
-                Status = q.Status.ToString(),
-                Company = q.Company,
-                Registration = q.Registration,
-                ProductType = q.ProductType,
-                AmountExVat = q.AmountExVat,
-                VatAmount = priceResult.VatAmount,
-                AmountIncVat = priceResult.AmountIncVat,
-                CreatedAt = q.CreatedAt
-            });
+                SelectedStatus = SelectedStatus,
+                SelectedType = SelectedType,
+                CompanyFilter = CompanyFilter,
+                RegistrationFilter = RegistrationFilter,
+                StartDate = StartDate,
+                EndDate = EndDate,
+                PageNumber = PageNumber,
+                PageSize = PageSize
+            };
+
+            var page = await _dataStore.GetQuotesAsync(query, token);
+            var pricingService = new QuotePricingService(_appState.Settings);
+            var workflowBadges = BuildWorkflowBadges(page.Items.Select(x => x.Id).ToList());
+
+            TotalCount = page.TotalCount;
+
+            Rows.Clear();
+            foreach (var q in page.Items)
+            {
+                var quote = new Quote
+                {
+                    AmountExVat = q.AmountExVat
+                };
+                var priceResult = pricingService.CalculatePrice(quote);
+
+                Rows.Add(new QuoteRow
+                {
+                    Id = q.Id,
+                    QuoteNumber = q.QuoteNumber,
+                    Type = q.Type,
+                    Status = q.Status,
+                    Company = q.Company,
+                    Registration = q.Registration ?? string.Empty,
+                    ProductType = q.ProductType,
+                    AmountExVat = q.AmountExVat,
+                    VatAmount = priceResult.VatAmount,
+                    AmountIncVat = priceResult.AmountIncVat,
+                    WorkflowBadge = workflowBadges.TryGetValue(q.Id, out var badge) ? badge : string.Empty,
+                    CreatedAt = q.CreatedAt
+                });
+            }
+
+            OnPropertyChanged(nameof(TotalPages));
+            OnPropertyChanged(nameof(CanNextPage));
+            OnPropertyChanged(nameof(CanPrevPage));
+        }
+        catch (OperationCanceledException)
+        {
+            // Newer load superseded this request.
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Error loading quotes: {ex.Message}", true);
         }
     }
 
@@ -193,7 +190,217 @@ public partial class QuotesViewModel : ViewModelBase
             return;
         }
 
-        Load();
+        _ = Load();
+    }
+
+    private static Dictionary<int, string> BuildWorkflowBadges(List<int> quoteIds)
+    {
+        var result = new Dictionary<int, string>();
+        if (quoteIds.Count == 0)
+            return result;
+
+        using var db = new AppDbContext();
+
+        var quotes = db.Quotes.AsNoTracking()
+            .Where(q => quoteIds.Contains(q.Id))
+            .Select(q => new QuoteBadgeMeta
+            {
+                Id = q.Id,
+                Type = q.Type,
+                Status = q.Status,
+                IncludesAppLiveTracking = q.IncludesAppLiveTracking,
+                ProductType = q.ProductType,
+                Notes = q.Notes
+            })
+            .ToList();
+
+        var lineItemsByQuote = db.QuoteLineItems.AsNoTracking()
+            .Where(li => quoteIds.Contains(li.QuoteId))
+            .Select(li => new QuoteLineBadgeMeta
+            {
+                QuoteId = li.QuoteId,
+                ProductType = li.ProductType,
+                ProductName = li.ProductName,
+                ProductCode = li.ProductCode,
+                IncludesAppLiveTracking = li.IncludesAppLiveTracking
+            })
+            .ToList()
+            .GroupBy(li => li.QuoteId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<QuoteLineBadgeMeta>)g.ToList());
+
+        var quoteIdsWithJobCards = db.JobCards.AsNoTracking()
+            .Where(j => j.QuoteId.HasValue && quoteIds.Contains(j.QuoteId.Value))
+            .Select(j => j.QuoteId!.Value)
+            .Distinct()
+            .ToHashSet();
+
+        foreach (var quote in quotes)
+        {
+            if (quote.Status != QuoteStatus.Approved)
+                continue;
+
+            if (quoteIdsWithJobCards.Contains(quote.Id))
+                continue;
+
+            var lineItems = lineItemsByQuote.TryGetValue(quote.Id, out var rows)
+                ? rows
+                : Array.Empty<QuoteLineBadgeMeta>();
+
+            if (IsLiveTrackingOnlyQuote(quote, lineItems))
+            {
+                result[quote.Id] = "No Job Card (Live Tracking Only)";
+                continue;
+            }
+
+            if (quote.Type == QuoteType.Removal
+                && HasWorkflowMarker(quote.Notes, WorkflowService.NoRemovalJobCardMarker))
+            {
+                result[quote.Id] = "No Job Card (Out of Warranty Removal)";
+                continue;
+            }
+
+            if (quote.Type == QuoteType.Install && IsTransferFeeOnlyQuote(lineItems))
+            {
+                result[quote.Id] = "No Job Card (Transfer Fee Only)";
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsLiveTrackingOnlyQuote(QuoteBadgeMeta quote, IReadOnlyList<QuoteLineBadgeMeta> lineItems)
+    {
+        if (!HasLiveTracking(quote, lineItems))
+            return false;
+
+        if (lineItems.Count > 0)
+            return !lineItems.Any(IsUnitLineItem);
+
+        return !IsUnitProductType(quote.ProductType);
+    }
+
+    private static bool HasLiveTracking(QuoteBadgeMeta quote, IReadOnlyList<QuoteLineBadgeMeta> lineItems)
+    {
+        if (quote.IncludesAppLiveTracking)
+            return true;
+
+        if (lineItems.Count > 0)
+            return lineItems.Any(IsLiveTrackingLineItem);
+
+        return ContainsLiveTracking(quote.ProductType);
+    }
+
+    private static bool IsUnitLineItem(QuoteLineBadgeMeta item)
+    {
+        if (IsLiveTrackingLineItem(item))
+            return false;
+
+        return IsUnitProductType(item.ProductType)
+               || IsUnitProductType(item.ProductName)
+               || IsUnitProductType(item.ProductCode);
+    }
+
+    private static bool IsLiveTrackingLineItem(QuoteLineBadgeMeta item)
+    {
+        if (item.IncludesAppLiveTracking)
+            return true;
+
+        if (string.Equals(item.ProductCode, "APP-LIVE-TRACKING", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return ContainsLiveTracking(item.ProductType)
+               || ContainsLiveTracking(item.ProductName)
+               || ContainsLiveTracking(item.ProductCode);
+    }
+
+    private static bool IsTransferFeeOnlyQuote(IReadOnlyList<QuoteLineBadgeMeta> lineItems)
+    {
+        if (lineItems.Count == 0)
+            return false;
+
+        var meaningfulLines = lineItems
+            .Where(item =>
+                !string.IsNullOrWhiteSpace(item.ProductCode)
+                || !string.IsNullOrWhiteSpace(item.ProductName)
+                || !string.IsNullOrWhiteSpace(item.ProductType))
+            .ToList();
+
+        if (meaningfulLines.Count == 0)
+            return false;
+
+        return meaningfulLines.All(IsTransferInstallFeeLineItem);
+    }
+
+    private static bool IsTransferInstallFeeLineItem(QuoteLineBadgeMeta item)
+    {
+        if (string.Equals(item.ProductCode, WorkflowService.TransferInstallFeeCode, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return ContainsTransferInstallFee(item.ProductType)
+               || ContainsTransferInstallFee(item.ProductName);
+    }
+
+    private static bool IsUnitProductType(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var normalized = value.Trim().ToUpperInvariant();
+        if (!normalized.Contains("STING", StringComparison.Ordinal))
+            return false;
+
+        if (normalized.Contains("LIVE TRACKING", StringComparison.Ordinal))
+            return false;
+
+        if (normalized.Contains("MONTHLY", StringComparison.Ordinal))
+            return false;
+
+        return true;
+    }
+
+    private static bool ContainsLiveTracking(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return value.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool ContainsTransferInstallFee(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var normalized = value.Trim().ToUpperInvariant();
+        return normalized.Contains("TRANSFER", StringComparison.Ordinal)
+               && normalized.Contains("INSTALL", StringComparison.Ordinal);
+    }
+
+    private static bool HasWorkflowMarker(string? notes, string marker)
+    {
+        if (string.IsNullOrWhiteSpace(notes))
+            return false;
+
+        return notes.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private sealed class QuoteBadgeMeta
+    {
+        public int Id { get; init; }
+        public QuoteType Type { get; init; }
+        public QuoteStatus Status { get; init; }
+        public bool IncludesAppLiveTracking { get; init; }
+        public string? ProductType { get; init; }
+        public string? Notes { get; init; }
+    }
+
+    private sealed class QuoteLineBadgeMeta
+    {
+        public int QuoteId { get; init; }
+        public string ProductType { get; init; } = string.Empty;
+        public string? ProductName { get; init; }
+        public string? ProductCode { get; init; }
+        public bool IncludesAppLiveTracking { get; init; }
     }
 
     private void SetDefaultDateRange(DateTime? start, DateTime? end)
@@ -217,7 +424,7 @@ public partial class QuotesViewModel : ViewModelBase
         var pricingService = new QuotePricingService(_appState.Settings);
         dlg.DataContext = new QuoteEditViewModel(() => dlg.Close(), null, _appState, pricingService);
         await dlg.ShowDialog(_window);
-        Load();
+        await Load();
     }
 
     [RelayCommand]
@@ -324,7 +531,7 @@ public partial class QuotesViewModel : ViewModelBase
             db.SaveChanges();
 
             _appState.SetStatus($"Sample quote {QuoteReferenceFormatter.Format(quote.QuoteNumber)} created successfully with all required information.");
-            Load();
+            _ = Load();
         }
         catch (Exception ex)
         {
@@ -341,7 +548,7 @@ public partial class QuotesViewModel : ViewModelBase
         var pricingService = new QuotePricingService(_appState.Settings);
         dlg.DataContext = new QuoteEditViewModel(() => dlg.Close(), SelectedRow.Id, _appState, pricingService);
         await dlg.ShowDialog(_window);
-        Load();
+        await Load();
     }
 
     [RelayCommand]
@@ -373,8 +580,7 @@ public partial class QuotesViewModel : ViewModelBase
     {
         if (SelectedRow is null) return;
 
-        using var db = new AppDbContext();
-        var hasRelatedJobCards = db.JobCards.AsNoTracking().Any(j => j.QuoteId == SelectedRow.Id);
+        var hasRelatedJobCards = await _dataStore.HasRelatedJobCardsForQuoteAsync(SelectedRow.Id);
         if (!hasRelatedJobCards)
         {
             _appState.SetStatus("No related job cards found for the selected quote.");
@@ -396,7 +602,7 @@ public partial class QuotesViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void ApproveSelected()
+    private async Task ApproveSelected()
     {
         if (SelectedRow is null)
         {
@@ -410,16 +616,15 @@ public partial class QuotesViewModel : ViewModelBase
             return;
         }
 
-        // Approve the quote
-        var wf = new WorkflowService();
-        var (jobId, errorMessage) = wf.ApproveQuote(SelectedRow.Id, _appState.OperatorName, scheduleDate: null);
-        if (jobId == 0)
+        var result = await _dataStore.ApproveQuoteAsync(SelectedRow.Id, _appState.OperatorName, scheduleDate: null);
+        if (!result.Success)
         {
-            _appState.SetStatus($"Approval blocked: {errorMessage}");
+            _appState.SetStatus($"Approval blocked: {result.Message}");
             return;
         }
-        _appState.SetStatus("Quote approved. Job card created. You can set the schedule from the Job Cards view.");
-        Load();
+
+        _appState.SetStatus(result.Message);
+        await Load();
     }
 
     public bool CanApproveSelectedQuote => CanApproveQuotes && SelectedRow != null;
@@ -430,7 +635,7 @@ public partial class QuotesViewModel : ViewModelBase
     public bool HasSelectedRow => SelectedRow != null;
 
     [RelayCommand]
-    private void CancelSelected()
+    private async Task CancelSelected()
     {
         if (SelectedRow is null)
         {
@@ -438,40 +643,24 @@ public partial class QuotesViewModel : ViewModelBase
             return;
         }
 
-        using var db = new AppDbContext();
-        var quote = db.Quotes.FirstOrDefault(q => q.Id == SelectedRow.Id);
-        if (quote is null)
+        var result = await _dataStore.CancelDraftQuoteAsync(SelectedRow.Id);
+        if (!result.Success)
         {
-            _appState.SetStatus("Quote not found.");
+            _appState.SetStatus(result.Message);
             return;
         }
 
-        if (quote.Status == QuoteStatus.Approved)
-        {
-            _appState.SetStatus("Cannot cancel: quote is already approved.");
-            return;
-        }
-
-        if (quote.Status != QuoteStatus.Draft)
-        {
-            _appState.SetStatus("Only draft quotes can be cancelled.");
-            return;
-        }
-
-        quote.Status = QuoteStatus.Cancelled;
-        db.SaveChanges();
-
-        var quoteRef = QuoteReferenceFormatter.Format(quote.QuoteNumber);
+        var quoteRef = QuoteReferenceFormatter.Format(result.QuoteNumber);
         new AuditService().Log(
             _appState.OperatorName,
             "QUOTE_CANCEL",
             "Quote",
-            quote.Id,
-            quote.Registration,
+            result.QuoteId,
+            result.Registration,
             $"Draft quote {quoteRef} cancelled");
 
         _appState.SetStatus($"Quote {quoteRef} cancelled.");
-        Load();
+        await Load();
     }
 
     [RelayCommand]
@@ -491,8 +680,7 @@ public partial class QuotesViewModel : ViewModelBase
     {
         if (SelectedRow is null) return;
 
-        using var db = new AppDbContext();
-        var quote = db.Quotes.Include(q => q.LineItems).FirstOrDefault(q => q.Id == SelectedRow.Id);
+        var quote = await _dataStore.GetQuoteWithLineItemsAsync(SelectedRow.Id);
         if (quote is null) return;
 
         var pdfBytes = await Task.Run(() => new QuotePdfService(_appState.Settings).BuildQuotePdf(quote));
@@ -525,51 +713,14 @@ public partial class QuotesViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void DeleteSelected()
+    private async Task DeleteSelected()
     {
         if (SelectedRow is null) return;
 
-        using var db = new AppDbContext();
-        var quote = db.Quotes.Include(q => q.LineItems).FirstOrDefault(q => q.Id == SelectedRow.Id);
-        if (quote is null) return;
-
-        // Check if there's a linked job card
-        var job = db.JobCards.FirstOrDefault(j => j.QuoteId == quote.Id);
-        if (job != null)
-        {
-            // Check if the job has been completed
-            if (job.Status == JobStatus.Completed)
-            {
-                _appState.SetStatus("Cannot delete: Quote has a completed job.");
-                return;
-            }
-            // Job exists but not completed - still need to delete it
-            // Delete the job card first
-            db.JobCards.Remove(job);
-        }
-
-        // Delete any linked cancellation entries
-        var cancellations = db.CancellationEntries.Where(c => c.QuoteId == quote.Id).ToList();
-        foreach (var c in cancellations)
-        {
-            db.CancellationEntries.Remove(c);
-        }
-
-        // Delete any attachments
-        var attachments = db.Attachments
-            .Where(a => a.OwnerType == AttachmentOwnerType.Quote && a.OwnerId == quote.Id)
-            .ToList();
-        foreach (var a in attachments)
-        {
-            db.Attachments.Remove(a);
-        }
-
-        // Delete the quote
-        db.Quotes.Remove(quote);
-        db.SaveChanges();
-
-        _appState.SetStatus("Quote deleted.");
-        Load();
+        var result = await _dataStore.DeleteQuoteAsync(SelectedRow.Id);
+        _appState.SetStatus(result.Message, !result.Success);
+        if (result.Success)
+            await Load();
     }
 
 }

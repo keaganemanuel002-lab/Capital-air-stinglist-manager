@@ -9,6 +9,11 @@ namespace StingListManager.Services;
 
 public class WorkflowService
 {
+    public const string NoRemovalJobCardMarker = "[NO_REMOVAL_JOB_CARD]";
+    public const string TransferFeeOnlyQuoteMarker = "[TRANSFER_FEE_ONLY]";
+    public const string TransferInstallFeeCode = "TRANSFER-INSTALL-FEE";
+    public const decimal TransferInstallFeeExVat = 450m;
+
     public (int jobId, string errorMessage) ApproveQuote(int quoteId, string actor, DateTime? scheduleDate = null)
     {
         try
@@ -17,6 +22,8 @@ public class WorkflowService
 
             var quote = db.Quotes.Include(q => q.LineItems).FirstOrDefault(q => q.Id == quoteId);
             if (quote is null) return (0, "Quote not found.");
+            var isLiveTrackingOnlyQuote = IsLiveTrackingOnlyQuote(quote);
+            var isTransferFeeOnlyQuote = IsTransferFeeOnlyQuote(quote);
 
             if (quote.Status == QuoteStatus.Approved)
             {
@@ -50,8 +57,9 @@ public class WorkflowService
                 return (0, docMsg);
             }
 
-            // Guardrail: don't approve a removal quote without a linked cancellation request
-            if (quote.Type == QuoteType.Removal)
+            // Guardrail: don't approve a removal quote without a linked cancellation request,
+            // except when this is a live-tracking-only removal (no unit removal job card needed).
+            if (quote.Type == QuoteType.Removal && !isLiveTrackingOnlyQuote)
             {
                 var cancel = db.CancellationEntries.FirstOrDefault(c => c.QuoteId == quote.Id);
                 if (cancel == null)
@@ -67,24 +75,85 @@ public class WorkflowService
             logMsg = $"[ApproveQuote] Setting quote status to Approved";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
 
-            // Calculate total units from line items (STING, STING PLUS, STING FM only)
-            int totalUnits = 0;
-            if (quote.LineItems.Count > 0)
+            if (quote.Type == QuoteType.Install && isTransferFeeOnlyQuote)
             {
-                foreach (var item in quote.LineItems)
-                {
-                    if (IsProductTypeUnit(item.ProductType))
-                    {
-                        totalUnits += item.Quantity > 0 ? item.Quantity : 1;
-                    }
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(quote.ProductType) && IsProductTypeUnit(quote.ProductType))
-            {
-                totalUnits = 1;
+                var savedTransferFeeOnly = db.SaveChanges();
+                logMsg = $"[ApproveQuote] SaveChanges returned: {savedTransferFeeOnly}, no job card created (transfer-fee-only quote).";
+                System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
+
+                new AuditService().Log(
+                    actor,
+                    "QUOTE_APPROVE",
+                    "Quote",
+                    quote.Id,
+                    quote.Registration,
+                    "Quote install - transfer fee only, no job card required");
+
+                return (-1, "Quote approved. Transfer installation fee only, no job card required.");
             }
 
-            // If no units found, default to 1 job card
+            if (quote.Type == QuoteType.Removal && !isLiveTrackingOnlyQuote)
+            {
+                var activeRemovalEntry = FindActiveBillingEntryForRemovalQuote(db, quote);
+                var isOutOfWarranty = activeRemovalEntry is not null
+                                      && !WarrantyService.IsWithinWarranty(activeRemovalEntry.ActiveFrom);
+
+                if (isOutOfWarranty && HasWorkflowMarker(quote.Notes, NoRemovalJobCardMarker))
+                {
+                    if (activeRemovalEntry is null)
+                        return (0, "Could not find an active STING entry for this removal quote.");
+
+                    activeRemovalEntry.Status = BillingStatus.Removed;
+                    activeRemovalEntry.ActiveTo = DateTime.UtcNow;
+                    activeRemovalEntry.ArchivedAt = DateTime.UtcNow;
+                    activeRemovalEntry.Reason = "Removed (out of warranty, no job card)";
+
+                    var cancel = db.CancellationEntries.FirstOrDefault(c => c.QuoteId == quote.Id);
+                    if (cancel is not null)
+                    {
+                        cancel.Status = CancellationStatus.Completed;
+                        cancel.JobCardId = null;
+                    }
+
+                    var savedOutOfWarranty = db.SaveChanges();
+                    logMsg = $"[ApproveQuote] SaveChanges returned: {savedOutOfWarranty}, no job card created (out-of-warranty removal).";
+                    System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
+
+                    new AuditService().Log(
+                        actor,
+                        "QUOTE_APPROVE",
+                        "Quote",
+                        quote.Id,
+                        quote.Registration,
+                        "Quote removal - out of warranty, approved without job card");
+
+                    return (-1, "Quote approved. Unit is out of warranty and was removed without creating a job card.");
+                }
+            }
+
+            var totalUnits = CalculateUnitCount(quote);
+
+            // Live-tracking-only quotes are approved without creating job cards.
+            if (totalUnits == 0 && isLiveTrackingOnlyQuote)
+            {
+                var savedNoJob = db.SaveChanges();
+                logMsg = $"[ApproveQuote] SaveChanges returned: {savedNoJob}, no job card created (live tracking only quote).";
+                System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
+
+                var details = quote.Type == QuoteType.Removal
+                    ? "Quote removal - live tracking disabled, no job card required"
+                    : "Quote install - live tracking only, no job card required";
+
+                new AuditService().Log(actor, "QUOTE_APPROVE", "Quote", quote.Id, quote.Registration, details);
+
+                var message = quote.Type == QuoteType.Removal
+                    ? "Quote approved. Live tracking removed for this client. No job card created."
+                    : "Quote approved. Live tracking-only quote does not require a job card.";
+
+                return (-1, message);
+            }
+
+            // If no units found, default to 1 job card (non-live-tracking-only flow).
             if (totalUnits == 0)
                 totalUnits = 1;
 
@@ -156,7 +225,7 @@ public class WorkflowService
             logMsg = $"[ApproveQuote] Quote {quoteId} approved successfully, Created {totalUnits} job cards";
             System.IO.File.AppendAllText(logPath, logMsg + Environment.NewLine);
             
-            return (firstJobId, "");
+            return (firstJobId, $"Quote approved. Created {totalUnits} job card(s).");
         }
         catch (Exception ex)
         {
@@ -167,21 +236,230 @@ public class WorkflowService
         }
     }
 
+    private static int CalculateUnitCount(Quote quote)
+    {
+        var totalUnits = 0;
+
+        if (quote.LineItems.Count > 0)
+        {
+            foreach (var item in quote.LineItems)
+            {
+                if (!IsUnitLineItem(item))
+                    continue;
+
+                totalUnits += item.Quantity > 0 ? item.Quantity : 1;
+            }
+
+            return totalUnits;
+        }
+
+        if (!string.IsNullOrWhiteSpace(quote.ProductType) && IsProductTypeUnit(quote.ProductType))
+            return 1;
+
+        return 0;
+    }
+
+    private static bool IsLiveTrackingOnlyQuote(Quote quote)
+    {
+        if (!QuoteHasLiveTracking(quote))
+            return false;
+
+        if (quote.LineItems.Count > 0)
+            return !quote.LineItems.Any(IsUnitLineItem);
+
+        return !IsProductTypeUnit(quote.ProductType);
+    }
+
+    private static bool IsTransferFeeOnlyQuote(Quote quote)
+    {
+        if (quote.LineItems.Count == 0)
+            return false;
+
+        var meaningfulLines = quote.LineItems
+            .Where(item =>
+                item.Quantity > 0
+                || item.UnitPriceExVat != 0m
+                || item.LineTotalExVat != 0m
+                || !string.IsNullOrWhiteSpace(item.ProductCode)
+                || !string.IsNullOrWhiteSpace(item.ProductName)
+                || !string.IsNullOrWhiteSpace(item.ProductType))
+            .ToList();
+
+        if (meaningfulLines.Count == 0)
+            return false;
+
+        return meaningfulLines.All(IsTransferInstallFeeLineItem);
+    }
+
+    private static bool QuoteHasLiveTracking(Quote quote)
+    {
+        if (quote.IncludesAppLiveTracking)
+            return true;
+
+        if (quote.LineItems.Count > 0)
+            return quote.LineItems.Any(IsLiveTrackingLineItem);
+
+        if (!string.IsNullOrWhiteSpace(quote.ProductType)
+            && quote.ProductType.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsUnitLineItem(QuoteLineItem item)
+    {
+        if (IsLiveTrackingLineItem(item))
+            return false;
+
+        return IsProductTypeUnit(item.ProductType)
+               || IsProductTypeUnit(item.ProductName)
+               || IsProductTypeUnit(item.ProductCode);
+    }
+
+    private static bool IsLiveTrackingLineItem(QuoteLineItem item)
+    {
+        if (item.IncludesAppLiveTracking)
+            return true;
+
+        if (string.Equals(item.ProductCode, "APP-LIVE-TRACKING", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return ContainsLiveTracking(item.ProductType)
+               || ContainsLiveTracking(item.ProductName)
+               || ContainsLiveTracking(item.ProductCode);
+    }
+
+    private static bool IsTransferInstallFeeLineItem(QuoteLineItem item)
+    {
+        if (string.Equals(item.ProductCode, TransferInstallFeeCode, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return ContainsTransferInstallFee(item.ProductType)
+               || ContainsTransferInstallFee(item.ProductName)
+               || ContainsTransferInstallFee(item.Description);
+    }
+
     private static bool IsProductTypeUnit(string? productType)
     {
         if (string.IsNullOrWhiteSpace(productType))
             return false;
 
-        var type = productType.Trim();
-        return type.IndexOf("STING FM", StringComparison.OrdinalIgnoreCase) >= 0
-            || type.IndexOf("STING PLUS", StringComparison.OrdinalIgnoreCase) >= 0
-            || type.IndexOf("STING+", StringComparison.OrdinalIgnoreCase) >= 0
-            || type.IndexOf("STING", StringComparison.OrdinalIgnoreCase) >= 0;
+        var type = productType.Trim().ToUpperInvariant();
+        if (!type.Contains("STING", StringComparison.Ordinal))
+            return false;
+
+        if (type.Contains("LIVE TRACKING", StringComparison.Ordinal))
+            return false;
+
+        if (type.Contains("MONTHLY", StringComparison.Ordinal))
+            return false;
+
+        return true;
+    }
+
+    private static bool ContainsLiveTracking(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        return value.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool ContainsTransferInstallFee(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        var normalized = value.Trim().ToUpperInvariant();
+        return normalized.Contains("TRANSFER", StringComparison.Ordinal)
+               && normalized.Contains("INSTALL", StringComparison.Ordinal);
+    }
+
+    private static bool HasWorkflowMarker(string? notes, string marker)
+    {
+        if (string.IsNullOrWhiteSpace(notes))
+            return false;
+
+        return notes.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     public (bool ok, string message) CompleteJobCard(int jobCardId, string actor, string? wialonToken = null)
     {
         return CompleteJobCardAsync(jobCardId, actor, wialonToken).GetAwaiter().GetResult();
+    }
+
+    public (bool ok, string message) UpdateCompletedJobCardRegistration(int jobCardId, string? newRegistration, string actor)
+    {
+        using var db = new AppDbContext();
+
+        var job = db.JobCards.FirstOrDefault(j => j.Id == jobCardId);
+        if (job is null)
+            return (false, "Job card not found.");
+
+        if (job.Status != JobStatus.Completed)
+            return (false, "Only completed job cards can be updated this way.");
+
+        if (job.Type == JobType.Removal)
+            return (false, "Registration updates are only supported for completed install/transfer job cards.");
+
+        var normalizedNewRegistration = NormalizeRegistration(newRegistration);
+        if (string.IsNullOrWhiteSpace(normalizedNewRegistration))
+            return (false, "Registration is required.");
+
+        var normalizedCurrentRegistration = NormalizeRegistration(job.Registration);
+        if (string.Equals(normalizedCurrentRegistration, normalizedNewRegistration, StringComparison.Ordinal))
+            return (false, "Registration is already set to that value.");
+
+        var activeEntries = db.BillingEntries
+            .Where(b => b.ArchivedAt == null && (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded))
+            .OrderByDescending(b => b.ActiveFrom)
+            .ToList();
+
+        var billingEntry = FindActiveBillingEntryForUnit(db, job);
+        if (billingEntry is null && !string.IsNullOrWhiteSpace(normalizedCurrentRegistration))
+        {
+            billingEntry = activeEntries.FirstOrDefault(b =>
+                string.Equals(NormalizeRegistration(b.Registration), normalizedCurrentRegistration, StringComparison.Ordinal));
+        }
+
+        if (billingEntry is null)
+            return (false, "Could not find the related active STING/Billing entry for this completed job card.");
+
+        var duplicate = activeEntries.FirstOrDefault(b =>
+            b.Id != billingEntry.Id
+            && string.Equals(NormalizeRegistration(b.Registration), normalizedNewRegistration, StringComparison.Ordinal));
+
+        if (duplicate is not null)
+            return (false, "Another active billing entry already exists with that registration.");
+
+        var oldRegistration = NormalizeRegistration(job.Registration);
+        job.Registration = normalizedNewRegistration;
+        billingEntry.Registration = normalizedNewRegistration;
+        billingEntry.RegistrationNorm = normalizedNewRegistration;
+        if (string.IsNullOrWhiteSpace(billingEntry.Reason))
+            billingEntry.Reason = "Registration updated from completed job card";
+
+        db.SaveChanges();
+
+        new AuditService().Log(
+            actor,
+            "JOBCARD_REGISTRATION_UPDATE",
+            "JobCard",
+            job.Id,
+            normalizedNewRegistration,
+            $"Updated completed job card registration from {oldRegistration} to {normalizedNewRegistration}.");
+
+        new AuditService().Log(
+            actor,
+            "BILLING_REGISTRATION_UPDATE",
+            "BillingEntry",
+            billingEntry.Id,
+            normalizedNewRegistration,
+            $"Updated linked billing registration from {oldRegistration} to {normalizedNewRegistration} via completed job card.");
+
+        return (true, $"Registration updated to {normalizedNewRegistration}. STING and Billing lists will reflect this change.");
     }
 
     public async Task<(bool ok, string message)> CompleteJobCardAsync(int jobCardId, string actor, string? wialonToken = null)
@@ -239,6 +517,7 @@ public class WorkflowService
             be.SimNumber = job.SimNumber;
             be.Notes = job.Notes;
             be.Status = installStatus;
+            be.ActiveFrom = job.CompletedAt ?? DateTime.UtcNow;
             be.ActiveTo = null;
             be.ArchivedAt = null;
             be.Reason = createdNewEntry ? be.Reason : "Updated from completed install job";
@@ -480,6 +759,28 @@ public class WorkflowService
         return activeEntries.FirstOrDefault(b => IsSameImei(b.Imei, job.Imei))
             ?? activeEntries.FirstOrDefault(b => IsSameIccid(b.Iccid, job.Iccid))
             ?? activeEntries.FirstOrDefault(b => IsSameSerial(b.SerialNumber, job.SerialNumber));
+    }
+
+    private static BillingEntry? FindActiveBillingEntryForRemovalQuote(AppDbContext db, Quote quote)
+    {
+        var activeEntries = db.BillingEntries
+            .Where(b => b.ArchivedAt == null && (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded))
+            .OrderByDescending(b => b.ActiveFrom)
+            .ToList();
+
+        var byUnit = activeEntries.FirstOrDefault(b => IsSameImei(b.Imei, quote.Imei))
+                     ?? activeEntries.FirstOrDefault(b => IsSameIccid(b.Iccid, quote.Iccid))
+                     ?? activeEntries.FirstOrDefault(b => IsSameSerial(b.SerialNumber, quote.SerialNumber));
+        if (byUnit is not null)
+            return byUnit;
+
+        var registration = NormalizeRegistration(quote.Registration);
+        if (string.IsNullOrWhiteSpace(registration))
+            return null;
+
+        return activeEntries.FirstOrDefault(b =>
+            string.Equals(NormalizeRegistration(b.Registration), registration, StringComparison.Ordinal)
+            && string.Equals((b.Company ?? string.Empty).Trim(), (quote.Company ?? string.Empty).Trim(), StringComparison.OrdinalIgnoreCase));
     }
 
     private static string? TrimOrNull(string? value)

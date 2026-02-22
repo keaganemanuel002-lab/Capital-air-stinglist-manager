@@ -73,6 +73,22 @@
   <Style Selector="Button.primary:pressed">
     <Setter Property="Background" Value="{StaticResource AccentPressedBrush}"/>
   </Style>
+  <Style Selector="Button.icon-button">
+    <Setter Property="Width" Value="38"/>
+    <Setter Property="Height" Value="34"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="CornerRadius" Value="8"/>
+  </Style>
+  <Style Selector="Button.small-button">
+    <Setter Property="Padding" Value="8,4"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+  </Style>
+  <Style Selector="Button.toast-close">
+    <Setter Property="Width" Value="28"/>
+    <Setter Property="Height" Value="24"/>
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="CornerRadius" Value="6"/>
+  </Style>
 
   <!-- ListBox navigation -->
   <Style Selector="ListBox.nav">
@@ -92,6 +108,7 @@
   </Style>
   <Style Selector="TextBlock.nav-icon">
     <Setter Property="FontSize" Value="18"/>
+    <Setter Property="FontFamily" Value="Segoe MDL2 Assets"/>
   </Style>
   <Style Selector="ListBox.nav ListBoxItem:selected">
     <Setter Property="Background" Value="{StaticResource SurfaceSubtleBrush}"/>
@@ -130,5 +147,47 @@
     <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
     <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
     <Setter Property="BorderThickness" Value="0,1,0,0"/>
+  </Style>
+
+  <Style Selector="Border.notification-badge">
+    <Setter Property="Background" Value="#DC2626"/>
+    <Setter Property="CornerRadius" Value="10"/>
+    <Setter Property="Padding" Value="4,1"/>
+    <Setter Property="MinWidth" Value="14"/>
+    <Setter Property="MinHeight" Value="14"/>
+  </Style>
+  <Style Selector="TextBlock.notification-badge-text">
+    <Setter Property="Foreground" Value="White"/>
+    <Setter Property="FontSize" Value="10"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="HorizontalAlignment" Value="Center"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+    <Setter Property="TextAlignment" Value="Center"/>
+  </Style>
+  <Style Selector="Border.notification-toast">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="12"/>
+    <Setter Property="Padding" Value="12"/>
+    <Setter Property="Width" Value="420"/>
+    <Setter Property="ZIndex" Value="250"/>
+  </Style>
+  <Style Selector="Border.notification-history">
+    <Setter Property="Background" Value="{StaticResource SurfaceBrush}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="12"/>
+    <Setter Property="Padding" Value="12"/>
+    <Setter Property="Width" Value="480"/>
+    <Setter Property="ZIndex" Value="240"/>
+  </Style>
+  <Style Selector="Border.notification-item">
+    <Setter Property="Background" Value="{StaticResource SurfaceAltBrush}"/>
+    <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="CornerRadius" Value="8"/>
+    <Setter Property="Padding" Value="10"/>
+    <Setter Property="Margin" Value="0,0,0,8"/>
   </Style>
 </Styles>

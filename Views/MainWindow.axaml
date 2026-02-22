@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -16,28 +16,73 @@
     <KeyBinding Gesture="Ctrl+S" Command="{Binding SaveSettingsCommand}"/>
   </Window.KeyBindings>
 
+  <Window.DataTemplates>
+    <DataTemplate DataType="vm:AppNotificationItem">
+      <Border Classes="notification-item">
+        <StackPanel Spacing="2">
+          <DockPanel LastChildFill="False">
+            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding RelativeLabel}" Classes="muted" Margin="8,0,0,0" />
+            <TextBlock Text="{Binding TimestampLabel}" Classes="muted" Margin="8,0,0,0" />
+          </DockPanel>
+          <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+  </Window.DataTemplates>
+
   <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="Auto,*">
 
     <!-- Top bar -->
-        <Border Grid.Row="0" Grid.ColumnSpan="2" Padding="16" Classes="topbar">
+    <Border Grid.Row="0" Grid.ColumnSpan="2" Padding="16" Classes="topbar">
       <DockPanel>
-      <TextBlock Text="Capital Air (Pty) Ltd"
-           Classes="h2"
-           DockPanel.Dock="Left"/>
-      <Button Content="Products"
-        Command="{Binding OpenProductCatalogCommand}"
-        DockPanel.Dock="Right"
-        Classes="primary"
-        Margin="10,0,0,0"/>
-      <Button Content="Import Excel"
-        Command="{Binding ImportExcelCommand}"
-        DockPanel.Dock="Right"
-        IsVisible="{Binding CanImportExcel}"
-        Margin="10,0,0,0"/>
-      <TextBlock Text="Quotes → Install → Job Cards → Billing"
-           Classes="muted"
-           VerticalAlignment="Center"
-           DockPanel.Dock="Right"/>
+        <TextBlock Text="Capital Air (Pty) Ltd"
+                   Classes="h2"
+                   DockPanel.Dock="Left"/>
+
+        <Button Content="Products"
+                Command="{Binding OpenProductCatalogCommand}"
+                DockPanel.Dock="Right"
+                Classes="primary"
+                Margin="10,0,0,0"/>
+
+        <Button Command="{Binding ToggleNotificationHistoryCommand}"
+                DockPanel.Dock="Right"
+                Classes="icon-button"
+                Margin="10,0,0,0"
+                ToolTip.Tip="Notifications">
+          <Grid Width="28" Height="28">
+            <TextBlock Text="&#xE7F4;"
+                       FontFamily="Segoe MDL2 Assets"
+                       FontSize="18"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"/>
+            <Border Classes="notification-badge"
+                    IsVisible="{Binding HasUnreadNotifications}"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Top"
+                    Margin="0,-2,-4,0">
+              <TextBlock Text="{Binding UnreadNotificationBadge}" Classes="notification-badge-text"/>
+            </Border>
+          </Grid>
+        </Button>
+
+        <Button Content="Import Excel"
+                Command="{Binding ImportExcelCommand}"
+                DockPanel.Dock="Right"
+                IsVisible="{Binding CanImportExcel}"
+                Margin="10,0,0,0"/>
+
+        <TextBlock Text="Quotes -> Install -> Job Cards -> Billing"
+                   Classes="muted"
+                   VerticalAlignment="Center"
+                   DockPanel.Dock="Right"/>
+
+        <TextBlock Text="{Binding SignedInAs}"
+                   Classes="muted"
+                   VerticalAlignment="Center"
+                   DockPanel.Dock="Right"
+                   Margin="0,0,12,0"/>
       </DockPanel>
     </Border>
 
@@ -59,103 +104,40 @@
         <ListBox x:Name="CollapsedNavList"
                  SelectedIndex="{Binding NavIndex}"
                  Classes="nav nav-icons">
-          <ListBoxItem ToolTip.Tip="Search"><TextBlock Text="🔍" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Dashboard"><TextBlock Text="📊" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Quotes"><TextBlock Text="🧾" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Installations"><TextBlock Text="🛠" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Job Cards"><TextBlock Text="📋" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Removals / Cancellations"><TextBlock Text="🗑" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="STING List"><TextBlock Text="📄" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Billing List"><TextBlock Text="💰" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Clients"><TextBlock Text="👥" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Monthly Export"><TextBlock Text="📤" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Settings"><TextBlock Text="⚙" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Wialon Reports"><TextBlock Text="📈" Classes="nav-icon"/></ListBoxItem>
-          <ListBoxItem ToolTip.Tip="Dashcams"><TextBlock Text="📷" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Search"><TextBlock Text="&#xE721;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Dashboard"><TextBlock Text="&#xE9D2;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Quotes"><TextBlock Text="&#xE8A5;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Installations"><TextBlock Text="&#xE90F;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Job Cards"><TextBlock Text="&#xE8A5;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Removals / Cancellations"><TextBlock Text="&#xE74D;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="STING List"><TextBlock Text="&#xE7C3;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Billing List"><TextBlock Text="&#xEAFD;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Clients"><TextBlock Text="&#xE716;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Users"><TextBlock Text="&#xE77B;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Monthly Export"><TextBlock Text="&#xE898;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Settings"><TextBlock Text="&#xE713;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Wialon Reports"><TextBlock Text="&#xE9D2;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Dashcams"><TextBlock Text="&#xE722;" Classes="nav-icon"/></ListBoxItem>
         </ListBox>
 
         <ListBox x:Name="ExpandedNavList"
                  SelectedIndex="{Binding NavIndex}"
                  Classes="nav"
                  IsVisible="False">
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="🔍" Classes="nav-icon"/>
-              <TextBlock Text="Search"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="📊" Classes="nav-icon"/>
-              <TextBlock Text="Dashboard"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="🧾" Classes="nav-icon"/>
-              <TextBlock Text="Quotes"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="🛠" Classes="nav-icon"/>
-              <TextBlock Text="Installations"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="📋" Classes="nav-icon"/>
-              <TextBlock Text="Job Cards"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="🗑" Classes="nav-icon"/>
-              <TextBlock Text="Removals / Cancellations"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="📄" Classes="nav-icon"/>
-              <TextBlock Text="STING List"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="💰" Classes="nav-icon"/>
-              <TextBlock Text="Billing List"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="👥" Classes="nav-icon"/>
-              <TextBlock Text="Clients"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="📤" Classes="nav-icon"/>
-              <TextBlock Text="Monthly Export"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="⚙" Classes="nav-icon"/>
-              <TextBlock Text="Settings"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="📈" Classes="nav-icon"/>
-              <TextBlock Text="Wialon Reports"/>
-            </StackPanel>
-          </ListBoxItem>
-          <ListBoxItem>
-            <StackPanel Orientation="Horizontal" Spacing="10">
-              <TextBlock Text="📷" Classes="nav-icon"/>
-              <TextBlock Text="Dashcams"/>
-            </StackPanel>
-          </ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE721;" Classes="nav-icon"/><TextBlock Text="Search"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE9D2;" Classes="nav-icon"/><TextBlock Text="Dashboard"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE8A5;" Classes="nav-icon"/><TextBlock Text="Quotes"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE90F;" Classes="nav-icon"/><TextBlock Text="Installations"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE8A5;" Classes="nav-icon"/><TextBlock Text="Job Cards"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE74D;" Classes="nav-icon"/><TextBlock Text="Removals / Cancellations"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE7C3;" Classes="nav-icon"/><TextBlock Text="STING List"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xEAFD;" Classes="nav-icon"/><TextBlock Text="Billing List"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE716;" Classes="nav-icon"/><TextBlock Text="Clients"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE77B;" Classes="nav-icon"/><TextBlock Text="Users"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE898;" Classes="nav-icon"/><TextBlock Text="Monthly Export"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE713;" Classes="nav-icon"/><TextBlock Text="Settings"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE9D2;" Classes="nav-icon"/><TextBlock Text="Wialon Reports"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE722;" Classes="nav-icon"/><TextBlock Text="Dashcams"/></StackPanel></ListBoxItem>
         </ListBox>
       </StackPanel>
     </Border>
@@ -173,6 +155,51 @@
         <TextBlock Text="{Binding StatusMessage}" Classes="muted" />
         <TextBlock Text="{Binding StatusTime}" Classes="muted" DockPanel.Dock="Right"/>
       </DockPanel>
+    </Border>
+
+    <!-- Toast card (overlay, does not affect top-row measurement) -->
+    <Border Grid.Row="1" Grid.Column="1"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Margin="0,12,20,0"
+            IsVisible="{Binding IsToastVisible}"
+            Classes="notification-toast">
+      <StackPanel Spacing="8">
+        <Border Height="3" CornerRadius="2" Background="{Binding ActiveToast.AccentHex}"/>
+        <DockPanel LastChildFill="False">
+          <TextBlock Text="{Binding ActiveToast.Title}" FontWeight="SemiBold"/>
+          <TextBlock Text="{Binding ActiveToast.RelativeLabel}" Classes="muted" Margin="8,0,0,0"/>
+          <Button Content="x"
+                  Command="{Binding DismissToastCommand}"
+                  Classes="toast-close"
+                  DockPanel.Dock="Right"/>
+        </DockPanel>
+        <TextBlock Text="{Binding ActiveToast.Message}" TextWrapping="Wrap"/>
+      </StackPanel>
+    </Border>
+
+    <!-- Notification history (overlay, does not affect top-row measurement) -->
+    <Border Grid.Row="1" Grid.Column="1"
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Margin="0,12,20,0"
+            IsVisible="{Binding IsNotificationHistoryOpen}"
+            Classes="notification-history">
+      <StackPanel Spacing="10">
+        <DockPanel LastChildFill="False">
+          <TextBlock Text="Notifications (last 48 hours)" Classes="h2" FontSize="16"/>
+          <Button Content="Clear" Command="{Binding ClearNotificationHistoryCommand}" Classes="small-button" DockPanel.Dock="Right" Margin="8,0,0,0"/>
+          <Button Content="x" Command="{Binding CloseNotificationHistoryCommand}" Classes="small-button" DockPanel.Dock="Right"/>
+        </DockPanel>
+
+        <TextBlock Text="No notifications in the selected period."
+                   Classes="muted"
+                   IsVisible="{Binding HasNoNotificationHistory}"/>
+
+        <ScrollViewer Height="360" IsVisible="{Binding HasNotificationHistory}">
+          <ItemsControl ItemsSource="{Binding Notifications}"/>
+        </ScrollViewer>
+      </StackPanel>
     </Border>
 
   </Grid>

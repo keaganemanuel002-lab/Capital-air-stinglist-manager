@@ -1,12 +1,11 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.EntityFrameworkCore;
-using StingListManager.Data;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
 
@@ -29,6 +28,8 @@ public partial class InstallationsViewModel : ViewModelBase
 {
     private readonly Window _window;
     private readonly AppState _appState;
+    private readonly IDataStore _dataStore;
+    private CancellationTokenSource? _loadCts;
 
     public ObservableCollection<ScheduleRow> Rows { get; } = new();
 
@@ -42,73 +43,78 @@ public partial class InstallationsViewModel : ViewModelBase
     {
         _window = window;
         _appState = appState;
-        Load();
+        _dataStore = DataStoreFactory.Create(_appState.Settings);
+        _ = Load();
     }
 
-    partial void OnShowOpenOnlyChanged(bool value) => Load();
-    partial void OnShowTodayOnlyChanged(bool value) => Load();
+    partial void OnShowOpenOnlyChanged(bool value) => _ = Load();
+    partial void OnShowTodayOnlyChanged(bool value) => _ = Load();
 
     [RelayCommand]
-    private void Load()
+    private async Task Load()
     {
-        using var db = new AppDbContext();
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
 
-        // Installations page should represent installation job cards only.
-        var q = db.JobCards
-            .AsNoTracking()
-            .Where(j => j.Type == JobType.Install);
-
-        if (ShowOpenOnly)
-            q = q.Where(j => j.Status == JobStatus.Open);
-
-        if (ShowTodayOnly)
+        try
         {
-            var today = DateTime.Today;
-            var tomorrow = today.AddDays(1);
-            q = q.Where(j => j.ScheduledFor != null && j.ScheduledFor >= today && j.ScheduledFor < tomorrow);
-        }
-
-        var items = q
-            .OrderBy(j => j.ScheduledFor == null) // scheduled first
-            .ThenBy(j => j.ScheduledFor)
-            .ThenByDescending(j => j.CreatedAt)
-            .ToList();
-
-        var quoteIds = items
-            .Where(j => j.QuoteId.HasValue)
-            .Select(j => j.QuoteId!.Value)
-            .Distinct()
-            .ToList();
-
-        var quoteRefById = db.Quotes
-            .AsNoTracking()
-            .Where(x => quoteIds.Contains(x.Id))
-            .Select(x => new { x.Id, x.QuoteNumber })
-            .ToList()
-            .ToDictionary(x => x.Id, x => QuoteReferenceFormatter.Format(x.QuoteNumber));
-
-        Rows.Clear();
-        foreach (var j in items)
-        {
-            var quoteRef = "-";
-            if (j.QuoteId.HasValue && quoteRefById.TryGetValue(j.QuoteId.Value, out var formattedRef))
-                quoteRef = formattedRef;
-
-            Rows.Add(new ScheduleRow
+            var items = await _dataStore.GetJobCardsAsync(new JobCardQuery
             {
-                JobCardId = j.Id,
-                JobCardNumber = j.JobCardNumber,
-                JobCardReference = JobCardReferenceFormatter.Format(j.Type, j.JobCardNumber),
-                QuoteReference = quoteRef,
-                Type = j.Type.ToString(),
-                Status = j.Status.ToString(),
-                Company = j.Company,
-                Registration = j.Registration,
-                ScheduledFor = j.ScheduledFor?.ToString("yyyy-MM-dd HH:mm") ?? ""
-            });
-        }
+                SelectedStatus = ShowOpenOnly ? JobStatus.Open.ToString() : "All",
+                SelectedType = JobType.Install.ToString(),
+                CompanyFilter = null,
+                RegistrationFilter = null,
+                StartDate = null,
+                EndDate = null,
+                QuoteIdFilter = null
+            }, token);
 
-        _appState.SetStatus($"Loaded {Rows.Count} installation job card(s).");
+            if (ShowTodayOnly)
+            {
+                var today = DateTime.Today;
+                var tomorrow = today.AddDays(1);
+                items = items.Where(j =>
+                        j.ScheduledFor != null
+                        && j.ScheduledFor >= today
+                        && j.ScheduledFor < tomorrow)
+                    .ToList();
+            }
+
+            var ordered = items
+                .OrderBy(j => j.ScheduledFor == null) // scheduled first
+                .ThenBy(j => j.ScheduledFor)
+                .ThenByDescending(j => j.CreatedAt)
+                .ToList();
+
+            Rows.Clear();
+            foreach (var j in ordered)
+            {
+                Rows.Add(new ScheduleRow
+                {
+                    JobCardId = j.Id,
+                    JobCardNumber = j.JobCardNumber,
+                    JobCardReference = j.JobCardReference,
+                    QuoteReference = j.QuoteReference,
+                    Type = j.Type,
+                    Status = j.Status,
+                    Company = j.Company,
+                    Registration = j.Registration,
+                    ScheduledFor = j.ScheduledFor?.ToString("yyyy-MM-dd HH:mm") ?? ""
+                });
+            }
+
+            _appState.SetStatus($"Loaded {Rows.Count} installation job card(s).");
+        }
+        catch (OperationCanceledException)
+        {
+            // Newer load superseded this request.
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Error loading installations: {ex.Message}", true);
+        }
     }
 
     [RelayCommand]
@@ -117,26 +123,26 @@ public partial class InstallationsViewModel : ViewModelBase
         if (SelectedRow is null) return;
 
         var dlg = new StingListManager.Views.ScheduleEditWindow();
-        dlg.DataContext = new ScheduleEditViewModel(SelectedRow.JobCardId, () => dlg.Close());
+        dlg.DataContext = new ScheduleEditViewModel(SelectedRow.JobCardId, () => dlg.Close(), _appState);
 
         await dlg.ShowDialog(_window);
-        Load();
+        await Load();
         _appState.SetStatus("Schedule updated.");
     }
 
     [RelayCommand]
-    private void ClearSchedule()
+    private async Task ClearSchedule()
     {
         if (SelectedRow is null) return;
 
-        using var db = new AppDbContext();
-        var job = db.JobCards.Find(SelectedRow.JobCardId);
-        if (job is null) return;
+        var updated = await _dataStore.UpdateJobCardScheduleAsync(SelectedRow.JobCardId, null);
+        if (!updated)
+        {
+            _appState.SetStatus("Job card not found.");
+            return;
+        }
 
-        job.ScheduledFor = null;
-        db.SaveChanges();
-
-        Load();
+        await Load();
         _appState.SetStatus("Schedule cleared.");
     }
 }

@@ -9,6 +9,18 @@
         <TextBlock Text="Settings" Classes="h1"/>
 
         <Border Classes="card">
+          <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <Button Content="Connectivity Settings"
+                    MinWidth="190"
+                    Classes="primary"
+                    Command="{Binding OpenConnectivitySettingsCommand}"/>
+            <TextBlock Text="Open popup for Data/Backup, Flickswitch, Wialon, and Firebase connectivity setup."
+                       Classes="muted"
+                       VerticalAlignment="Center"/>
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
           <StackPanel Spacing="10">
             <TextBlock Text="General" Classes="h2"/>
             <Grid ColumnDefinitions="1*,1*" ColumnSpacing="16" RowDefinitions="Auto,Auto" RowSpacing="10">
@@ -76,91 +88,16 @@
 
         <Border Classes="card">
           <StackPanel Spacing="10">
-            <TextBlock Text="Data and Backup" Classes="h2"/>
-            <CheckBox Content="Use shared data location (multi-user)" IsChecked="{Binding UseSharedData}"/>
-
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-              <TextBox Grid.Column="0" Text="{Binding SharedBaseDir}" Watermark="Select shared folder path"/>
-              <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseSharedBaseDirCommand}" MinWidth="100"/>
-            </Grid>
-
-            <TextBlock Text="Restart required after changing data location." Classes="muted" FontSize="11"/>
-            <CheckBox Content="Auto-backup on startup (once per day)" IsChecked="{Binding AutoBackupOnStartup}"/>
-          </StackPanel>
-        </Border>
-
-        <Border Classes="card">
-          <StackPanel Spacing="10">
-            <TextBlock Text="Flickswitch SIM Control" Classes="h2"/>
-            <TextBlock Text="Flickswitch Base URL" Classes="muted"/>
-            <TextBox Text="{Binding FlickswitchBaseUrl}"
-                     Watermark="https://app.simcontrol.co.za"/>
-            <TextBlock Text="Flickswitch API Key" Classes="muted"/>
-            <TextBox Text="{Binding FlickswitchApiKey}"
-                     Watermark="Enter your Flickswitch API key"
-                     PasswordChar="*"/>
-            <TextBlock Text="Used to look up SIM phone numbers and ICCID values in Job Cards."
-                       Classes="muted"
-                       FontSize="11"/>
-            <TextBlock Text="Enter the API token value, not the /api/docs URL."
-                       Classes="muted"
-                       FontSize="11"/>
-          </StackPanel>
-        </Border>
-
-        <Border Classes="card">
-          <StackPanel Spacing="10">
-            <TextBlock Text="Wialon API Integration" Classes="h2"/>
-            <TextBlock Text="Wialon API Token (used to pull the STING list from Wialon)" Classes="muted"/>
-            <TextBox Text="{Binding WialonApiToken}"
-                     Watermark="Enter your Wialon API token"
-                     PasswordChar="*"/>
-            <TextBlock Text="After updating the token, open STING List and click Refresh."
-                       Classes="muted"
-                       FontSize="11"/>
-          </StackPanel>
-        </Border>
-
-        <Border Classes="card">
-          <StackPanel Spacing="10">
-            <TextBlock Text="Wialon Client Provisioning Token" Classes="h2"/>
-            <TextBlock Text="Executive account API token used only when creating new clients/accounts." Classes="muted"/>
-            <TextBox Text="{Binding WialonClientProvisionApiToken}"
-                     Watermark="Enter Executive Account API token"
-                     PasswordChar="*"/>
-            <TextBlock Text="If empty, the app falls back to the standard Wialon API token."
-                       Classes="muted"
-                       FontSize="11"/>
-          </StackPanel>
-        </Border>
-
-        <Border Classes="card">
-          <StackPanel Spacing="10">
             <TextBlock Text="Field Technician Mobile Access" Classes="h2"/>
             <CheckBox Content="Enable Technician API and mobile portal"
                       IsChecked="{Binding TechnicianApiEnabled}"/>
 
-            <Grid ColumnDefinitions="220,*" ColumnSpacing="12">
-              <StackPanel Grid.Column="0" Spacing="4">
-                <TextBlock Text="API Port" Classes="muted"/>
-                <NumericUpDown Minimum="1024"
-                               Maximum="65535"
-                               Value="{Binding TechnicianApiPort}"/>
-              </StackPanel>
-
-              <StackPanel Grid.Column="1" Spacing="4">
-                <TextBlock Text="Technician API Key" Classes="muted"/>
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                  <TextBox Grid.Column="0"
-                           Text="{Binding TechnicianApiKey}"
-                           PasswordChar="*"
-                           Watermark="Set technician API key"/>
-                  <Button Grid.Column="1"
-                          Content="Generate"
-                          Command="{Binding GenerateTechnicianApiKeyCommand}"/>
-                </Grid>
-              </StackPanel>
-            </Grid>
+            <StackPanel Width="240" Spacing="4">
+              <TextBlock Text="API Port" Classes="muted"/>
+              <NumericUpDown Minimum="1024"
+                             Maximum="65535"
+                             Value="{Binding TechnicianApiPort}"/>
+            </StackPanel>
 
             <TextBlock Text="Portal URLs (use on Android browser, same Wi-Fi/LAN):" Classes="muted"/>
             <TextBox Text="{Binding TechnicianPortalUrls}"
@@ -168,7 +105,10 @@
                      AcceptsReturn="True"
                      TextWrapping="Wrap"
                      MinHeight="58"/>
-            <TextBlock Text="Open one URL on the phone, enter API key, then upload job card photos."
+            <TextBlock Text="Technician APK sign-in uses desktop Users (username + password)."
+                       Classes="muted"
+                       FontSize="11"/>
+            <TextBlock Text="Only active users with role Admin or Tech can sign in to technician app."
                        Classes="muted"
                        FontSize="11"/>
             <TextBlock Text="Restart app after changing this section."

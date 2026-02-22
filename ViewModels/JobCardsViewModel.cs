@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Platform.Storage;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +27,8 @@ public partial class JobCardRow : ObservableObject
     public JobType JobTypeValue { get; set; }
     public string Type { get; set; } = "";
     public string Status { get; set; } = "";
+    public int PhotoCount { get; set; }
+    public DateTime? LastPhotoAt { get; set; }
     public string Company { get; set; } = "";
     public string Registration { get; set; } = "";
     public string? Make { get; set; }
@@ -39,7 +43,11 @@ public partial class JobCardsViewModel : ViewModelBase
 {
     private readonly Window _window;
     private readonly AppState _appState;
+    private readonly IDataStore _dataStore;
     private readonly int? _quoteIdFilter;
+    private CancellationTokenSource? _loadCts;
+    private CancellationTokenSource? _filterDebounceCts;
+    private bool _suppressAutoLoad;
 
     public ObservableCollection<JobCardRow> Rows { get; } = new();
 
@@ -62,13 +70,16 @@ public partial class JobCardsViewModel : ViewModelBase
     {
         _window = window;
         _appState = appState;
+        _dataStore = DataStoreFactory.Create(_appState.Settings);
         _quoteIdFilter = quoteId;
+        _suppressAutoLoad = true;
         StatusOptions.Add("All");
         StatusOptions.AddRange(Enum.GetNames(typeof(JobStatus)));
         TypeOptions.Add("All");
         TypeOptions.AddRange(Enum.GetNames(typeof(JobType)));
         SetDefaultDateRange(startDate, endDate);
-        Load();
+        _suppressAutoLoad = false;
+        _ = Load();
     }
 
     partial void OnSelectedRowsChanged(List<JobCardRow>? value)
@@ -78,115 +89,103 @@ public partial class JobCardsViewModel : ViewModelBase
 
     public bool CanCompleteJobs => _appState.CanCompleteJobs;
 
-    partial void OnSelectedStatusChanged(string value) => Load();
-    partial void OnSelectedTypeChanged(string value) => Load();
-    partial void OnCompanyFilterChanged(string? value) => Load();
-    partial void OnRegistrationFilterChanged(string? value) => Load();
-    partial void OnStartDateChanged(DateTimeOffset? value) => Load();
-    partial void OnEndDateChanged(DateTimeOffset? value) => Load();
+    partial void OnSelectedStatusChanged(string value)
+    {
+        if (_suppressAutoLoad) return;
+        _ = Load();
+    }
+
+    partial void OnSelectedTypeChanged(string value)
+    {
+        if (_suppressAutoLoad) return;
+        _ = Load();
+    }
+
+    partial void OnCompanyFilterChanged(string? value) => DebounceLoad();
+    partial void OnRegistrationFilterChanged(string? value) => DebounceLoad();
+
+    partial void OnStartDateChanged(DateTimeOffset? value)
+    {
+        if (_suppressAutoLoad) return;
+        _ = Load();
+    }
+
+    partial void OnEndDateChanged(DateTimeOffset? value)
+    {
+        if (_suppressAutoLoad) return;
+        _ = Load();
+    }
 
     [RelayCommand]
-    private void Load()
+    private async Task Load()
     {
-        using var db = new AppDbContext();
-        var query = db.JobCards.AsNoTracking();
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = new CancellationTokenSource();
+        var token = _loadCts.Token;
 
-        if (!string.Equals(SelectedStatus, "All", StringComparison.OrdinalIgnoreCase)
-            && Enum.TryParse<JobStatus>(SelectedStatus, out var status))
+        try
         {
-            query = query.Where(j => j.Status == status);
-        }
-
-        if (!string.Equals(SelectedType, "All", StringComparison.OrdinalIgnoreCase)
-            && Enum.TryParse<JobType>(SelectedType, out var type))
-        {
-            query = query.Where(j => j.Type == type);
-        }
-
-        if (!string.IsNullOrWhiteSpace(CompanyFilter))
-        {
-            var s = CompanyFilter.Trim();
-            query = query.Where(j => j.Company.Contains(s));
-        }
-
-        if (!string.IsNullOrWhiteSpace(RegistrationFilter))
-        {
-            var s = RegistrationFilter.Trim();
-            query = query.Where(j => j.Registration.Contains(s));
-        }
-
-        if (StartDate != null)
-        {
-            var start = StartDate.Value.Date;
-            query = query.Where(j => j.CreatedAt >= start);
-        }
-
-        if (EndDate != null)
-        {
-            var endExclusive = EndDate.Value.Date.AddDays(1);
-            query = query.Where(j => j.CreatedAt < endExclusive);
-        }
-
-        if (_quoteIdFilter.HasValue)
-        {
-            var quoteId = _quoteIdFilter.Value;
-            query = query.Where(j => j.QuoteId == quoteId);
-        }
-
-        var items = _quoteIdFilter.HasValue
-            ? query.OrderBy(j => j.JobCardNumber).ThenBy(j => j.CreatedAt).ToList()
-            : query.OrderByDescending(j => j.CreatedAt).ToList();
-
-        var quoteIds = items
-            .Where(j => j.QuoteId.HasValue)
-            .Select(j => j.QuoteId!.Value)
-            .Distinct()
-            .ToList();
-
-        var quoteRefById = db.Quotes.AsNoTracking()
-            .Where(q => quoteIds.Contains(q.Id))
-            .Select(q => new { q.Id, q.QuoteNumber })
-            .ToList()
-            .ToDictionary(q => q.Id, q => QuoteReferenceFormatter.Format(q.QuoteNumber));
-
-        Rows.Clear();
-        foreach (var j in items)
-        {
-            var quoteRef = "-";
-            if (j.QuoteId.HasValue && quoteRefById.TryGetValue(j.QuoteId.Value, out var formattedRef))
-                quoteRef = formattedRef;
-
-            Rows.Add(new JobCardRow
+            var query = new JobCardQuery
             {
-                Id = j.Id,
-                JobCardNumber = j.JobCardNumber,
-                JobCardReference = JobCardReferenceFormatter.Format(j.Type, j.JobCardNumber),
-                QuoteId = j.QuoteId,
-                QuoteReference = quoteRef,
-                JobTypeValue = j.Type,
-                Type = j.Type.ToString(),
-                Status = j.Status.ToString(),
-                Company = j.Company,
-                Registration = j.Registration,
-                Make = j.Make,
-                Model = j.Model,
-                Imei = j.Imei,
-                SerialNumber = j.SerialNumber,
-                Iccid = j.Iccid,
-                CreatedAt = j.CreatedAt
-            });
+                SelectedStatus = SelectedStatus,
+                SelectedType = SelectedType,
+                CompanyFilter = CompanyFilter,
+                RegistrationFilter = RegistrationFilter,
+                StartDate = StartDate,
+                EndDate = EndDate,
+                QuoteIdFilter = _quoteIdFilter
+            };
+
+            var items = await _dataStore.GetJobCardsAsync(query, token);
+
+            Rows.Clear();
+            foreach (var j in items)
+            {
+                Rows.Add(new JobCardRow
+                {
+                    Id = j.Id,
+                    JobCardNumber = j.JobCardNumber,
+                    JobCardReference = j.JobCardReference,
+                    QuoteId = j.QuoteId,
+                    QuoteReference = j.QuoteReference,
+                    JobTypeValue = j.JobTypeValue,
+                    Type = j.Type,
+                    Status = j.Status,
+                    PhotoCount = j.PhotoCount,
+                    LastPhotoAt = j.LastPhotoAt,
+                    Company = j.Company,
+                    Registration = j.Registration,
+                    Make = j.Make,
+                    Model = j.Model,
+                    Imei = j.Imei,
+                    SerialNumber = j.SerialNumber,
+                    Iccid = j.Iccid,
+                    CreatedAt = j.CreatedAt
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Newer load superseded this call.
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Error loading job cards: {ex.Message}", true);
         }
     }
 
     [RelayCommand]
     private void ClearFilters()
     {
+        _suppressAutoLoad = true;
         SelectedStatus = "All";
         SelectedType = "All";
         CompanyFilter = null;
         RegistrationFilter = null;
         SetDefaultDateRange(null, null);
-        Load();
+        _suppressAutoLoad = false;
+        _ = Load();
     }
 
     private void SetDefaultDateRange(DateTime? start, DateTime? end)
@@ -203,6 +202,30 @@ public partial class JobCardsViewModel : ViewModelBase
         EndDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1));
     }
 
+    private async void DebounceLoad()
+    {
+        if (_suppressAutoLoad)
+            return;
+
+        _filterDebounceCts?.Cancel();
+        _filterDebounceCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _filterDebounceCts = cts;
+
+        try
+        {
+            await Task.Delay(250, cts.Token);
+            if (cts.IsCancellationRequested)
+                return;
+
+            await Dispatcher.UIThread.InvokeAsync(async () => await Load());
+        }
+        catch (OperationCanceledException)
+        {
+            // Newer filter value superseded this load.
+        }
+    }
+
     [RelayCommand]
     private async Task EditSelected()
     {
@@ -214,7 +237,7 @@ public partial class JobCardsViewModel : ViewModelBase
 
         await dlg.ShowDialog(_window);
 
-        Load();
+        await Load();
     }
 
     [RelayCommand]
@@ -237,6 +260,19 @@ public partial class JobCardsViewModel : ViewModelBase
 
         try
         {
+            if (row.JobTypeValue is JobType.Install or JobType.Transfer)
+            {
+                var photoCount = await _dataStore.CountJobCardPhotosAsync(row.Id);
+
+                if (photoCount <= 0)
+                {
+                    var missingPhotosMessage = "Upload at least one technician photo before completing this job card.";
+                    _appState.SetStatus(missingPhotosMessage, true);
+                    await DialogService.Alert(_window, "Technician Photos Required", missingPhotosMessage);
+                    return;
+                }
+            }
+
             _appState.SetStatus($"Completing {row.JobCardReference}...");
 
             var wf = new WorkflowService();
@@ -249,7 +285,7 @@ public partial class JobCardsViewModel : ViewModelBase
                 return;
             }
 
-            Load();
+            await Load();
         }
         catch (Exception ex)
         {

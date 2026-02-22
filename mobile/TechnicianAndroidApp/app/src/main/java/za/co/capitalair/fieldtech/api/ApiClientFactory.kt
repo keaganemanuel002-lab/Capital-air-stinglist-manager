@@ -31,6 +31,13 @@ object ApiClientFactory {
             throw IllegalArgumentException("API Base URL is required.")
         }
 
+        // Allow pasting the technician portal URL and strip it to root API host.
+        val lower = value.lowercase()
+        val techPathIndex = lower.indexOf("/technician")
+        if (techPathIndex > 0) {
+            value = value.substring(0, techPathIndex)
+        }
+
         if (!value.startsWith("http://") && !value.startsWith("https://")) {
             value = "http://$value"
         }
