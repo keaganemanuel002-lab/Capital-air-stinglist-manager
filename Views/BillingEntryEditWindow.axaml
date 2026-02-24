@@ -1,0 +1,98 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.BillingEntryEditWindow"
+        x:CompileBindings="False"
+        Width="880" Height="760"
+        MinWidth="840" MinHeight="700"
+        WindowStartupLocation="CenterOwner"
+        Title="{Binding WindowTitle}">
+
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="10">
+      <TextBlock Text="{Binding WindowTitle}" Classes="h2"/>
+
+      <UniformGrid Columns="2" Rows="2">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Company" Classes="muted"/>
+          <TextBox Text="{Binding Company}" Watermark="Company"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Registration" Classes="muted"/>
+          <TextBox Text="{Binding Registration}" Watermark="Registration"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Fleet Number" Classes="muted"/>
+          <TextBox Text="{Binding FleetNumber}" Watermark="Fleet number"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Tracking Unit Make" Classes="muted"/>
+          <TextBox Text="{Binding TrackingUnitMake}" Watermark="STING / STING PLUS / STING FM"/>
+        </StackPanel>
+      </UniformGrid>
+
+      <UniformGrid Columns="3" Rows="1">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Make" Classes="muted"/>
+          <TextBox Text="{Binding Make}" Watermark="Vehicle make"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Model" Classes="muted"/>
+          <TextBox Text="{Binding Model}" Watermark="Vehicle model"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Colour" Classes="muted"/>
+          <TextBox Text="{Binding Colour}" Watermark="Vehicle colour"/>
+        </StackPanel>
+      </UniformGrid>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="VIN" Classes="muted"/>
+        <TextBox Text="{Binding VinNumber}" Watermark="VIN"/>
+      </StackPanel>
+
+      <UniformGrid Columns="4" Rows="1">
+        <StackPanel Spacing="4">
+          <TextBlock Text="IMEI" Classes="muted"/>
+          <TextBox Text="{Binding Imei}" Watermark="IMEI"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Serial Number" Classes="muted"/>
+          <TextBox Text="{Binding SerialNumber}" Watermark="Serial number"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="ICCID" Classes="muted"/>
+          <TextBox Text="{Binding Iccid}" Watermark="ICCID"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="SIM Number" Classes="muted"/>
+          <TextBox Text="{Binding SimNumber}" Watermark="SIM number"/>
+        </StackPanel>
+      </UniformGrid>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Notes" Classes="muted"/>
+        <TextBox Text="{Binding Notes}" Watermark="Notes" Height="90" AcceptsReturn="True" TextWrapping="Wrap"/>
+      </StackPanel>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Reason" Classes="muted"/>
+        <TextBox Text="{Binding Reason}" Watermark="Reason" Height="70" AcceptsReturn="True" TextWrapping="Wrap"/>
+      </StackPanel>
+
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed"/>
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+        <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+        <Button Content="Save Changes" Command="{Binding SaveCommand}" Classes="primary"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

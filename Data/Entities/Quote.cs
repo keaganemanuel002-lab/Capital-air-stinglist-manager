@@ -3,7 +3,7 @@ using System;
 
 namespace StingListManager.Data.Entities;
 
-public enum QuoteType { Install = 0, Removal = 1 }
+public enum QuoteType { Install = 0, Removal = 1, Inspection = 2 }
 public enum QuoteStatus { Draft = 0, Sent = 1, Approved = 2, Rejected = 3, Cancelled = 4 }
 
 public class Quote

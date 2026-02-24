@@ -43,7 +43,7 @@ public class JobCardPdfService
                     // Job Type Badge
                     col.Item().Row(row =>
                     {
-                        row.AutoItem().Background(jobCard.Type == JobType.Install ? Colors.Green.Lighten2 : Colors.Orange.Lighten2)
+                        row.AutoItem().Background(GetTypeColor(jobCard.Type))
                             .Padding(6)
                             .Text(jobCard.Type.ToString().ToUpper())
                             .FontSize(10)
@@ -218,7 +218,7 @@ public class JobCardPdfService
                         // Job Type Badge
                         col.Item().Row(row =>
                         {
-                            row.AutoItem().Background(jobCard.Type == JobType.Install ? Colors.Green.Lighten2 : Colors.Orange.Lighten2)
+                            row.AutoItem().Background(GetTypeColor(jobCard.Type))
                                 .Padding(6)
                                 .Text(jobCard.Type.ToString().ToUpper())
                                 .FontSize(10)
@@ -368,6 +368,18 @@ public class JobCardPdfService
             JobStatus.Open => Colors.Blue.Lighten2,
             JobStatus.Completed => Colors.Green.Lighten2,
             JobStatus.Cancelled => Colors.Red.Lighten2,
+            _ => Colors.Grey.Lighten2
+        };
+    }
+
+    private static string GetTypeColor(JobType type)
+    {
+        return type switch
+        {
+            JobType.Install => Colors.Green.Lighten2,
+            JobType.Inspection => Colors.Blue.Lighten2,
+            JobType.Transfer => Colors.Teal.Lighten2,
+            JobType.Removal => Colors.Orange.Lighten2,
             _ => Colors.Grey.Lighten2
         };
     }

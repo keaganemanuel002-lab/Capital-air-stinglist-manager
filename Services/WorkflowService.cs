@@ -13,6 +13,8 @@ public class WorkflowService
     public const string TransferFeeOnlyQuoteMarker = "[TRANSFER_FEE_ONLY]";
     public const string TransferInstallFeeCode = "TRANSFER-INSTALL-FEE";
     public const decimal TransferInstallFeeExVat = 450m;
+    public const string InspectionFeeCode = "AUTO-INSPECTION-FEE";
+    public const decimal InspectionFeeExVat = 450m;
 
     public (int jobId, string errorMessage) ApproveQuote(int quoteId, string actor, DateTime? scheduleDate = null)
     {
@@ -142,13 +144,17 @@ public class WorkflowService
 
                 var details = quote.Type == QuoteType.Removal
                     ? "Quote removal - live tracking disabled, no job card required"
-                    : "Quote install - live tracking only, no job card required";
+                    : quote.Type == QuoteType.Inspection
+                        ? "Quote inspection - live tracking only, no job card required"
+                        : "Quote install - live tracking only, no job card required";
 
                 new AuditService().Log(actor, "QUOTE_APPROVE", "Quote", quote.Id, quote.Registration, details);
 
                 var message = quote.Type == QuoteType.Removal
                     ? "Quote approved. Live tracking removed for this client. No job card created."
-                    : "Quote approved. Live tracking-only quote does not require a job card.";
+                    : quote.Type == QuoteType.Inspection
+                        ? "Quote approved. Inspection live-tracking-only quote does not require a job card."
+                        : "Quote approved. Live tracking-only quote does not require a job card.";
 
                 return (-1, message);
             }
@@ -170,7 +176,12 @@ public class WorkflowService
                 var job = new JobCard
                 {
                     QuoteId = quote.Id,
-                    Type = quote.Type == QuoteType.Install ? JobType.Install : JobType.Removal,
+                    Type = quote.Type switch
+                    {
+                        QuoteType.Removal => JobType.Removal,
+                        QuoteType.Inspection => JobType.Inspection,
+                        _ => JobType.Install
+                    },
                     Status = JobStatus.Open,
                     Company = quote.Company,
                     Registration = quote.Registration ?? "",
@@ -462,6 +473,46 @@ public class WorkflowService
         return (true, $"Registration updated to {normalizedNewRegistration}. STING and Billing lists will reflect this change.");
     }
 
+    public (bool ok, string message) UpdateCompletedJobCardGridLocation(int jobCardId, string? newGridLocation, string actor)
+    {
+        using var db = new AppDbContext();
+
+        var job = db.JobCards.FirstOrDefault(j => j.Id == jobCardId);
+        if (job is null)
+            return (false, "Job card not found.");
+
+        if (job.Status != JobStatus.Completed)
+            return (false, "Only completed job cards can be updated this way.");
+
+        var normalizedCurrent = string.IsNullOrWhiteSpace(job.GridLocation)
+            ? null
+            : job.GridLocation.Trim().ToUpperInvariant();
+        var normalizedNew = string.IsNullOrWhiteSpace(newGridLocation)
+            ? null
+            : newGridLocation.Trim().ToUpperInvariant();
+
+        if (string.Equals(normalizedCurrent, normalizedNew, StringComparison.Ordinal))
+            return (false, "Grid location is already set to that value.");
+
+        job.GridLocation = normalizedNew;
+        db.SaveChanges();
+
+        var oldValue = string.IsNullOrWhiteSpace(normalizedCurrent) ? "<empty>" : normalizedCurrent;
+        var newValue = string.IsNullOrWhiteSpace(normalizedNew) ? "<empty>" : normalizedNew;
+
+        new AuditService().Log(
+            actor,
+            "JOBCARD_GRIDLOCATION_UPDATE",
+            "JobCard",
+            job.Id,
+            job.Registration,
+            $"Updated completed job card grid location from {oldValue} to {newValue}.");
+
+        return (true, string.IsNullOrWhiteSpace(normalizedNew)
+            ? "Grid location cleared for completed job card."
+            : $"Grid location updated to {normalizedNew}.");
+    }
+
     public async Task<(bool ok, string message)> CompleteJobCardAsync(int jobCardId, string actor, string? wialonToken = null)
     {
         using var db = new AppDbContext();
@@ -476,12 +527,36 @@ public class WorkflowService
         if (job.Status == JobStatus.Cancelled)
             return (false, $"Job card {jobReference} is cancelled and cannot be completed.");
 
-        if (job.Type == JobType.Install || job.Type == JobType.Transfer)
+        var requiresTrackingFields =
+            job.Type == JobType.Install
+            || job.Type == JobType.Transfer
+            || (job.Type == JobType.Inspection && job.InspectionOutcome == InspectionOutcome.UnitReplaced);
+
+        if (requiresTrackingFields)
         {
             var missingTrackingFields = GetMissingTrackingFields(job);
             if (missingTrackingFields.Length > 0)
             {
                 return (false, $"Cannot complete job card. Missing tracking unit information: {string.Join(", ", missingTrackingFields)}.");
+            }
+        }
+
+        Quote? linkedInspectionQuote = null;
+        if (job.Type == JobType.Inspection && job.QuoteId.HasValue)
+        {
+            linkedInspectionQuote = db.Quotes
+                .Include(q => q.LineItems)
+                .FirstOrDefault(q => q.Id == job.QuoteId.Value && q.Type == QuoteType.Inspection);
+        }
+
+        if (job.Type == JobType.Inspection
+            && job.InspectionOutcome == InspectionOutcome.UnitReplaced
+            && linkedInspectionQuote is not null)
+        {
+            var hasReplacementUnitLine = linkedInspectionQuote.LineItems.Any(IsUnitLineItem);
+            if (!hasReplacementUnitLine)
+            {
+                return (false, "Inspection replacement requires a STING/STING PLUS/STING FM line item on the linked quote.");
             }
         }
 
@@ -563,6 +638,124 @@ public class WorkflowService
             catch (DbUpdateException)
             {
                 return (false, "Duplicate unit detected. An active billing entry already exists for this IMEI/ICCID/Serial.");
+            }
+        }
+        else if (job.Type == JobType.Inspection)
+        {
+            if (job.InspectionOutcome == InspectionOutcome.InspectionOnly)
+            {
+                if (linkedInspectionQuote is not null)
+                    EnsureInspectionFeeLineItem(linkedInspectionQuote);
+
+                db.SaveChanges();
+
+                new AuditService().Log(
+                    actor,
+                    "JOBCARD_INSPECTION_COMPLETE",
+                    "JobCard",
+                    job.Id,
+                    job.Registration,
+                    "Inspection completed without replacing unit.");
+
+                return (true, "Inspection completed. Unit was repaired; only the inspection fee applies.");
+            }
+
+            var installStatus = await ResolveInstallBillingStatusAsync(job.Imei, wialonToken);
+            var activeEntries = db.BillingEntries
+                .Where(b => b.ArchivedAt == null && (b.Status == BillingStatus.Active || b.Status == BillingStatus.NotLoaded))
+                .OrderByDescending(b => b.ActiveFrom)
+                .ToList();
+
+            var normalizedRegistration = NormalizeRegistration(job.Registration);
+            var normalizedCompany = (job.Company ?? string.Empty).Trim();
+
+            BillingEntry? be = null;
+            if (!string.IsNullOrWhiteSpace(normalizedRegistration))
+            {
+                be = activeEntries.FirstOrDefault(b =>
+                    string.Equals(NormalizeRegistration(b.Registration), normalizedRegistration, StringComparison.Ordinal)
+                    && string.Equals((b.Company ?? string.Empty).Trim(), normalizedCompany, StringComparison.OrdinalIgnoreCase));
+            }
+
+            be ??= FindActiveBillingEntryForUnit(db, job);
+
+            if (be is null)
+            {
+                return (false, "Inspection replacement cannot complete - no matching active STING/Billing entry found to update.");
+            }
+
+            var duplicateByIdentifiers = activeEntries.FirstOrDefault(b =>
+                b.Id != be.Id
+                && (IsSameImei(b.Imei, job.Imei)
+                    || IsSameIccid(b.Iccid, job.Iccid)
+                    || IsSameSerial(b.SerialNumber, job.SerialNumber)));
+
+            if (duplicateByIdentifiers is not null)
+            {
+                return (false, "Inspection replacement cannot complete - another active entry already uses this IMEI/ICCID/Serial.");
+            }
+
+            be.Company = string.IsNullOrWhiteSpace(job.Company) ? be.Company : job.Company.Trim();
+            be.Registration = string.IsNullOrWhiteSpace(job.Registration) ? be.Registration : job.Registration.Trim().ToUpperInvariant();
+            be.RegistrationNorm = NormalizeRegistration(be.Registration);
+            be.FleetNumber = TrimOrNull(job.FleetNumber);
+            be.Make = TrimOrNull(job.Make);
+            be.Model = TrimOrNull(job.Model);
+            be.Colour = TrimOrNull(job.Colour);
+            be.VinNumber = TrimOrNull(job.VinNumber);
+            be.TrackingUnitMake = TrimOrNull(job.TrackingUnitMake);
+            be.Imei = TrimOrNull(job.Imei);
+            be.SerialNumber = TrimOrNull(job.SerialNumber);
+            be.Iccid = TrimOrNull(job.Iccid);
+            be.SimNumber = TrimOrNull(job.SimNumber);
+            be.Notes = TrimOrNull(job.Notes);
+            be.Status = installStatus;
+            be.ActiveFrom = job.CompletedAt ?? DateTime.UtcNow;
+            be.ActiveTo = null;
+            be.ArchivedAt = null;
+            be.Reason = "Updated from completed inspection replacement";
+
+            if (linkedInspectionQuote is not null)
+            {
+                RemoveInspectionFeeLineItems(linkedInspectionQuote);
+                linkedInspectionQuote.AmountExVat = linkedInspectionQuote.LineItems.Sum(x => x.LineTotalExVat);
+            }
+
+            try
+            {
+                db.SaveChanges();
+
+                new AuditService().Log(
+                    actor,
+                    "BILLING_INSPECTION_REPLACE",
+                    "BillingEntry",
+                    be.Id,
+                    be.Registration,
+                    "Updated existing active entry from completed inspection replacement.");
+
+                var syncResult = await SyncInstallUnitToWialonAsync(job, wialonToken);
+                if (syncResult.ok && be.Status != BillingStatus.Active)
+                {
+                    be.Status = BillingStatus.Active;
+                    db.SaveChanges();
+                }
+
+                var message = be.Status == BillingStatus.NotLoaded
+                    ? "Inspection completed. Unit replaced and existing billing entry updated with status Not Loaded."
+                    : "Inspection completed. Unit replaced and existing billing entry updated with status Active.";
+
+                if (syncResult.attempted && !string.IsNullOrWhiteSpace(syncResult.message))
+                    message = $"{message} {syncResult.message}";
+
+                var flickswitchResult = await SyncSimDescriptionToFlickswitchAsync(job);
+                if (flickswitchResult.attempted && !string.IsNullOrWhiteSpace(flickswitchResult.message))
+                    message = $"{message} {flickswitchResult.message}";
+
+                return (true, message);
+            }
+            catch (DbUpdateException)
+            {
+                return (false, "Duplicate unit detected. Another active billing entry already exists for this IMEI/ICCID/Serial.");
             }
         }
         else if (job.Type == JobType.Transfer)
@@ -699,6 +892,85 @@ public class WorkflowService
             missing.Add("Registration");
 
         return missing.ToArray();
+    }
+
+    private static void EnsureInspectionFeeLineItem(Quote quote)
+    {
+        if (quote.LineItems.Any(IsInspectionFeeLineItem))
+        {
+            quote.AmountExVat = quote.LineItems.Sum(x => x.LineTotalExVat);
+            return;
+        }
+
+        var lineNumber = quote.LineItems.Count == 0
+            ? 1
+            : quote.LineItems.Max(x => x.LineNumber) + 1;
+
+        var unitPrice = GetDefaultInspectionFeeExVat();
+        quote.LineItems.Add(new QuoteLineItem
+        {
+            LineNumber = lineNumber,
+            ProductType = "Inspection Fee",
+            ProductCode = InspectionFeeCode,
+            ProductName = "Inspection Fee",
+            Quantity = 1,
+            UnitPriceExVat = unitPrice,
+            LineTotalExVat = unitPrice,
+            IsVatExempt = false,
+            Description = "Auto-added inspection fee"
+        });
+
+        quote.AmountExVat = quote.LineItems.Sum(x => x.LineTotalExVat);
+    }
+
+    private static void RemoveInspectionFeeLineItems(Quote quote)
+    {
+        var inspectionFeeRows = quote.LineItems
+            .Where(IsInspectionFeeLineItem)
+            .ToList();
+
+        if (inspectionFeeRows.Count == 0)
+            return;
+
+        foreach (var row in inspectionFeeRows)
+        {
+            quote.LineItems.Remove(row);
+        }
+
+        var lineNumber = 1;
+        foreach (var row in quote.LineItems.OrderBy(x => x.LineNumber))
+        {
+            row.LineNumber = lineNumber++;
+        }
+    }
+
+    private static bool IsInspectionFeeLineItem(QuoteLineItem item)
+    {
+        if (string.Equals(item.ProductCode, InspectionFeeCode, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(item.ProductCode, "INSPECTION-FEE", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (string.Equals(item.ProductName, "Inspection Fee", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return string.Equals(item.Description, "Auto-added inspection fee", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static decimal GetDefaultInspectionFeeExVat()
+    {
+        try
+        {
+            var settings = new SettingsService().Load();
+            return settings.DefaultInspectionFeeExVat > 0
+                ? settings.DefaultInspectionFeeExVat
+                : InspectionFeeExVat;
+        }
+        catch
+        {
+            return InspectionFeeExVat;
+        }
     }
 
     private static string NormalizeRegistration(string? value)

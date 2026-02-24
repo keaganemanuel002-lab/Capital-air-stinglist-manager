@@ -102,7 +102,7 @@ public partial class ClientEditViewModel : ViewModelBase
         entity.Address = Address?.Trim();
 
         db.SaveChanges();
-        _setStatus("Client saved locally. Use 'Sync from Wialon' to refresh accounts.");
+        _setStatus("Client saved.");
 
         _onSaved(entity.Id);
         _close();

@@ -20,6 +20,7 @@ public class AppSettings
     public string Role { get; set; } = "Admin"; // Admin | Ops | Tech | ReadOnly
     public decimal DefaultInstallFeeExVat { get; set; } = 150m;
     public decimal DefaultRemovalFeeExVat { get; set; } = 0m;
+    public decimal DefaultInspectionFeeExVat { get; set; } = 450m;
     public decimal VatRate { get; set; } = 0.15m; // 15% VAT
     public PackagePricing PackagePricing { get; set; } = new();
     public string? SharedBaseDir { get; set; } = null;
@@ -57,7 +58,9 @@ public class SettingsService
         try
         {
             var json = File.ReadAllText(Paths.SettingsPath);
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? new AppSettings();
+            Normalize(settings);
+            return settings;
         }
         catch
         {
@@ -70,6 +73,7 @@ public class SettingsService
         try
         {
             Paths.EnsureLocal();
+            Normalize(settings);
             var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(Paths.SettingsPath, json);
         }
@@ -77,5 +81,32 @@ public class SettingsService
         {
             Console.WriteLine($"Error saving settings: {ex.Message}");
         }
+    }
+
+    private static void Normalize(AppSettings settings)
+    {
+        settings.FirebaseProjectId = NormalizeLower(settings.FirebaseProjectId);
+        settings.FirebaseStorageBucket = NormalizeLower(settings.FirebaseStorageBucket);
+        settings.FirebaseServiceAccountJsonPath = NormalizeTrim(settings.FirebaseServiceAccountJsonPath);
+        settings.WialonApiToken = NormalizeTrim(settings.WialonApiToken);
+        settings.WialonClientProvisionApiToken = NormalizeTrim(settings.WialonClientProvisionApiToken);
+        settings.FlickswitchApiKey = NormalizeTrim(settings.FlickswitchApiKey);
+        settings.FlickswitchBaseUrl = NormalizeTrim(settings.FlickswitchBaseUrl);
+    }
+
+    private static string? NormalizeLower(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return value.Trim().ToLowerInvariant();
+    }
+
+    private static string? NormalizeTrim(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return value.Trim();
     }
 }

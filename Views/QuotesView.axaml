@@ -7,11 +7,10 @@
 
     <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
       <Button Content="Add Quote" Command="{Binding AddQuoteCommand}" Classes="primary"/>
-      <Button Content="Edit Selected" Command="{Binding EditSelectedCommand}"/>
+      <Button Content="Amend Quote" Command="{Binding EditSelectedCommand}"/>
       <Button Content="Approve Selected" Command="{Binding ApproveSelectedCommand}" IsEnabled="{Binding CanApproveSelectedQuote}"/>
       <Button Content="Cancel Draft" Command="{Binding CancelSelectedCommand}" IsEnabled="{Binding CanCancelSelectedQuote}"/>
       <Button Content="Delete Selected" Command="{Binding DeleteSelectedCommand}"/>
-      <Button Content="Documents" Command="{Binding OpenDocumentsCommand}"/>
       <Button Content="Generate PDF" Command="{Binding GenerateQuotePdfCommand}"/>
       <Button Content="Refresh" Command="{Binding LoadCommand}"/>
     </StackPanel>
@@ -23,15 +22,44 @@
       <TextBlock Text="{Binding TotalCount, StringFormat='Total: {0}'}" Margin="20,0,0,0" VerticalAlignment="Center" Classes="muted"/>
     </StackPanel>
 
-    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8">
-      <ComboBox Width="140" ItemsSource="{Binding StatusOptions}" SelectedItem="{Binding SelectedStatus}"/>
-      <ComboBox Width="140" ItemsSource="{Binding TypeOptions}" SelectedItem="{Binding SelectedType}"/>
-      <TextBox Width="200" Watermark="Company..." Text="{Binding CompanyFilter, UpdateSourceTrigger=PropertyChanged}"/>
-      <TextBox Width="160" Watermark="Reg..." Text="{Binding RegistrationFilter, UpdateSourceTrigger=PropertyChanged}"/>
-      <DatePicker Width="140" SelectedDate="{Binding StartDate}"/>
-      <DatePicker Width="140" SelectedDate="{Binding EndDate}"/>
-      <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}"/>
-    </StackPanel>
+    <Border Grid.Row="3" Classes="card">
+      <Grid RowDefinitions="Auto,Auto"
+            ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*"
+            ColumnSpacing="10"
+            RowSpacing="6">
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Status" Classes="muted"/>
+        <TextBlock Grid.Row="0" Grid.Column="1" Text="Type" Classes="muted"/>
+        <TextBlock Grid.Row="0" Grid.Column="2" Text="Company" Classes="muted"/>
+        <TextBlock Grid.Row="0" Grid.Column="3" Text="Registration" Classes="muted"/>
+        <TextBlock Grid.Row="0" Grid.Column="4" Text="From" Classes="muted"/>
+        <TextBlock Grid.Row="0" Grid.Column="5" Text="To" Classes="muted"/>
+
+        <ComboBox Grid.Row="1" Grid.Column="0"
+                  Width="140"
+                  ItemsSource="{Binding StatusOptions}"
+                  SelectedItem="{Binding SelectedStatus}"/>
+        <ComboBox Grid.Row="1" Grid.Column="1"
+                  Width="140"
+                  ItemsSource="{Binding TypeOptions}"
+                  SelectedItem="{Binding SelectedType}"/>
+        <TextBox Grid.Row="1" Grid.Column="2"
+                 Width="210"
+                 Watermark="Company"
+                 Text="{Binding CompanyFilter, UpdateSourceTrigger=PropertyChanged}"/>
+        <TextBox Grid.Row="1" Grid.Column="3"
+                 Width="160"
+                 Watermark="Registration"
+                 Text="{Binding RegistrationFilter, UpdateSourceTrigger=PropertyChanged}"/>
+        <DatePicker Grid.Row="1" Grid.Column="4" Width="145" SelectedDate="{Binding StartDate}"/>
+        <DatePicker Grid.Row="1" Grid.Column="5" Width="145" SelectedDate="{Binding EndDate}"/>
+
+        <Button Grid.Row="1" Grid.Column="6"
+                Content="Clear Filters"
+                Command="{Binding ClearFiltersCommand}"
+                HorizontalAlignment="Right"
+                MinWidth="110"/>
+      </Grid>
+    </Border>
 
     <DataGrid Grid.Row="4"
               AutoGenerateColumns="False"
@@ -54,7 +82,6 @@
         <DataGridTextColumn Header="#" Binding="{Binding QuoteReference}" Width="1*"/>
         <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1*"/>
         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
-        <DataGridTextColumn Header="Workflow" Binding="{Binding WorkflowBadge}" Width="2*"/>
         <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="2.2*"/>
         <DataGridTextColumn Header="Amount (Ex VAT)" Binding="{Binding AmountExVat, StringFormat=R{0:0.00}}" Width="1.2*"/>
         <DataGridTextColumn Header="VAT (15%)" Binding="{Binding VatAmount, StringFormat=R{0:0.00}}" Width="1.2*"/>

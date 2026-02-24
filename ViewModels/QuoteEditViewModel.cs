@@ -87,6 +87,8 @@ namespace StingListManager.ViewModels
     {
         private const string AutoRemovalFeeCode = "AUTO-REMOVAL-FEE";
         private const string AutoRemovalFeeDescription = "Auto-added removal fee";
+        private const string AutoInspectionFeeCode = WorkflowService.InspectionFeeCode;
+        private const string AutoInspectionFeeDescription = "Auto-added inspection fee";
         private const string AutoMonthlyStingCode = "AUTO-MONTHLY-STING";
         private const string AutoMonthlyStingPlusCode = "AUTO-MONTHLY-STING-PLUS";
         private const string AutoMonthlyStingFmCode = "AUTO-MONTHLY-STING-FM";
@@ -133,9 +135,12 @@ namespace StingListManager.ViewModels
         public ObservableCollection<string> ClientNames { get; } = new();
 
         public bool IsRemovalQuote => TypeIndex == 1;
+        public bool IsInspectionQuote => TypeIndex == 2;
 
         partial void OnTypeIndexChanged(int value)
         {
+            OnPropertyChanged(nameof(IsRemovalQuote));
+            OnPropertyChanged(nameof(IsInspectionQuote));
             EnsureAutomaticLineItems();
         }
 
@@ -191,7 +196,12 @@ namespace StingListManager.ViewModels
                 if (quote is null)
                     return;
 
-                TypeIndex = quote.Type == QuoteType.Removal ? 1 : 0;
+                TypeIndex = quote.Type switch
+                {
+                    QuoteType.Removal => 1,
+                    QuoteType.Inspection => 2,
+                    _ => 0
+                };
                 Company = quote.Company ?? "";
                 Registration = quote.Registration ?? "";
                 FleetNumber = quote.FleetNumber ?? "";
@@ -262,8 +272,11 @@ namespace StingListManager.ViewModels
         {
             if (_isApplyingAutomaticLineItems)
             {
-                if (!string.Equals(item.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(item.Description, AutoRemovalFeeDescription, StringComparison.OrdinalIgnoreCase))
+                var hasAutoDescription = string.Equals(item.Description, AutoRemovalFeeDescription, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(item.Description, AutoInspectionFeeDescription, StringComparison.OrdinalIgnoreCase);
+                var isAutoFeeCode = string.Equals(item.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(item.ProductCode, AutoInspectionFeeCode, StringComparison.OrdinalIgnoreCase);
+                if (!isAutoFeeCode && hasAutoDescription)
                 {
                     item.Description = string.Empty;
                 }
@@ -305,10 +318,13 @@ namespace StingListManager.ViewModels
                     item.IsVatExempt = false;
                 }
 
-                // If an auto removal-fee row is converted to another product (e.g. App Live Tracking),
+                // If an auto fee row is converted to another product (e.g. App Live Tracking),
                 // clear the auto marker so it is no longer treated as an auto row.
-                if (!string.Equals(item.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(item.Description, AutoRemovalFeeDescription, StringComparison.OrdinalIgnoreCase))
+                var hasAutoDescription = string.Equals(item.Description, AutoRemovalFeeDescription, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(item.Description, AutoInspectionFeeDescription, StringComparison.OrdinalIgnoreCase);
+                var isAutoFeeCode = string.Equals(item.ProductCode, AutoRemovalFeeCode, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(item.ProductCode, AutoInspectionFeeCode, StringComparison.OrdinalIgnoreCase);
+                if (!isAutoFeeCode && hasAutoDescription)
                 {
                     item.Description = string.Empty;
                 }
@@ -343,6 +359,11 @@ namespace StingListManager.ViewModels
                     return;
                 }
             }
+            else if (IsInspectionQuote && string.IsNullOrWhiteSpace(Registration))
+            {
+                ErrorMessage = "Registration is required for inspection quotes.";
+                return;
+            }
 
             if (LineItems.Count == 0 && !IsRemovalQuote)
             {
@@ -367,7 +388,12 @@ namespace StingListManager.ViewModels
                     q.LineItems.Clear();
                 }
 
-                q.Type = TypeIndex == 0 ? QuoteType.Install : QuoteType.Removal;
+                q.Type = TypeIndex switch
+                {
+                    1 => QuoteType.Removal,
+                    2 => QuoteType.Inspection,
+                    _ => QuoteType.Install
+                };
                 q.Company = Company.Trim();
                 q.Registration = string.IsNullOrWhiteSpace(Registration) ? null : Registration.Trim().ToUpperInvariant();
                 q.FleetNumber = string.IsNullOrWhiteSpace(FleetNumber) ? null : FleetNumber.Trim();
@@ -424,6 +450,7 @@ namespace StingListManager.ViewModels
             {
                 if (IsRemovalQuote)
                 {
+                    RemoveAutoInspectionFeeLines();
                     RemoveAutoMonthlyLines();
                     if (ShouldAutoAddRemovalFee())
                     {
@@ -434,9 +461,23 @@ namespace StingListManager.ViewModels
                         RemoveAutoRemovalFeeLines();
                     }
                 }
+                else if (IsInspectionQuote)
+                {
+                    RemoveAutoRemovalFeeLines();
+                    RemoveAutoMonthlyLines();
+                    if (ShouldAutoAddInspectionFee())
+                    {
+                        EnsureInspectionFeeLine();
+                    }
+                    else
+                    {
+                        RemoveAutoInspectionFeeLines();
+                    }
+                }
                 else
                 {
                     RemoveAutoRemovalFeeLines();
+                    RemoveAutoInspectionFeeLines();
                     EnsureMonthlyFeeLines();
                 }
 
@@ -465,6 +506,15 @@ namespace StingListManager.ViewModels
             return hasNonLiveTrackingManualLine;
         }
 
+        private bool ShouldAutoAddInspectionFee()
+        {
+            var manualRows = LineItems.Where(x => !IsAutoRow(x)).ToList();
+            if (manualRows.Count == 0)
+                return true;
+
+            return !manualRows.Any(IsUnitLine);
+        }
+
         private void EnsureRemovalFeeLine()
         {
             var autoRows = LineItems.Where(IsAnyRemovalFeeLine).ToList();
@@ -488,6 +538,32 @@ namespace StingListManager.ViewModels
             row.UnitPriceExVat = _appState.Settings.DefaultRemovalFeeExVat;
             row.IsVatExempt = false;
             row.Description = AutoRemovalFeeDescription;
+            row.LineTotalExVat = row.UnitPriceExVat * row.Quantity;
+        }
+
+        private void EnsureInspectionFeeLine()
+        {
+            var autoRows = LineItems.Where(IsAnyInspectionFeeLine).ToList();
+            foreach (var extra in autoRows.Skip(1))
+            {
+                LineItems.Remove(extra);
+            }
+
+            var row = autoRows.FirstOrDefault();
+            if (row == null)
+            {
+                row = new QuoteLineItemRow();
+                row.SetChangeHandler(RecalculateLineItemTotal);
+                LineItems.Add(row);
+            }
+
+            row.SelectedProduct = null;
+            row.ProductCode = AutoInspectionFeeCode;
+            row.ProductName = "Inspection Fee";
+            row.Quantity = 1;
+            row.UnitPriceExVat = _appState.Settings.DefaultInspectionFeeExVat;
+            row.IsVatExempt = false;
+            row.Description = AutoInspectionFeeDescription;
             row.LineTotalExVat = row.UnitPriceExVat * row.Quantity;
         }
 
@@ -558,6 +634,14 @@ namespace StingListManager.ViewModels
             }
         }
 
+        private void RemoveAutoInspectionFeeLines()
+        {
+            foreach (var row in LineItems.Where(IsAutoInspectionFeeLine).ToList())
+            {
+                LineItems.Remove(row);
+            }
+        }
+
         private void RenumberLineItems()
         {
             var n = 1;
@@ -588,6 +672,27 @@ namespace StingListManager.ViewModels
                    || string.Equals(row.ProductName, "Removal fee", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool IsAutoInspectionFeeLine(QuoteLineItemRow row)
+        {
+            if (string.Equals(row.ProductCode, AutoInspectionFeeCode, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return string.Equals(row.Description, AutoInspectionFeeDescription, StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(row.Description, "Auto-added inspection fee", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsAnyInspectionFeeLine(QuoteLineItemRow row)
+        {
+            if (IsAutoInspectionFeeLine(row))
+                return true;
+
+            if (string.Equals(row.ProductCode, "INSPECTION-FEE", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return string.Equals(row.ProductName, "Inspection Fee", StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(row.ProductName, "Inspection fee", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static bool IsLiveTrackingLine(QuoteLineItemRow row)
         {
             if (string.Equals(row.ProductCode, "APP-LIVE-TRACKING", StringComparison.OrdinalIgnoreCase))
@@ -615,7 +720,12 @@ namespace StingListManager.ViewModels
 
         private static bool IsAutoRow(QuoteLineItemRow row)
         {
-            return IsAutoRemovalFeeLine(row) || IsAutoMonthlyLine(row);
+            return IsAutoRemovalFeeLine(row) || IsAutoInspectionFeeLine(row) || IsAutoMonthlyLine(row);
+        }
+
+        private static bool IsUnitLine(QuoteLineItemRow row)
+        {
+            return GetUnitFamily(row) != UnitFamily.None;
         }
 
         private static UnitFamily GetUnitFamily(QuoteLineItemRow row)

@@ -13,6 +13,7 @@ public static class JobCardReferenceFormatter
             JobType.Install => "INS",
             JobType.Removal => "REM",
             JobType.Transfer => "TRF",
+            JobType.Inspection => "INSP",
             _ => "JOB"
         };
 

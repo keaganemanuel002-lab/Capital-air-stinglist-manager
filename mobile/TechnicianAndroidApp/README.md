@@ -39,7 +39,16 @@ APK output:
 
 ## Runtime/build config
 
-Set in `gradle.properties`:
+Set non-secret defaults in `mobile/TechnicianAndroidApp/gradle.properties`.
+
+Set real Firebase values in user-level Gradle properties (recommended):
+
+- Windows: `%USERPROFILE%\.gradle\gradle.properties`
+- macOS/Linux: `~/.gradle/gradle.properties`
+
+or via environment variables with the same names.
+
+Keys used by the app:
 
 - `TECH_API_BASE_URL=http://<desktop-ip>:5075`
 - `FIREBASE_ENABLED=false|true`

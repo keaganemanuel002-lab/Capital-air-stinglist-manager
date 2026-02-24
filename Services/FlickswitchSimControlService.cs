@@ -36,9 +36,9 @@ public class FlickswitchSimControlService
 
     private enum AuthMode
     {
+        ApiKeyHeader,
         Bearer,
-        RawAuthorization,
-        ApiKeyHeader
+        RawAuthorization
     }
 
     public FlickswitchSimControlService(AppSettings settings)
@@ -207,7 +207,7 @@ public class FlickswitchSimControlService
 
         string? authError = null;
 
-        foreach (var mode in new[] { AuthMode.Bearer, AuthMode.RawAuthorization, AuthMode.ApiKeyHeader })
+        foreach (var mode in new[] { AuthMode.ApiKeyHeader, AuthMode.Bearer, AuthMode.RawAuthorization })
         {
             using var request = BuildRequest(HttpMethod.Get, endpoint, mode);
 
@@ -218,7 +218,12 @@ public class FlickswitchSimControlService
 
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
-                    authError = $"HTTP {(int)response.StatusCode} ({mode} auth mode)";
+                    authError = BuildUnauthorizedError(response.StatusCode, mode, body);
+                    if (authError.Contains("Invalid API key", StringComparison.OrdinalIgnoreCase))
+                    {
+                        LastError = authError;
+                        return new List<FlickswitchSimInfo>();
+                    }
                     continue;
                 }
 
@@ -260,7 +265,7 @@ public class FlickswitchSimControlService
         }
 
         string? authError = null;
-        foreach (var mode in new[] { AuthMode.Bearer, AuthMode.RawAuthorization, AuthMode.ApiKeyHeader })
+        foreach (var mode in new[] { AuthMode.ApiKeyHeader, AuthMode.Bearer, AuthMode.RawAuthorization })
         {
             using var request = BuildRequest(HttpMethod.Patch, endpoint, mode, BuildUpdateDescriptionContent(description));
 
@@ -271,7 +276,12 @@ public class FlickswitchSimControlService
 
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
-                    authError = $"HTTP {(int)response.StatusCode} ({mode} auth mode)";
+                    authError = BuildUnauthorizedError(response.StatusCode, mode, body);
+                    if (authError.Contains("Invalid API key", StringComparison.OrdinalIgnoreCase))
+                    {
+                        LastError = authError;
+                        return (false, LastError);
+                    }
                     continue;
                 }
 
@@ -315,7 +325,7 @@ public class FlickswitchSimControlService
 
         string? authError = null;
 
-        foreach (var mode in new[] { AuthMode.Bearer, AuthMode.RawAuthorization, AuthMode.ApiKeyHeader })
+        foreach (var mode in new[] { AuthMode.ApiKeyHeader, AuthMode.Bearer, AuthMode.RawAuthorization })
         {
             var content = method == HttpMethod.Post
                 ? new StringContent("{}", Encoding.UTF8, "application/json")
@@ -329,7 +339,12 @@ public class FlickswitchSimControlService
 
                 if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 {
-                    authError = $"HTTP {(int)response.StatusCode} ({mode} auth mode)";
+                    authError = BuildUnauthorizedError(response.StatusCode, mode, body);
+                    if (authError.Contains("Invalid API key", StringComparison.OrdinalIgnoreCase))
+                    {
+                        LastError = authError;
+                        return (false, LastError);
+                    }
                     continue;
                 }
 
@@ -385,24 +400,53 @@ public class FlickswitchSimControlService
 
         switch (mode)
         {
+            case AuthMode.ApiKeyHeader:
+                request.Headers.TryAddWithoutValidation("X-API-Key", token);
+                break;
+
             case AuthMode.Bearer:
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-                request.Headers.TryAddWithoutValidation("X-API-Key", token);
                 break;
 
             case AuthMode.RawAuthorization:
                 request.Headers.TryAddWithoutValidation("authorization", token);
-                request.Headers.TryAddWithoutValidation("X-API-Key", token);
-                break;
-
-            case AuthMode.ApiKeyHeader:
-                request.Headers.TryAddWithoutValidation("X-API-Key", token);
-                request.Headers.TryAddWithoutValidation("x-api-key", token);
-                request.Headers.TryAddWithoutValidation("Api-Key", token);
                 break;
         }
 
         return request;
+    }
+
+    private static string BuildUnauthorizedError(HttpStatusCode statusCode, AuthMode mode, string body)
+    {
+        var serverError = ExtractErrorMessage(body);
+        return string.IsNullOrWhiteSpace(serverError)
+            ? $"HTTP {(int)statusCode} ({mode} auth mode)"
+            : $"HTTP {(int)statusCode}: {serverError} ({mode} auth mode)";
+    }
+
+    private static string? ExtractErrorMessage(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            var error = GetStringIgnoreCase(root, "error", "message", "detail");
+            if (!string.IsNullOrWhiteSpace(error))
+                return error.Trim();
+        }
+        catch
+        {
+            // Fallback to plain text response below.
+        }
+
+        var text = body.Trim();
+        if (text.Length > 220)
+            text = text[..220];
+
+        return string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
     private static HttpContent BuildUpdateDescriptionContent(string description)

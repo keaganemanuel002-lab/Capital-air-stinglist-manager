@@ -37,17 +37,20 @@ This app supports a hybrid technician workflow:
 
 Project: `mobile/TechnicianAndroidApp`
 
-1. Open `mobile/TechnicianAndroidApp/gradle.properties`.
-2. Set:
+1. Open `mobile/TechnicianAndroidApp/gradle.properties` and set non-secret defaults only.
+2. Set real Firebase values in user-level Gradle properties:
+   - Windows: `%USERPROFILE%\.gradle\gradle.properties`
+   - macOS/Linux: `~/.gradle/gradle.properties`
+3. Add:
    - `TECH_API_BASE_URL=http://<desktop-ip>:5075`
    - `FIREBASE_ENABLED=true`
    - `FIREBASE_API_KEY=...`
    - `FIREBASE_APP_ID=...`
    - `FIREBASE_PROJECT_ID=...`
    - `FIREBASE_STORAGE_BUCKET=...`
-3. Build APK (`.\gradlew.bat assembleDebug`).
-4. Install APK on technician phone.
-5. Technician logs in with Username + Password (Tech/Admin user).
+4. Build APK (`.\gradlew.bat assembleDebug`).
+5. Install APK on technician phone.
+6. Technician logs in with Username + Password (Tech/Admin user).
 
 ## Firebase Rules (required)
 

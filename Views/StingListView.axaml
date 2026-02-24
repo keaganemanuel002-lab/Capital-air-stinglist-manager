@@ -22,6 +22,8 @@
 
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
+      <Button Content="Edit Selected" Command="{Binding EditSelectedCommand}"
+              IsEnabled="{Binding CanEditSelectedRow}"/>
       <Button Content="Export to Excel" Command="{Binding ExportToExcelCommand}"/>
       <Button Content="Start Transfer" Command="{Binding StartTransferCommand}"
         IsEnabled="{Binding CanStartTransfer}"/>
@@ -74,8 +76,6 @@
         <DataGridTextColumn Header="IMEI" Binding="{Binding Imei}" Width="1.2*"/>
         <DataGridTextColumn Header="Serial #" Binding="{Binding SerialNumber}" Width="1.2*"/>
         <DataGridTextColumn Header="ICCID" Binding="{Binding Iccid}" Width="1.3*"/>
-        <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="1.5*"/>
-        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.8*"/>
         <DataGridTextColumn Header="Warranty" Binding="{Binding Warranty}" Width="1.2*"/>
         <DataGridTextColumn Header="Active From" Binding="{Binding ActiveFrom, StringFormat=yyyy-MM-dd HH:mm}" Width="1.5*"/>
       </DataGrid.Columns>

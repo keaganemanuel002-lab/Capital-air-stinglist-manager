@@ -105,6 +105,7 @@ public partial class StingListViewModel : PagedViewModelBase
         && !SelectedRow.IsArchived;
 
     public bool CanModifySelectedRow => CanArchive && SelectedRow?.HasLocalBillingEntry == true;
+    public bool CanEditSelectedRow => CanModifySelectedRow;
 
     partial void OnShowArchivedChanged(bool value) => FirstPageCommand.Execute(null);
     partial void OnSearchTextChanged(string? value) => FirstPageCommand.Execute(null);
@@ -114,6 +115,7 @@ public partial class StingListViewModel : PagedViewModelBase
         OnPropertyChanged(nameof(CanStartRemoval));
         OnPropertyChanged(nameof(CanStartTransfer));
         OnPropertyChanged(nameof(CanModifySelectedRow));
+        OnPropertyChanged(nameof(CanEditSelectedRow));
     }
 
     partial void OnSelectedStatusChanged(string value) => FirstPageCommand.Execute(null);
@@ -167,6 +169,7 @@ public partial class StingListViewModel : PagedViewModelBase
         OnPropertyChanged(nameof(CanStartRemoval));
         OnPropertyChanged(nameof(CanStartTransfer));
         OnPropertyChanged(nameof(CanModifySelectedRow));
+        OnPropertyChanged(nameof(CanEditSelectedRow));
     }
 
     private List<StingListRow> BuildFilteredRows(bool applyPaging)
@@ -591,6 +594,23 @@ public partial class StingListViewModel : PagedViewModelBase
     }
 
     [RelayCommand]
+    private async Task EditSelected()
+    {
+        if (!CanEditSelectedRow || SelectedRow?.LocalBillingEntryId is not > 0)
+            return;
+
+        var dlg = new StingListManager.Views.BillingEntryEditWindow();
+        dlg.DataContext = new BillingEntryEditViewModel(
+            SelectedRow.LocalBillingEntryId.Value,
+            () => dlg.Close(),
+            () => { },
+            _appState);
+
+        await dlg.ShowDialog(_window);
+        await ReloadFromWialonAsync();
+    }
+
+    [RelayCommand]
     private void ClearFilters()
     {
         SelectedStatus = "Any";
@@ -932,8 +952,6 @@ public partial class StingListViewModel : PagedViewModelBase
                 Imei = x.Imei,
                 SerialNumber = x.SerialNumber,
                 Iccid = x.Iccid,
-                Notes = x.Notes,
-                Status = x.Status,
                 Warranty = x.Warranty,
                 ActiveFrom = x.ActiveFrom
             })

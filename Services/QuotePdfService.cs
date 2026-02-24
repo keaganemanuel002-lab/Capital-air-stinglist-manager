@@ -55,7 +55,7 @@ public class QuotePdfService
         var hasMoreLineItems = allLineItems.Count > lineItems.Count;
         var notes = quote.Notes?.Trim();
         if (!string.IsNullOrWhiteSpace(notes) && notes.Length > 300)
-            notes = notes[..300] + "…";
+            notes = notes[..300] + "...";
 
         return Document.Create(container =>
         {
@@ -144,9 +144,12 @@ public class QuotePdfService
 
                     col.Item().Text("Dear Sir/Madam,");
 
-                    var refText = quote.Type == QuoteType.Install
-                        ? $"QUOTATION – {quote.ProductType ?? "STING"}"
-                        : $"REMOVAL – {quote.Registration ?? quote.Company}";
+                    var refText = quote.Type switch
+                    {
+                        QuoteType.Install => $"QUOTATION - {quote.ProductType ?? "STING"}",
+                        QuoteType.Inspection => $"INSPECTION - {quote.Registration ?? quote.Company}",
+                        _ => $"REMOVAL - {quote.Registration ?? quote.Company}"
+                    };
 
                     col.Item().Text("REF: " + refText).Bold();
 
@@ -331,5 +334,3 @@ public class QuotePdfService
         }).GeneratePdf();
     }
 }
-
-

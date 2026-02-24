@@ -73,6 +73,12 @@ public partial class SettingsViewModel : ViewModelBase
         set { _appState.Settings.DefaultRemovalFeeExVat = value; _appState.SaveSettings(); OnPropertyChanged(); }
     }
 
+    public decimal DefaultInspectionFeeExVat
+    {
+        get => _appState.Settings.DefaultInspectionFeeExVat;
+        set { _appState.Settings.DefaultInspectionFeeExVat = value; _appState.SaveSettings(); OnPropertyChanged(); }
+    }
+
     public decimal VatRate
     {
         get => _appState.Settings.VatRate * 100; // Display as percentage

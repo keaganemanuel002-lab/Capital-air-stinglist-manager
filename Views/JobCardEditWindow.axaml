@@ -20,27 +20,56 @@
     <Border Classes="card"
             IsVisible="{Binding CanUpdateCompletedRegistration}">
       <StackPanel Spacing="8">
-        <TextBlock Text="Completed Job Card Registration Update"
+        <TextBlock Text="Completed Job Card Updates"
                    FontWeight="SemiBold"
                    FontSize="12"/>
-        <TextBlock Text="Use this only when a vehicle registration has changed. This updates the completed job card and linked STING/Billing entry."
+        <TextBlock Text="Use this only when the vehicle registration or grid location has changed after completion."
                    Classes="muted"
                    FontSize="11"
                    TextWrapping="Wrap"/>
-        <StackPanel Width="220">
-          <TextBlock Text="New Registration" Classes="muted"/>
-          <TextBox Text="{Binding CompletedRegistrationUpdate}"/>
+        <Grid ColumnDefinitions="220,220" ColumnSpacing="10">
+          <StackPanel Grid.Column="0" Width="220">
+            <TextBlock Text="New Registration" Classes="muted"/>
+            <TextBox Text="{Binding CompletedRegistrationUpdate}"/>
+          </StackPanel>
+          <StackPanel Grid.Column="1" Width="220">
+            <TextBlock Text="New Grid Location" Classes="muted"/>
+            <TextBox Text="{Binding CompletedGridLocationUpdate}" Watermark="e.g. Bay 3, Yard A, Gate 2"/>
+          </StackPanel>
+        </Grid>
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="Update Registration"
+                  Command="{Binding SaveCompletedRegistrationCommand}"
+                  HorizontalAlignment="Left"
+                  Classes="primary"/>
+          <Button Content="Update Grid Location"
+                  Command="{Binding SaveCompletedGridLocationCommand}"
+                  HorizontalAlignment="Left"/>
         </StackPanel>
-        <Button Content="Update Registration"
-                Command="{Binding SaveCompletedRegistrationCommand}"
-                HorizontalAlignment="Left"
-                Classes="primary"/>
       </StackPanel>
     </Border>
 
     <StackPanel Spacing="12"
                 IsHitTestVisible="{Binding IsEditable}"
                 Opacity="{Binding EditSectionOpacity}">
+
+    <Border Classes="card"
+            IsVisible="{Binding ShowInspectionOutcomeSelector}">
+      <StackPanel Spacing="6">
+        <TextBlock Text="Inspection Outcome"
+                   FontWeight="SemiBold"
+                   FontSize="12"/>
+        <TextBlock Text="Select whether the existing unit was repaired or replaced."
+                   Classes="muted"
+                   FontSize="11"/>
+        <ComboBox ItemsSource="{Binding InspectionOutcomeOptions}"
+                  SelectedIndex="{Binding InspectionOutcomeIndex}"/>
+        <TextBlock Text="Replacement selected: complete tracking unit fields below for the new unit."
+                   Classes="muted"
+                   FontSize="11"
+                   IsVisible="{Binding IsInspectionReplacementSelected}"/>
+      </StackPanel>
+    </Border>
 
     <StackPanel>
       <TextBlock Text="Company" Classes="muted"/>

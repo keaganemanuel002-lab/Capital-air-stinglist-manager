@@ -17,6 +17,7 @@
           <ComboBox SelectedIndex="{Binding TypeIndex}">
             <ComboBoxItem Content="Install"/>
             <ComboBoxItem Content="Removal"/>
+            <ComboBoxItem Content="Inspection"/>
           </ComboBox>
         </StackPanel>
       </StackPanel>
@@ -27,6 +28,17 @@
         <ComboBox ItemsSource="{Binding ClientNames}"
                   SelectedItem="{Binding Company}"
                   IsEditable="True"/>
+      </StackPanel>
+
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <StackPanel Width="260">
+          <TextBlock Text="Registration" Classes="muted"/>
+          <TextBox Text="{Binding Registration}"/>
+        </StackPanel>
+        <StackPanel Width="200">
+          <TextBlock Text="Fleet Number" Classes="muted"/>
+          <TextBox Text="{Binding FleetNumber}"/>
+        </StackPanel>
       </StackPanel>
 
 

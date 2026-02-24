@@ -28,7 +28,6 @@ public partial class QuoteRow : ObservableObject
     public decimal AmountExVat { get; set; }
     public decimal VatAmount { get; set; }
     public decimal AmountIncVat { get; set; }
-    public string WorkflowBadge { get; set; } = "";
     public DateTime CreatedAt { get; set; }
 }
 
@@ -127,7 +126,6 @@ public partial class QuotesViewModel : ViewModelBase
 
             var page = await _dataStore.GetQuotesAsync(query, token);
             var pricingService = new QuotePricingService(_appState.Settings);
-            var workflowBadges = BuildWorkflowBadges(page.Items.Select(x => x.Id).ToList());
 
             TotalCount = page.TotalCount;
 
@@ -152,7 +150,6 @@ public partial class QuotesViewModel : ViewModelBase
                     AmountExVat = q.AmountExVat,
                     VatAmount = priceResult.VatAmount,
                     AmountIncVat = priceResult.AmountIncVat,
-                    WorkflowBadge = workflowBadges.TryGetValue(q.Id, out var badge) ? badge : string.Empty,
                     CreatedAt = q.CreatedAt
                 });
             }
@@ -191,216 +188,6 @@ public partial class QuotesViewModel : ViewModelBase
         }
 
         _ = Load();
-    }
-
-    private static Dictionary<int, string> BuildWorkflowBadges(List<int> quoteIds)
-    {
-        var result = new Dictionary<int, string>();
-        if (quoteIds.Count == 0)
-            return result;
-
-        using var db = new AppDbContext();
-
-        var quotes = db.Quotes.AsNoTracking()
-            .Where(q => quoteIds.Contains(q.Id))
-            .Select(q => new QuoteBadgeMeta
-            {
-                Id = q.Id,
-                Type = q.Type,
-                Status = q.Status,
-                IncludesAppLiveTracking = q.IncludesAppLiveTracking,
-                ProductType = q.ProductType,
-                Notes = q.Notes
-            })
-            .ToList();
-
-        var lineItemsByQuote = db.QuoteLineItems.AsNoTracking()
-            .Where(li => quoteIds.Contains(li.QuoteId))
-            .Select(li => new QuoteLineBadgeMeta
-            {
-                QuoteId = li.QuoteId,
-                ProductType = li.ProductType,
-                ProductName = li.ProductName,
-                ProductCode = li.ProductCode,
-                IncludesAppLiveTracking = li.IncludesAppLiveTracking
-            })
-            .ToList()
-            .GroupBy(li => li.QuoteId)
-            .ToDictionary(g => g.Key, g => (IReadOnlyList<QuoteLineBadgeMeta>)g.ToList());
-
-        var quoteIdsWithJobCards = db.JobCards.AsNoTracking()
-            .Where(j => j.QuoteId.HasValue && quoteIds.Contains(j.QuoteId.Value))
-            .Select(j => j.QuoteId!.Value)
-            .Distinct()
-            .ToHashSet();
-
-        foreach (var quote in quotes)
-        {
-            if (quote.Status != QuoteStatus.Approved)
-                continue;
-
-            if (quoteIdsWithJobCards.Contains(quote.Id))
-                continue;
-
-            var lineItems = lineItemsByQuote.TryGetValue(quote.Id, out var rows)
-                ? rows
-                : Array.Empty<QuoteLineBadgeMeta>();
-
-            if (IsLiveTrackingOnlyQuote(quote, lineItems))
-            {
-                result[quote.Id] = "No Job Card (Live Tracking Only)";
-                continue;
-            }
-
-            if (quote.Type == QuoteType.Removal
-                && HasWorkflowMarker(quote.Notes, WorkflowService.NoRemovalJobCardMarker))
-            {
-                result[quote.Id] = "No Job Card (Out of Warranty Removal)";
-                continue;
-            }
-
-            if (quote.Type == QuoteType.Install && IsTransferFeeOnlyQuote(lineItems))
-            {
-                result[quote.Id] = "No Job Card (Transfer Fee Only)";
-            }
-        }
-
-        return result;
-    }
-
-    private static bool IsLiveTrackingOnlyQuote(QuoteBadgeMeta quote, IReadOnlyList<QuoteLineBadgeMeta> lineItems)
-    {
-        if (!HasLiveTracking(quote, lineItems))
-            return false;
-
-        if (lineItems.Count > 0)
-            return !lineItems.Any(IsUnitLineItem);
-
-        return !IsUnitProductType(quote.ProductType);
-    }
-
-    private static bool HasLiveTracking(QuoteBadgeMeta quote, IReadOnlyList<QuoteLineBadgeMeta> lineItems)
-    {
-        if (quote.IncludesAppLiveTracking)
-            return true;
-
-        if (lineItems.Count > 0)
-            return lineItems.Any(IsLiveTrackingLineItem);
-
-        return ContainsLiveTracking(quote.ProductType);
-    }
-
-    private static bool IsUnitLineItem(QuoteLineBadgeMeta item)
-    {
-        if (IsLiveTrackingLineItem(item))
-            return false;
-
-        return IsUnitProductType(item.ProductType)
-               || IsUnitProductType(item.ProductName)
-               || IsUnitProductType(item.ProductCode);
-    }
-
-    private static bool IsLiveTrackingLineItem(QuoteLineBadgeMeta item)
-    {
-        if (item.IncludesAppLiveTracking)
-            return true;
-
-        if (string.Equals(item.ProductCode, "APP-LIVE-TRACKING", StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return ContainsLiveTracking(item.ProductType)
-               || ContainsLiveTracking(item.ProductName)
-               || ContainsLiveTracking(item.ProductCode);
-    }
-
-    private static bool IsTransferFeeOnlyQuote(IReadOnlyList<QuoteLineBadgeMeta> lineItems)
-    {
-        if (lineItems.Count == 0)
-            return false;
-
-        var meaningfulLines = lineItems
-            .Where(item =>
-                !string.IsNullOrWhiteSpace(item.ProductCode)
-                || !string.IsNullOrWhiteSpace(item.ProductName)
-                || !string.IsNullOrWhiteSpace(item.ProductType))
-            .ToList();
-
-        if (meaningfulLines.Count == 0)
-            return false;
-
-        return meaningfulLines.All(IsTransferInstallFeeLineItem);
-    }
-
-    private static bool IsTransferInstallFeeLineItem(QuoteLineBadgeMeta item)
-    {
-        if (string.Equals(item.ProductCode, WorkflowService.TransferInstallFeeCode, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        return ContainsTransferInstallFee(item.ProductType)
-               || ContainsTransferInstallFee(item.ProductName);
-    }
-
-    private static bool IsUnitProductType(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return false;
-
-        var normalized = value.Trim().ToUpperInvariant();
-        if (!normalized.Contains("STING", StringComparison.Ordinal))
-            return false;
-
-        if (normalized.Contains("LIVE TRACKING", StringComparison.Ordinal))
-            return false;
-
-        if (normalized.Contains("MONTHLY", StringComparison.Ordinal))
-            return false;
-
-        return true;
-    }
-
-    private static bool ContainsLiveTracking(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return false;
-
-        return value.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
-    private static bool ContainsTransferInstallFee(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return false;
-
-        var normalized = value.Trim().ToUpperInvariant();
-        return normalized.Contains("TRANSFER", StringComparison.Ordinal)
-               && normalized.Contains("INSTALL", StringComparison.Ordinal);
-    }
-
-    private static bool HasWorkflowMarker(string? notes, string marker)
-    {
-        if (string.IsNullOrWhiteSpace(notes))
-            return false;
-
-        return notes.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0;
-    }
-
-    private sealed class QuoteBadgeMeta
-    {
-        public int Id { get; init; }
-        public QuoteType Type { get; init; }
-        public QuoteStatus Status { get; init; }
-        public bool IncludesAppLiveTracking { get; init; }
-        public string? ProductType { get; init; }
-        public string? Notes { get; init; }
-    }
-
-    private sealed class QuoteLineBadgeMeta
-    {
-        public int QuoteId { get; init; }
-        public string ProductType { get; init; } = string.Empty;
-        public string? ProductName { get; init; }
-        public string? ProductCode { get; init; }
-        public bool IncludesAppLiveTracking { get; init; }
     }
 
     private void SetDefaultDateRange(DateTime? start, DateTime? end)
@@ -661,18 +448,6 @@ public partial class QuotesViewModel : ViewModelBase
 
         _appState.SetStatus($"Quote {quoteRef} cancelled.");
         await Load();
-    }
-
-    [RelayCommand]
-    private async Task OpenDocuments()
-    {
-        if (SelectedRow is null) return;
-
-        var wnd = new StingListManager.Views.DocumentsWindow();
-        var vm = new QuoteDocumentsViewModel(_window, _appState, SelectedRow.Id);
-        var view = new StingListManager.Views.QuoteDocumentsView { DataContext = vm };
-        wnd.Content = view;
-        await wnd.ShowDialog(_window);
     }
 
     [RelayCommand]

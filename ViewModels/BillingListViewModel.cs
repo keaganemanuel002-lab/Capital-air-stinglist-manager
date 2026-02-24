@@ -49,6 +49,9 @@ public partial class BillingListViewModel : ViewModelBase
     [ObservableProperty] private string selectedClient = "All";
     [ObservableProperty] private string? registrationSearch;
 
+    public bool CanEditSelectedRow =>
+        SelectedRow is { IsClientSummaryRow: false, Id: > 0 };
+
     public BillingListViewModel(Window window, AppState appState)
     {
         _window = window;
@@ -62,6 +65,11 @@ public partial class BillingListViewModel : ViewModelBase
             return;
 
         Load();
+    }
+
+    partial void OnSelectedRowChanged(BillingListRow? value)
+    {
+        OnPropertyChanged(nameof(CanEditSelectedRow));
     }
 
     partial void OnRegistrationSearchChanged(string? value)
@@ -106,22 +114,6 @@ public partial class BillingListViewModel : ViewModelBase
             .ThenBy(e => e.Registration)
             .ToList();
 
-        var activeCompanies = entries
-            .Select(e => e.Company)
-            .Where(c => !string.IsNullOrWhiteSpace(c))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var approvedQuotes = db.Quotes
-            .AsNoTracking()
-            .Include(q => q.LineItems)
-            .Where(q => q.Status == QuoteStatus.Approved)
-            .ToList()
-            .Where(q => !string.IsNullOrWhiteSpace(q.Company) && activeCompanies.Contains(q.Company))
-            .ToList();
-
-        var quoteSummaries = BuildQuoteSummaries(approvedQuotes);
-
         Rows.Clear();
 
         var grouped = entries.GroupBy(e => e.Company).OrderBy(g => g.Key);
@@ -154,15 +146,13 @@ public partial class BillingListViewModel : ViewModelBase
                 rowNumber++;
             }
 
-            quoteSummaries.TryGetValue(group.Key, out var quoteSummary);
-            quoteSummary ??= new ClientQuoteSummary { Company = group.Key };
-
+            var packageSummary = BuildPackageSummaryFromEntries(group.Key, clientEntries);
             var totalUnits = clientEntries.Count;
-            var liveTrackingUnits = quoteSummary.HasLiveTracking ? totalUnits : 0;
-            var packageTotal = quoteSummary.StingCount + quoteSummary.StingPlusCount + quoteSummary.StingFmCount;
+            var liveTrackingUnits = totalUnits;
+            var packageTotal = packageSummary.StingCount + packageSummary.StingPlusCount + packageSummary.StingFmCount;
             var packageSourceNote = packageTotal <= 0
-                ? "Package mix unavailable"
-                : "Package mix from approved install quotes";
+                ? "Package mix unavailable (set unit type to STING/STING PLUS/STING FM)"
+                : "Package mix from active STING list entries";
 
             Rows.Add(new BillingListRow
             {
@@ -172,7 +162,7 @@ public partial class BillingListViewModel : ViewModelBase
                 Registration = $"{totalUnits} units",
                 FleetNumber = $"{liveTrackingUnits} live",
                 VehicleDescription =
-                    $"STING {quoteSummary.StingCount} | STING PLUS {quoteSummary.StingPlusCount} | STING FM {quoteSummary.StingFmCount}",
+                    $"STING {packageSummary.StingCount} | STING PLUS {packageSummary.StingPlusCount} | STING FM {packageSummary.StingFmCount}",
                 Code = string.Empty,
                 PackageCharge = "CLIENT TOTAL",
                 Notes = packageSourceNote,
@@ -185,6 +175,7 @@ public partial class BillingListViewModel : ViewModelBase
         }
 
         _appState.SetStatus($"Loaded billing list: {entries.Count} entries across {grouped.Count()} clients ({Rows.Count} rows incl. totals).");
+        OnPropertyChanged(nameof(CanEditSelectedRow));
     }
 
     [RelayCommand]
@@ -235,141 +226,48 @@ public partial class BillingListViewModel : ViewModelBase
         }
     }
 
-    private static Dictionary<string, ClientQuoteSummary> BuildQuoteSummaries(List<Quote> quotes)
+    private static ClientQuoteSummary BuildPackageSummaryFromEntries(string company, IReadOnlyCollection<BillingEntry> entries)
     {
-        var summaries = new Dictionary<string, ClientQuoteSummary>(StringComparer.OrdinalIgnoreCase);
-
-        var orderedQuotes = quotes
-            .OrderBy(q => q.ApprovedAt ?? q.CreatedAt)
-            .ThenBy(q => q.Id)
-            .ToList();
-
-        foreach (var quote in orderedQuotes)
+        var summary = new ClientQuoteSummary
         {
-            if (string.IsNullOrWhiteSpace(quote.Company))
-                continue;
+            Company = company,
+            HasLiveTracking = entries.Count > 0
+        };
 
-            if (!summaries.TryGetValue(quote.Company, out var summary))
+        foreach (var entry in entries)
+        {
+            switch (ResolvePackageFamily(entry))
             {
-                summary = new ClientQuoteSummary { Company = quote.Company };
-                summaries[quote.Company] = summary;
-            }
-
-            if (QuoteHasLiveTracking(quote))
-            {
-                if (quote.Type == QuoteType.Removal && IsLiveTrackingOnlyQuote(quote))
-                    summary.HasLiveTracking = false;
-                else if (quote.Type == QuoteType.Install)
-                    summary.HasLiveTracking = true;
-            }
-
-            if (quote.Type != QuoteType.Install)
-                continue;
-
-            if (quote.LineItems.Count > 0)
-            {
-                foreach (var item in quote.LineItems)
-                {
-                    if (!IsPackageUnitLineItem(item))
-                        continue;
-
-                    var qty = item.Quantity <= 0 ? 1 : item.Quantity;
-                    ApplyProductType(summary, item.ProductType, qty);
-                }
-            }
-            else if (IsPackageUnitProductType(quote.ProductType))
-            {
-                ApplyProductType(summary, quote.ProductType, 1);
+                case StingPackageFamily.Sting:
+                    summary.StingCount++;
+                    break;
+                case StingPackageFamily.StingPlus:
+                    summary.StingPlusCount++;
+                    break;
+                case StingPackageFamily.StingFm:
+                    summary.StingFmCount++;
+                    break;
             }
         }
 
-        return summaries;
+        return summary;
     }
 
-    private static void ApplyProductType(ClientQuoteSummary summary, string? productType, int quantity)
+    private static StingPackageFamily ResolvePackageFamily(BillingEntry entry)
     {
-        if (!IsPackageUnitProductType(productType))
-            return;
+        var fromUnit = StingPackageClassifier.Classify(entry.TrackingUnitMake);
+        if (fromUnit != StingPackageFamily.Unknown)
+            return fromUnit;
 
-        var type = productType!.Trim();
+        var fromNotes = StingPackageClassifier.Classify(entry.Notes);
+        if (fromNotes != StingPackageFamily.Unknown)
+            return fromNotes;
 
-        if (type.IndexOf("STING FM", StringComparison.OrdinalIgnoreCase) >= 0
-            || type.IndexOf("FM", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            summary.StingFmCount += quantity;
-        }
-        else if (type.IndexOf("STING PLUS", StringComparison.OrdinalIgnoreCase) >= 0
-                 || type.IndexOf("PLUS", StringComparison.OrdinalIgnoreCase) >= 0
-                 || type.IndexOf("STING+", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            summary.StingPlusCount += quantity;
-        }
-        else if (type.IndexOf("STING", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            summary.StingCount += quantity;
-        }
-    }
+        var fromReason = StingPackageClassifier.Classify(entry.Reason);
+        if (fromReason != StingPackageFamily.Unknown)
+            return fromReason;
 
-    private static bool QuoteHasLiveTracking(Quote quote)
-    {
-        if (quote.IncludesAppLiveTracking)
-            return true;
-
-        if (quote.LineItems.Count <= 0)
-        {
-            return (quote.ProductType?.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0;
-        }
-
-        return quote.LineItems.Any(item =>
-            item.IncludesAppLiveTracking
-            || (item.ProductCode?.IndexOf("APP-LIVE-TRACKING", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0
-            || (item.ProductName?.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0
-            || (item.ProductType?.IndexOf("LIVE TRACKING", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0);
-    }
-
-    private static bool IsLiveTrackingOnlyQuote(Quote quote)
-    {
-        if (!QuoteHasLiveTracking(quote))
-            return false;
-
-        if (quote.LineItems.Count <= 0)
-            return !IsPackageUnitProductType(quote.ProductType);
-
-        return !quote.LineItems.Any(IsPackageUnitLineItem);
-    }
-
-    private static bool IsPackageUnitLineItem(QuoteLineItem item)
-    {
-        if ((item.ProductCode ?? string.Empty).StartsWith("AUTO-MONTHLY-", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        if (string.Equals(item.ProductCode, "APP-LIVE-TRACKING", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        if (string.Equals(item.ProductCode, "PANIC-BUTTON", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        return IsPackageUnitProductType(item.ProductType)
-               || IsPackageUnitProductType(item.ProductName)
-               || IsPackageUnitProductType(item.ProductCode);
-    }
-
-    private static bool IsPackageUnitProductType(string? productType)
-    {
-        if (string.IsNullOrWhiteSpace(productType))
-            return false;
-
-        var normalized = productType.Trim().ToUpperInvariant();
-        if (!normalized.Contains("STING", StringComparison.Ordinal))
-            return false;
-
-        if (normalized.Contains("MONTHLY", StringComparison.Ordinal))
-            return false;
-
-        if (normalized.Contains("LIVE TRACKING", StringComparison.Ordinal))
-            return false;
-
-        return true;
+        return StingPackageFamily.Unknown;
     }
 
     private static string BuildVehicleDescription(BillingEntry entry)
@@ -408,6 +306,22 @@ public partial class BillingListViewModel : ViewModelBase
 
         var dlg = new StingListManager.Views.InstallationDetailsWindow();
         dlg.DataContext = new InstallationDetailsViewModel(() => dlg.Close(), SelectedRow.Id, _appState);
+        await dlg.ShowDialog(_window);
+    }
+
+    [RelayCommand]
+    private async Task EditSelected()
+    {
+        if (!CanEditSelectedRow || SelectedRow is null)
+            return;
+
+        var dlg = new StingListManager.Views.BillingEntryEditWindow();
+        dlg.DataContext = new BillingEntryEditViewModel(
+            SelectedRow.Id,
+            () => dlg.Close(),
+            Load,
+            _appState);
+
         await dlg.ShowDialog(_window);
     }
 

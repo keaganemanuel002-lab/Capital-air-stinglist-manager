@@ -23,7 +23,7 @@
         <Border Classes="card">
           <StackPanel Spacing="10">
             <TextBlock Text="General" Classes="h2"/>
-            <Grid ColumnDefinitions="1*,1*" ColumnSpacing="16" RowDefinitions="Auto,Auto" RowSpacing="10">
+            <Grid ColumnDefinitions="1*,1*" ColumnSpacing="16" RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
               <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
                 <TextBlock Text="Operator name" Classes="muted"/>
                 <TextBox Text="{Binding OperatorName}"/>
@@ -42,6 +42,11 @@
               <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
                 <TextBlock Text="Default Removal Fee (Ex VAT)" Classes="muted"/>
                 <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding DefaultRemovalFeeExVat}"/>
+              </StackPanel>
+
+              <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+                <TextBlock Text="Default Inspection Fee (Ex VAT)" Classes="muted"/>
+                <NumericUpDown Minimum="0" Maximum="1000000" Value="{Binding DefaultInspectionFeeExVat}"/>
               </StackPanel>
             </Grid>
           </StackPanel>

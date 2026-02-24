@@ -28,6 +28,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly FirebaseSyncService _firebaseSyncService = FirebaseSyncService.Instance;
     private readonly string _notificationStorePath;
     private readonly ObservableCollection<AppNotificationItem> _notifications = new();
+    private readonly Dictionary<int, ViewModelBase> _pageCache = new();
     private CancellationTokenSource? _toastCts;
     private string? _lastNotificationMessage;
     private DateTime _lastNotificationUtc = DateTime.MinValue;
@@ -91,7 +92,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             }
         };
 
-        CurrentPage = new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult);
+        CurrentPage = GetOrCreatePage(0);
         _ = StartTechnicianApiAsync();
         _ = StartFirebaseSyncAsync();
     }
@@ -372,29 +373,58 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     partial void OnNavIndexChanged(int value)
     {
-        switch (value)
+        CurrentPage = GetOrCreatePage(value);
+    }
+
+    private ViewModelBase GetOrCreatePage(int navTarget)
+    {
+        if (_pageCache.TryGetValue(navTarget, out var cachedPage))
+            return cachedPage;
+
+        var createdPage = CreatePage(navTarget);
+        _pageCache[navTarget] = createdPage;
+        return createdPage;
+    }
+
+    private ViewModelBase CreatePage(int navTarget)
+    {
+        return navTarget switch
         {
-            case 0: CurrentPage = new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult); break;
-            case 1: CurrentPage = new DashboardViewModel(_appState, NavigateFromDashboard); break;
-            case 2: CurrentPage = new QuotesViewModel(_window, _appState, NavigateToJobCards); break;
-            case 3: CurrentPage = new InstallationsViewModel(_window, _appState); break;
-            case 4: CurrentPage = new JobCardsViewModel(_window, _appState); break;
-            case 5: CurrentPage = new RemovalsViewModel(_window, _appState); break;
-            case 6: CurrentPage = new StingListViewModel(_window, _appState); break;
-            case 7: CurrentPage = new BillingListViewModel(_window, _appState); break;
-            case 8: CurrentPage = new ClientsViewModel(_appState); break;
-            case 9: CurrentPage = new UsersViewModel(_appState); break;
-            case 10: CurrentPage = new ExportViewModel(_window, _appState); break;
-            case 11: CurrentPage = new SettingsViewModel(_window, _appState); break;
-            case 12: CurrentPage = new WialonReportsViewModel(_window, _appState); break;
-            case 13: CurrentPage = new DashcamsViewModel(); break;
+            0 => new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult),
+            1 => new DashboardViewModel(_appState, NavigateFromDashboard),
+            2 => new QuotesViewModel(_window, _appState, NavigateToJobCards),
+            3 => new InstallationsViewModel(_window, _appState),
+            4 => new JobCardsViewModel(_window, _appState),
+            5 => new RemovalsViewModel(_window, _appState),
+            6 => new StingListViewModel(_window, _appState),
+            7 => new BillingListViewModel(_window, _appState),
+            8 => new ClientsViewModel(_appState),
+            9 => new UsersViewModel(_appState),
+            10 => new ExportViewModel(_window, _appState),
+            11 => new SettingsViewModel(_window, _appState),
+            12 => new WialonReportsViewModel(_window, _appState),
+            13 => new DashcamsViewModel(),
+            _ => new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult)
+        };
+    }
+
+    private void NavigateToPage(int navTarget, ViewModelBase? pageOverride = null)
+    {
+        if (pageOverride is not null)
+            _pageCache[navTarget] = pageOverride;
+
+        if (NavIndex == navTarget)
+        {
+            CurrentPage = pageOverride ?? GetOrCreatePage(navTarget);
+            return;
         }
+
+        NavIndex = navTarget;
     }
 
     private void NavigateToJobCards()
     {
-        NavIndex = 4; // Job Cards
-        CurrentPage = new JobCardsViewModel(_window, _appState);
+        NavigateToPage(4); // Job Cards
     }
 
     private void NavigateFromDashboard(DashboardNavRequest request)
@@ -403,20 +433,16 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         {
             case DashboardNavTarget.Quotes:
             case DashboardNavTarget.QuoteValue:
-                NavIndex = 2;
-                CurrentPage = new QuotesViewModel(_window, _appState, NavigateToJobCards, request.StartDate, request.EndDate);
+                NavigateToPage(2, new QuotesViewModel(_window, _appState, NavigateToJobCards, request.StartDate, request.EndDate));
                 break;
             case DashboardNavTarget.JobCards:
-                NavIndex = 4;
-                CurrentPage = new JobCardsViewModel(_window, _appState, request.StartDate, request.EndDate);
+                NavigateToPage(4, new JobCardsViewModel(_window, _appState, request.StartDate, request.EndDate));
                 break;
             case DashboardNavTarget.RemovalRequests:
-                NavIndex = 5;
-                CurrentPage = new RemovalsViewModel(_window, _appState, request.StartDate, request.EndDate);
+                NavigateToPage(5, new RemovalsViewModel(_window, _appState, request.StartDate, request.EndDate));
                 break;
             case DashboardNavTarget.ActiveBilling:
-                NavIndex = 6;
-                CurrentPage = new StingListViewModel(_window, _appState, request.StartDate, request.EndDate, "Current");
+                NavigateToPage(6, new StingListViewModel(_window, _appState, request.StartDate, request.EndDate, "Current"));
                 break;
         }
     }
@@ -548,12 +574,22 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         if (file is null) return;
 
         var path = file.Path.LocalPath;
+        try
+        {
+            var importer = new ExcelImportService();
+            var result = importer.ImportBillingAndCancellations(path, _appState.OperatorName);
 
-        var importer = new ExcelImportService();
-        importer.ImportBillingAndCancellations(path, _appState.OperatorName);
-
-        _appState.SetStatus($"Imported: {Path.GetFileName(path)}");
-        NavIndex = 6; // Go to STING List
+            var source = string.IsNullOrWhiteSpace(result.BillingSourceSheet) ? "n/a" : result.BillingSourceSheet;
+            _appState.SetStatus(
+                $"Imported {result.BillingAdded} billing (+{result.BillingSkippedDuplicates} skipped) and {result.CancellationsAdded} cancellations " +
+                $"from {Path.GetFileName(path)} [{source}]. " +
+                $"STING {result.BillingStingCount} | STING PLUS {result.BillingStingPlusCount} | STING FM {result.BillingStingFmCount}.");
+            NavIndex = 6; // Go to STING List
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Excel import failed: {ex.Message}", true);
+        }
     }
 
     [RelayCommand]

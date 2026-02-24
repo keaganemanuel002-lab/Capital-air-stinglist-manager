@@ -2,8 +2,9 @@ using System;
 
 namespace StingListManager.Data.Entities;
 
-public enum JobType { Install = 0, Removal = 1, Transfer = 2 }
+public enum JobType { Install = 0, Removal = 1, Transfer = 2, Inspection = 3 }
 public enum JobStatus { Open = 0, Completed = 1, Cancelled = 2 }
+public enum InspectionOutcome { InspectionOnly = 0, UnitReplaced = 1 }
 
 public class JobCard
 {
@@ -36,6 +37,9 @@ public class JobCard
     public string? SerialNumber { get; set; }
     public string? Iccid { get; set; }
     public string? SimNumber { get; set; }
+
+    // Inspection workflow (only applies when Type == Inspection)
+    public InspectionOutcome InspectionOutcome { get; set; } = InspectionOutcome.InspectionOnly;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? ScheduledFor { get; set; }

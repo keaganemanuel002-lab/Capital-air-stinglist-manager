@@ -3,13 +3,22 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-val techApiBaseUrl = (project.findProperty("TECH_API_BASE_URL") as String?)
-    ?: "http://192.168.3.79:5075"
-val firebaseEnabled = ((project.findProperty("FIREBASE_ENABLED") as String?) ?: "false").toBoolean()
-val firebaseApiKey = (project.findProperty("FIREBASE_API_KEY") as String?) ?: ""
-val firebaseAppId = (project.findProperty("FIREBASE_APP_ID") as String?) ?: ""
-val firebaseProjectId = (project.findProperty("FIREBASE_PROJECT_ID") as String?) ?: ""
-val firebaseStorageBucket = (project.findProperty("FIREBASE_STORAGE_BUCKET") as String?) ?: ""
+fun readConfig(name: String, defaultValue: String = ""): String {
+    val projectValue = (project.findProperty(name) as String?)?.trim().orEmpty()
+    if (projectValue.isNotEmpty()) return projectValue
+
+    val envValue = System.getenv(name)?.trim().orEmpty()
+    if (envValue.isNotEmpty()) return envValue
+
+    return defaultValue
+}
+
+val techApiBaseUrl = readConfig("TECH_API_BASE_URL", "http://192.168.3.79:5075")
+val firebaseEnabled = readConfig("FIREBASE_ENABLED", "false").toBoolean()
+val firebaseApiKey = readConfig("FIREBASE_API_KEY")
+val firebaseAppId = readConfig("FIREBASE_APP_ID")
+val firebaseProjectId = readConfig("FIREBASE_PROJECT_ID")
+val firebaseStorageBucket = readConfig("FIREBASE_STORAGE_BUCKET")
 
 android {
     namespace = "za.co.capitalair.fieldtech"

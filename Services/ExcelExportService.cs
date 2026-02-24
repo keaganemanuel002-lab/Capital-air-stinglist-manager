@@ -19,8 +19,6 @@ public sealed class StingListExportRow
     public string? Imei { get; init; }
     public string? SerialNumber { get; init; }
     public string? Iccid { get; init; }
-    public string? Notes { get; init; }
-    public string Status { get; init; } = "";
     public string Warranty { get; init; } = "";
     public DateTime ActiveFrom { get; init; }
 }
@@ -249,8 +247,6 @@ public class ExcelExportService
                 Imei = e.Imei,
                 SerialNumber = e.SerialNumber,
                 Iccid = e.Iccid,
-                Notes = e.Notes,
-                Status = e.Status.ToDisplayString(),
                 Warranty = WarrantyService.GetDisplayText(e.ActiveFrom),
                 ActiveFrom = e.ActiveFrom
             })
@@ -281,10 +277,8 @@ public class ExcelExportService
         ws.Cell(1, 8).Value = "IMEI";
         ws.Cell(1, 9).Value = "SERIAL #";
         ws.Cell(1, 10).Value = "ICCID";
-        ws.Cell(1, 11).Value = "NOTES";
-        ws.Cell(1, 12).Value = "STATUS";
-        ws.Cell(1, 13).Value = "WARRANTY";
-        ws.Cell(1, 14).Value = "ACTIVE FROM";
+        ws.Cell(1, 11).Value = "WARRANTY";
+        ws.Cell(1, 12).Value = "ACTIVE FROM";
 
         // Data rows
         int r = 2;
@@ -300,10 +294,8 @@ public class ExcelExportService
             ws.Cell(r, 8).Value = e.Imei ?? "";
             ws.Cell(r, 9).Value = e.SerialNumber ?? "";
             ws.Cell(r, 10).Value = e.Iccid ?? "";
-            ws.Cell(r, 11).Value = e.Notes ?? "";
-            ws.Cell(r, 12).Value = e.Status;
-            ws.Cell(r, 13).Value = e.Warranty;
-            ws.Cell(r, 14).Value = e.ActiveFrom.ToString("yyyy-MM-dd HH:mm");
+            ws.Cell(r, 11).Value = e.Warranty;
+            ws.Cell(r, 12).Value = e.ActiveFrom.ToString("yyyy-MM-dd HH:mm");
             r++;
         }
 

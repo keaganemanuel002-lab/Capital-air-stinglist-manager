@@ -65,7 +65,10 @@ public partial class JobCardEditViewModel : ViewModelBase
     [ObservableProperty] private string editableWarning = "";
     [ObservableProperty] private bool canUpdateCompletedRegistration;
     [ObservableProperty] private string completedRegistrationUpdate = "";
+    [ObservableProperty] private string completedGridLocationUpdate = "";
     [ObservableProperty] private bool isTransferCard;
+    [ObservableProperty] private bool isInspectionCard;
+    [ObservableProperty] private int inspectionOutcomeIndex;
     [ObservableProperty] private string? selectedClientName;
     [ObservableProperty] private int technicianPhotoCount;
     [ObservableProperty] private DateTimeOffset? lastTechnicianPhotoAt;
@@ -76,9 +79,12 @@ public partial class JobCardEditViewModel : ViewModelBase
     public ObservableCollection<string> FilteredMakes { get; } = new();
     public ObservableCollection<string> FilteredModels { get; } = new();
     public ObservableCollection<string> ClientNames { get; } = new();
+    public ObservableCollection<string> InspectionOutcomeOptions { get; } = new();
     public ObservableCollection<TechnicianPhotoRow> TechnicianPhotos { get; } = new();
     public bool ShowTransferCompanyPicker => IsTransferCard;
     public bool ShowReadOnlyCompany => !IsTransferCard;
+    public bool ShowInspectionOutcomeSelector => IsInspectionCard;
+    public bool IsInspectionReplacementSelected => IsInspectionCard && InspectionOutcomeIndex == 1;
     public double EditSectionOpacity => IsEditable ? 1.0 : 0.95;
     public bool HasFlickswitchRules => !string.IsNullOrWhiteSpace(FlickswitchRulesText);
     public bool HasTechnicianPhotos => TechnicianPhotos.Count > 0;
@@ -99,6 +105,17 @@ public partial class JobCardEditViewModel : ViewModelBase
     {
         OnPropertyChanged(nameof(ShowTransferCompanyPicker));
         OnPropertyChanged(nameof(ShowReadOnlyCompany));
+    }
+
+    partial void OnIsInspectionCardChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowInspectionOutcomeSelector));
+        OnPropertyChanged(nameof(IsInspectionReplacementSelected));
+    }
+
+    partial void OnInspectionOutcomeIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(IsInspectionReplacementSelected));
     }
 
     partial void OnIsEditableChanged(bool value)
@@ -233,6 +250,9 @@ public partial class JobCardEditViewModel : ViewModelBase
         _close = close;
         _appState = appState;
 
+        InspectionOutcomeOptions.Add("Inspection Only (Unit Repaired)");
+        InspectionOutcomeOptions.Add("Unit Replaced");
+
         // Load all available makes
         RefreshAvailableMakes();
 
@@ -243,6 +263,8 @@ public partial class JobCardEditViewModel : ViewModelBase
         {
             _currentStatus = job.Status;
             IsTransferCard = job.Type == JobType.Transfer;
+            IsInspectionCard = job.Type == JobType.Inspection;
+            InspectionOutcomeIndex = job.InspectionOutcome == InspectionOutcome.UnitReplaced ? 1 : 0;
             if (IsTransferCard)
                 LoadClients();
             
@@ -251,7 +273,7 @@ public partial class JobCardEditViewModel : ViewModelBase
             {
                 IsEditable = false;
                 CanUpdateCompletedRegistration = true;
-                EditableWarning = "This job card is completed and is read-only. If the vehicle registration changed, update it below.";
+                EditableWarning = "This job card is completed and is read-only. If the vehicle registration or grid location changed, update it below.";
             }
             
             Company = NormalizeUpperText(job.Company, emptyAsNull: false) ?? string.Empty;
@@ -265,6 +287,7 @@ public partial class JobCardEditViewModel : ViewModelBase
             Colour = NormalizeUpperText(job.Colour);
             VinNumber = NormalizeUpperText(job.VinNumber);
             GridLocation = NormalizeUpperText(job.GridLocation);
+            CompletedGridLocationUpdate = GridLocation ?? string.Empty;
             TrackingUnitMake = NormalizeUpperText(job.TrackingUnitMake);
             _suppressIccidAutoLookup = true;
             try
@@ -639,6 +662,9 @@ public partial class JobCardEditViewModel : ViewModelBase
         job.SerialNumber = NormalizeUpperText(SerialNumber);
         job.Iccid = NormalizeUpperText(Iccid);
         job.SimNumber = NormalizeUpperText(SimNumber);
+        job.InspectionOutcome = IsInspectionCard && InspectionOutcomeIndex == 1
+            ? InspectionOutcome.UnitReplaced
+            : InspectionOutcome.InspectionOnly;
         db.SaveChanges();
 
         _close();
@@ -669,6 +695,33 @@ public partial class JobCardEditViewModel : ViewModelBase
 
         Registration = normalized;
         CompletedRegistrationUpdate = normalized;
+    }
+
+    [RelayCommand]
+    private void SaveCompletedGridLocation()
+    {
+        if (!CanUpdateCompletedRegistration)
+        {
+            _appState.SetStatus("Grid location correction is only available for completed job cards.");
+            return;
+        }
+
+        var workflow = new WorkflowService();
+        var result = workflow.UpdateCompletedJobCardGridLocation(
+            _jobCardId,
+            CompletedGridLocationUpdate,
+            _appState.OperatorName);
+
+        _appState.SetStatus(result.message, !result.ok);
+        if (!result.ok)
+            return;
+
+        var normalized = string.IsNullOrWhiteSpace(CompletedGridLocationUpdate)
+            ? null
+            : CompletedGridLocationUpdate.Trim().ToUpperInvariant();
+
+        GridLocation = normalized;
+        CompletedGridLocationUpdate = normalized ?? string.Empty;
     }
 
     private void LoadTechnicianPhotoSummary()
