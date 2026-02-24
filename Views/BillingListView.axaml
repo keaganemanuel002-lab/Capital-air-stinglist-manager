@@ -48,8 +48,9 @@
         <DataGridTextColumn Header="COMPANY" Binding="{Binding Company}" Width="2.4*"/>
         <DataGridTextColumn Header="REG." Binding="{Binding Registration}" Width="1.1*"/>
         <DataGridTextColumn Header="FLT. NO" Binding="{Binding FleetNumber}" Width="1*"/>
+        <DataGridTextColumn Header="PACKAGE" Binding="{Binding PackageType}" Width="1.2*"/>
         <DataGridTextColumn Header="VEHICLE DESCRIPTION" Binding="{Binding VehicleDescription}" Width="2.2*"/>
-        <DataGridTextColumn Header="CODE" Binding="{Binding Code}" Width="3.8*"/>
+        <DataGridTextColumn Header="CODE" Binding="{Binding Code}" Width="3.2*"/>
       </DataGrid.Columns>
     </DataGrid>
   </Grid>

@@ -190,7 +190,7 @@ public class WorkflowService
                     Model = quote.Model,
                     Colour = quote.Colour,
                     VinNumber = quote.VinNumber,
-                    TrackingUnitMake = quote.TrackingUnitMake,
+                    TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(quote.TrackingUnitMake),
                     Imei = quote.Imei,
                     SerialNumber = quote.SerialNumber,
                     Iccid = quote.Iccid,
@@ -541,13 +541,17 @@ public class WorkflowService
             }
         }
 
-        Quote? linkedInspectionQuote = null;
-        if (job.Type == JobType.Inspection && job.QuoteId.HasValue)
+        Quote? linkedQuote = null;
+        if (job.QuoteId.HasValue)
         {
-            linkedInspectionQuote = db.Quotes
+            linkedQuote = db.Quotes
                 .Include(q => q.LineItems)
-                .FirstOrDefault(q => q.Id == job.QuoteId.Value && q.Type == QuoteType.Inspection);
+                .FirstOrDefault(q => q.Id == job.QuoteId.Value);
         }
+
+        var linkedInspectionQuote = job.Type == JobType.Inspection && linkedQuote?.Type == QuoteType.Inspection
+            ? linkedQuote
+            : null;
 
         if (job.Type == JobType.Inspection
             && job.InspectionOutcome == InspectionOutcome.UnitReplaced
@@ -585,7 +589,8 @@ public class WorkflowService
             be.Model = job.Model;
             be.Colour = job.Colour;
             be.VinNumber = job.VinNumber;
-            be.TrackingUnitMake = job.TrackingUnitMake;
+            be.TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(job.TrackingUnitMake);
+            be.StingPackageType = ResolvePackageTypeFromQuote(linkedQuote, be.StingPackageType);
             be.Imei = job.Imei;
             be.SerialNumber = job.SerialNumber;
             be.Iccid = job.Iccid;
@@ -703,7 +708,8 @@ public class WorkflowService
             be.Model = TrimOrNull(job.Model);
             be.Colour = TrimOrNull(job.Colour);
             be.VinNumber = TrimOrNull(job.VinNumber);
-            be.TrackingUnitMake = TrimOrNull(job.TrackingUnitMake);
+            be.TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(job.TrackingUnitMake);
+            be.StingPackageType = ResolvePackageTypeFromQuote(linkedInspectionQuote, be.StingPackageType);
             be.Imei = TrimOrNull(job.Imei);
             be.SerialNumber = TrimOrNull(job.SerialNumber);
             be.Iccid = TrimOrNull(job.Iccid);
@@ -798,7 +804,7 @@ public class WorkflowService
             entry.Model = TrimOrNull(job.Model);
             entry.Colour = TrimOrNull(job.Colour);
             entry.VinNumber = TrimOrNull(job.VinNumber);
-            entry.TrackingUnitMake = TrimOrNull(job.TrackingUnitMake);
+            entry.TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(job.TrackingUnitMake);
             entry.Imei = TrimOrNull(job.Imei);
             entry.SerialNumber = TrimOrNull(job.SerialNumber);
             entry.Iccid = TrimOrNull(job.Iccid);
@@ -1058,6 +1064,41 @@ public class WorkflowService
     private static string? TrimOrNull(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? ResolvePackageTypeFromQuote(Quote? quote, string? fallback)
+    {
+        if (quote is not null)
+        {
+            foreach (var line in quote.LineItems.OrderBy(x => x.LineNumber))
+            {
+                var packageType = FirstPackageType(
+                    line.ProductCode,
+                    line.ProductName,
+                    line.ProductType,
+                    line.Description);
+                if (!string.IsNullOrWhiteSpace(packageType))
+                    return packageType;
+            }
+
+            var fromQuoteProduct = StingPackageCatalog.Normalize(quote.ProductType);
+            if (!string.IsNullOrWhiteSpace(fromQuoteProduct))
+                return fromQuoteProduct;
+        }
+
+        return StingPackageCatalog.Normalize(fallback);
+    }
+
+    private static string? FirstPackageType(params string?[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            var normalized = StingPackageCatalog.Normalize(candidate);
+            if (!string.IsNullOrWhiteSpace(normalized))
+                return normalized;
+        }
+
+        return null;
     }
 
     private static async Task<(bool attempted, bool ok, string message)> SyncSimDescriptionToFlickswitchAsync(JobCard job)

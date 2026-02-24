@@ -34,6 +34,7 @@ public class BillingEntry
     public string? Colour { get; set; }                // COLOUR
     public string? VinNumber { get; set; }             // VIN
     public string? TrackingUnitMake { get; set; }      // TRACKING UNIT MAKE
+    public string? StingPackageType { get; set; }      // STING / STING PLUS / STING FM
     public string? Notes { get; set; }                 // NOTES
     public string? Reason { get; set; }                // Reason
 

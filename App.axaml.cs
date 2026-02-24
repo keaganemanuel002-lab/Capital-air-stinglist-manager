@@ -267,35 +267,77 @@ public partial class App : Application
 
     private static void BackfillClients(AppDbContext db)
     {
-        var existing = db.Clients.AsNoTracking().Select(c => c.Name).ToList();
-        var existingSet = new HashSet<string>(existing, StringComparer.OrdinalIgnoreCase);
+        var existingNorms = db.Clients.AsNoTracking()
+            .Select(c => c.NameNorm)
+            .Where(n => !string.IsNullOrWhiteSpace(n))
+            .ToHashSet(StringComparer.Ordinal);
 
-        var names = db.Quotes.AsNoTracking().Select(q => q.Company)
+        var sourceNames = db.Quotes.AsNoTracking().Select(q => q.Company)
             .Concat(db.JobCards.AsNoTracking().Select(j => j.Company))
             .Concat(db.BillingEntries.AsNoTracking().Select(b => b.Company))
             .Where(n => n != null)
-            .Select(n => n!.Trim())
-            .Where(n => n != "")
-            .Distinct()
             .ToList();
 
-        foreach (var name in names)
+        var pending = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var rawName in sourceNames)
         {
-            if (existingSet.Contains(name))
+            var displayName = NormalizeClientDisplayName(rawName);
+            if (string.IsNullOrWhiteSpace(displayName))
                 continue;
 
-            db.Clients.Add(new Data.Entities.Client
-            {
-                Name = name,
-                CreatedAt = DateTime.UtcNow
-            });
-            existingSet.Add(name);
+            var normKey = NormalizeClientComparableName(displayName);
+            if (string.IsNullOrWhiteSpace(normKey))
+                continue;
+
+            if (existingNorms.Contains(normKey) || pending.ContainsKey(normKey))
+                continue;
+
+            pending[normKey] = displayName;
         }
 
-        if (db.ChangeTracker.HasChanges())
+        foreach (var candidate in pending)
         {
-            db.SaveChanges();
+            db.Clients.Add(new Data.Entities.Client
+            {
+                Name = candidate.Value,
+                NameNorm = candidate.Key,
+                CreatedAt = DateTime.UtcNow
+            });
+            existingNorms.Add(candidate.Key);
         }
+
+        if (pending.Count > 0)
+        {
+            try
+            {
+                db.SaveChanges();
+            }
+            catch (DbUpdateException ex) when (ex.InnerException?.Message?.Contains("Clients.NameNorm", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                // Do not block startup when duplicate client norms already exist in source data.
+                db.ChangeTracker.Clear();
+            }
+        }
+    }
+
+    private static string NormalizeClientDisplayName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string NormalizeClientComparableName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value
+            .Trim()
+            .ToLowerInvariant()
+            .Where(char.IsLetterOrDigit)
+            .ToArray());
     }
 
     private void DisableAvaloniaDataAnnotationValidation()

@@ -11,7 +11,7 @@
     <StackPanel Margin="16" Spacing="10">
       <TextBlock Text="{Binding WindowTitle}" Classes="h2"/>
 
-      <UniformGrid Columns="2" Rows="2">
+      <UniformGrid Columns="2" Rows="3">
         <StackPanel Spacing="4">
           <TextBlock Text="Company" Classes="muted"/>
           <TextBox Text="{Binding Company}" Watermark="Company"/>
@@ -29,7 +29,16 @@
 
         <StackPanel Spacing="4">
           <TextBlock Text="Tracking Unit Make" Classes="muted"/>
-          <TextBox Text="{Binding TrackingUnitMake}" Watermark="STING / STING PLUS / STING FM"/>
+          <ComboBox ItemsSource="{Binding TrackingUnitMakeOptions}"
+                    SelectedItem="{Binding TrackingUnitMake}"
+                    Width="240"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Package Type" Classes="muted"/>
+          <ComboBox ItemsSource="{Binding PackageTypeOptions}"
+                    SelectedItem="{Binding StingPackageType}"
+                    Width="240"/>
         </StackPanel>
       </UniformGrid>
 
@@ -68,7 +77,7 @@
 
         <StackPanel Spacing="4">
           <TextBlock Text="ICCID" Classes="muted"/>
-          <TextBox Text="{Binding Iccid}" Watermark="ICCID"/>
+          <TextBox Text="{Binding Iccid, UpdateSourceTrigger=PropertyChanged}" Watermark="ICCID"/>
         </StackPanel>
 
         <StackPanel Spacing="4">
@@ -76,6 +85,68 @@
           <TextBox Text="{Binding SimNumber}" Watermark="SIM number"/>
         </StackPanel>
       </UniformGrid>
+
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Content="Lookup SIM in Flickswitch"
+                Command="{Binding LookupSimCommand}"
+                IsEnabled="{Binding !IsLookingUpFlickswitch}"/>
+        <TextBlock Text="Looking up in Flickswitch..."
+                   IsVisible="{Binding IsLookingUpFlickswitch}"
+                   VerticalAlignment="Center"
+                   Classes="muted"/>
+      </StackPanel>
+
+      <Border Classes="card" Margin="0,4,0,0">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Flickswitch SIM Control"
+                     FontWeight="SemiBold"
+                     FontSize="12"/>
+
+          <TextBlock Text="Type ICCID and the app will auto-populate SIM details. Use lookup for ICCID/SIM manual search."
+                     FontSize="11"
+                     Classes="muted"
+                     TextWrapping="Wrap"/>
+
+          <TextBlock Text="{Binding FlickswitchStatusMessage}"
+                     Foreground="Green"
+                     FontSize="12"
+                     Opacity="0.9"
+                     TextWrapping="Wrap"/>
+        </StackPanel>
+      </Border>
+
+      <StackPanel IsVisible="{Binding HasFlickswitchRules}" Margin="0,2,0,0">
+        <TextBlock Text="Current SIM Rules" Classes="muted"/>
+        <Border Background="#F5F5F5" CornerRadius="4" Padding="8">
+          <TextBlock Text="{Binding FlickswitchRulesText}" TextWrapping="Wrap"/>
+        </Border>
+      </StackPanel>
+
+      <StackPanel Margin="0,2,0,0">
+        <TextBlock Text="SIM Balances" Classes="muted"/>
+        <Border Background="#F5F5F5" CornerRadius="4" Padding="8">
+          <StackPanel Spacing="4">
+            <TextBlock Text="{Binding FlickswitchBalanceStatusMessage}"
+                       Classes="muted"
+                       FontSize="11"
+                       TextWrapping="Wrap"/>
+
+            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" ColumnSpacing="8" RowSpacing="4">
+              <TextBlock Grid.Row="0" Grid.Column="0" Text="Airtime:" Classes="muted"/>
+              <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding SimAirtimeBalanceDisplay}"/>
+
+              <TextBlock Grid.Row="1" Grid.Column="0" Text="Data:" Classes="muted"/>
+              <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SimDataBalanceDisplay}"/>
+
+              <TextBlock Grid.Row="2" Grid.Column="0" Text="SMS:" Classes="muted"/>
+              <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding SimSmsBalanceDisplay}"/>
+
+              <TextBlock Grid.Row="3" Grid.Column="0" Text="Last Check:" Classes="muted"/>
+              <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding SimLastBalanceCheckDisplay}"/>
+            </Grid>
+          </StackPanel>
+        </Border>
+      </StackPanel>
 
       <StackPanel Spacing="4">
         <TextBlock Text="Notes" Classes="muted"/>

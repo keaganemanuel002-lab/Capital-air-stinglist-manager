@@ -141,7 +141,9 @@
     <StackPanel Orientation="Horizontal" Spacing="10">
       <StackPanel Width="252">
         <TextBlock Text="Tracking Unit Make" Classes="muted"/>
-        <TextBox Text="{Binding TrackingUnitMake}" Watermark="e.g. Concox, Queclink"/>
+        <ComboBox ItemsSource="{Binding TrackingUnitMakeOptions}"
+                  SelectedItem="{Binding TrackingUnitMake}"
+                  Width="252"/>
       </StackPanel>
       <StackPanel Width="252">
         <TextBlock Text="IMEI Number" Classes="muted"/>

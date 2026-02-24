@@ -94,7 +94,8 @@ public class ExcelImportService
         var modelCol = FindColumn(headers, "MODEL");
         var colourCol = FindColumn(headers, "COLOUR", "COLOR");
         var vinCol = FindColumn(headers, "VIN", "VINNUMBER");
-        var trackingUnitMakeCol = FindColumn(headers, "TRACKINGUNITMAKE", "TRACKINGUNIT", "UNITMODEL", "UNITTYPE");
+        var trackingUnitMakeCol = FindColumn(headers, "TRACKINGUNITMAKE", "TRACKINGUNIT", "UNITMODEL", "DEVICEMODEL");
+        var packageTypeCol = FindColumn(headers, "PACKAGETYPE", "PACKAGE", "STINGPACKAGE", "UNITTYPE", "UNITPACKAGE", "PRODUCTTYPE");
         var codeCol = FindColumn(headers, "CODE");
         var imeiCol = FindColumn(headers, "IMEI");
         var serialCol = FindColumn(headers, "SERIAL", "SERIALNUMBER");
@@ -143,6 +144,7 @@ public class ExcelImportService
             var colour = GetCellString(ws, r, colourCol);
             var vin = GetCellString(ws, r, vinCol);
             var trackingUnitRaw = GetCellString(ws, r, trackingUnitMakeCol);
+            var packageRaw = GetCellString(ws, r, packageTypeCol);
             var code = GetCellString(ws, r, codeCol);
             var imei = GetCellString(ws, r, imeiCol);
             var serial = GetCellString(ws, r, serialCol);
@@ -167,7 +169,12 @@ public class ExcelImportService
                 continue;
 
             var (unitFromCode, uniqueFromCode) = StingPackageClassifier.ParseCode(code);
-            var trackingUnitMake = StingPackageClassifier.NormalizeLabel(FirstNonEmpty(trackingUnitRaw, unitFromCode));
+            var trackingFromCode = string.IsNullOrWhiteSpace(StingPackageCatalog.Normalize(unitFromCode))
+                ? unitFromCode
+                : null;
+            var trackingUnitMake = TrackingUnitMakeCatalog.Normalize(FirstNonEmpty(trackingUnitRaw, trackingFromCode));
+            var packageType = StingPackageCatalog.Normalize(
+                FirstNonEmpty(packageRaw, unitFromCode, packageHint, trackingUnitRaw, notes, reason));
 
             if (string.IsNullOrWhiteSpace(serial) && !string.IsNullOrWhiteSpace(uniqueFromCode))
                 serial = uniqueFromCode;
@@ -202,6 +209,7 @@ public class ExcelImportService
                 Colour = string.IsNullOrWhiteSpace(colour) ? null : colour,
                 VinNumber = string.IsNullOrWhiteSpace(vin) ? null : vin,
                 TrackingUnitMake = string.IsNullOrWhiteSpace(trackingUnitMake) ? null : trackingUnitMake,
+                StingPackageType = string.IsNullOrWhiteSpace(packageType) ? null : packageType,
                 Imei = string.IsNullOrWhiteSpace(imei) ? null : imei,
                 SerialNumber = string.IsNullOrWhiteSpace(serial) ? null : serial,
                 Iccid = string.IsNullOrWhiteSpace(iccid) ? null : iccid,
@@ -223,7 +231,7 @@ public class ExcelImportService
             if (!string.IsNullOrWhiteSpace(iccidNorm)) iccidNorms.Add(iccidNorm);
             if (!string.IsNullOrWhiteSpace(serialNorm)) serialNorms.Add(serialNorm);
 
-            switch (ResolvePackageFamilyForCounts(trackingUnitMake, notes, reason, packageHint))
+            switch (ResolvePackageFamilyForCounts(packageType, trackingUnitRaw, notes, reason, packageHint))
             {
                 case StingPackageFamily.Sting:
                     summary.StingCount++;

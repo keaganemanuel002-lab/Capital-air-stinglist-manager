@@ -47,7 +47,10 @@
             <CheckBox Content="Use shared data location (multi-user)" IsChecked="{Binding UseSharedData}"/>
 
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-              <TextBox Grid.Column="0" Text="{Binding SharedBaseDir}" Watermark="Select shared folder path"/>
+              <TextBox Grid.Column="0"
+                       Text="{Binding SharedBaseDir}"
+                       Watermark="Select shared folder path"
+                       behaviors:UppercaseTextBoxBehavior.IsEnabled="False"/>
               <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseSharedBaseDirCommand}" MinWidth="100"/>
             </Grid>
 
@@ -61,11 +64,13 @@
             <TextBlock Text="Flickswitch SIM Control" Classes="h2"/>
             <TextBlock Text="Flickswitch Base URL" Classes="muted"/>
             <TextBox Text="{Binding FlickswitchBaseUrl}"
-                     Watermark="https://app.simcontrol.co.za"/>
+                     Watermark="https://app.simcontrol.co.za"
+                     behaviors:UppercaseTextBoxBehavior.IsEnabled="False"/>
             <TextBlock Text="Flickswitch API Key" Classes="muted"/>
             <TextBox Text="{Binding FlickswitchApiKey}"
                      Watermark="Enter your Flickswitch API key"
-                     PasswordChar="*"/>
+                     PasswordChar="*"
+                     behaviors:UppercaseTextBoxBehavior.IsEnabled="False"/>
             <TextBlock Text="Used to look up SIM phone numbers and ICCID values in Job Cards."
                        Classes="muted"
                        FontSize="11"/>
@@ -81,7 +86,8 @@
             <TextBlock Text="Wialon API Token (used to pull the STING list from Wialon)" Classes="muted"/>
             <TextBox Text="{Binding WialonApiToken}"
                      Watermark="Enter your Wialon API token"
-                     PasswordChar="*"/>
+                     PasswordChar="*"
+                     behaviors:UppercaseTextBoxBehavior.IsEnabled="False"/>
             <TextBlock Text="After updating the token, open STING List and click Refresh."
                        Classes="muted"
                        FontSize="11"/>
@@ -94,7 +100,8 @@
             <TextBlock Text="Executive account API token used only when creating new clients/accounts." Classes="muted"/>
             <TextBox Text="{Binding WialonClientProvisionApiToken}"
                      Watermark="Enter Executive Account API token"
-                     PasswordChar="*"/>
+                     PasswordChar="*"
+                     behaviors:UppercaseTextBoxBehavior.IsEnabled="False"/>
             <TextBlock Text="If empty, the app falls back to the standard Wialon API token."
                        Classes="muted"
                        FontSize="11"/>
@@ -113,12 +120,14 @@
               <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
                 <TextBlock Text="Firebase Project ID" Classes="muted"/>
                 <TextBox Text="{Binding FirebaseProjectId}"
-                         Watermark="e.g. capital-air-prod"/>
+                         Watermark="e.g. capital-air-prod"
+                         behaviors:UppercaseTextBoxBehavior.IsEnabled="False"/>
               </StackPanel>
               <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
                 <TextBlock Text="Firebase Storage Bucket" Classes="muted"/>
                 <TextBox Text="{Binding FirebaseStorageBucket}"
-                         Watermark="e.g. capital-air-prod.appspot.com"/>
+                         Watermark="e.g. capital-air-prod.appspot.com"
+                         behaviors:UppercaseTextBoxBehavior.IsEnabled="False"/>
               </StackPanel>
               <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
                 <TextBlock Text="Sync Interval (seconds)" Classes="muted"/>
@@ -132,7 +141,8 @@
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
               <TextBox Grid.Column="0"
                        Text="{Binding FirebaseServiceAccountJsonPath}"
-                       Watermark="Select Firebase service account JSON file"/>
+                       Watermark="Select Firebase service account JSON file"
+                       behaviors:UppercaseTextBoxBehavior.IsEnabled="False"/>
               <Button Grid.Column="1"
                       Content="Browse"
                       Command="{Binding BrowseFirebaseServiceAccountPathCommand}"/>

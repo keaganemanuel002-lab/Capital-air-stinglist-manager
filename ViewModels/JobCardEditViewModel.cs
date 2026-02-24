@@ -76,6 +76,7 @@ public partial class JobCardEditViewModel : ViewModelBase
 
     public ObservableCollection<string> AvailableMakes { get; } = new();
     public ObservableCollection<string> AvailableModels { get; } = new();
+    public ObservableCollection<string> TrackingUnitMakeOptions { get; } = new();
     public ObservableCollection<string> FilteredMakes { get; } = new();
     public ObservableCollection<string> FilteredModels { get; } = new();
     public ObservableCollection<string> ClientNames { get; } = new();
@@ -255,6 +256,7 @@ public partial class JobCardEditViewModel : ViewModelBase
 
         // Load all available makes
         RefreshAvailableMakes();
+        RefreshTrackingUnitOptions();
 
         using var db = new AppDbContext();
         var job = db.JobCards.Find(jobCardId);
@@ -288,7 +290,8 @@ public partial class JobCardEditViewModel : ViewModelBase
             VinNumber = NormalizeUpperText(job.VinNumber);
             GridLocation = NormalizeUpperText(job.GridLocation);
             CompletedGridLocationUpdate = GridLocation ?? string.Empty;
-            TrackingUnitMake = NormalizeUpperText(job.TrackingUnitMake);
+            TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(job.TrackingUnitMake);
+            RefreshTrackingUnitOptions(TrackingUnitMake);
             _suppressIccidAutoLookup = true;
             try
             {
@@ -323,6 +326,15 @@ public partial class JobCardEditViewModel : ViewModelBase
         foreach (var make in _vehicleService.GetAllVehicleMakes())
         {
             AvailableMakes.Add(make);
+        }
+    }
+
+    private void RefreshTrackingUnitOptions(params string?[] includeValues)
+    {
+        TrackingUnitMakeOptions.Clear();
+        foreach (var value in TrackingUnitMakeCatalog.BuildOptionsIncluding(includeValues))
+        {
+            TrackingUnitMakeOptions.Add(value);
         }
     }
 
@@ -657,7 +669,7 @@ public partial class JobCardEditViewModel : ViewModelBase
         job.Colour = NormalizeUpperText(Colour);
         job.VinNumber = NormalizeUpperText(VinNumber);
         job.GridLocation = NormalizeUpperText(GridLocation);
-        job.TrackingUnitMake = NormalizeUpperText(TrackingUnitMake);
+        job.TrackingUnitMake = NormalizeUpperText(TrackingUnitMakeCatalog.Normalize(TrackingUnitMake));
         job.Imei = NormalizeUpperText(Imei);
         job.SerialNumber = NormalizeUpperText(SerialNumber);
         job.Iccid = NormalizeUpperText(Iccid);

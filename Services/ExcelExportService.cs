@@ -112,8 +112,9 @@ public class ExcelExportService
         ws.Cell(1, 2).Value = "REG.";
         ws.Cell(1, 3).Value = "FLT. NO";
         ws.Cell(1, 4).Value = "TRACKING UNIT MAKE";
-        ws.Cell(1, 5).Value = "NOTES";
-        ws.Cell(1, 6).Value = "Reason";
+        ws.Cell(1, 5).Value = "PACKAGE TYPE";
+        ws.Cell(1, 6).Value = "NOTES";
+        ws.Cell(1, 7).Value = "Reason";
     }
 
     private static void WriteBillingRows(IXLWorksheet ws, List<BillingEntry> rows)
@@ -125,8 +126,9 @@ public class ExcelExportService
             ws.Cell(r, 2).Value = x.Registration;
             ws.Cell(r, 3).Value = x.FleetNumber ?? "";
             ws.Cell(r, 4).Value = x.TrackingUnitMake ?? "";
-            ws.Cell(r, 5).Value = x.Notes ?? "";
-            ws.Cell(r, 6).Value = x.Reason ?? "";
+            ws.Cell(r, 5).Value = x.StingPackageType ?? "";
+            ws.Cell(r, 6).Value = x.Notes ?? "";
+            ws.Cell(r, 7).Value = x.Reason ?? "";
             r++;
         }
     }
@@ -177,8 +179,9 @@ public class ExcelExportService
         ws.Cell(1, 2).Value = "COMPANY";
         ws.Cell(1, 3).Value = "REG.";
         ws.Cell(1, 4).Value = "FLT. NO";
-        ws.Cell(1, 5).Value = "VEHICLE DESCRIPTION";
-        ws.Cell(1, 6).Value = "CODE";
+        ws.Cell(1, 5).Value = "PACKAGE";
+        ws.Cell(1, 6).Value = "VEHICLE DESCRIPTION";
+        ws.Cell(1, 7).Value = "CODE";
 
         // Data rows - grouped by company with per-company row numbering
         int r = 2;
@@ -194,8 +197,9 @@ public class ExcelExportService
                 ws.Cell(r, 2).Value = entry.Company;
                 ws.Cell(r, 3).Value = entry.Registration;
                 ws.Cell(r, 4).Value = entry.FleetNumber ?? "";
-                ws.Cell(r, 5).Value = BuildVehicleDescription(entry);
-                ws.Cell(r, 6).Value = BuildCode(entry);
+                ws.Cell(r, 5).Value = entry.StingPackageType ?? "";
+                ws.Cell(r, 6).Value = BuildVehicleDescription(entry);
+                ws.Cell(r, 7).Value = BuildCode(entry);
                 r++;
                 rowNumber++;
             }

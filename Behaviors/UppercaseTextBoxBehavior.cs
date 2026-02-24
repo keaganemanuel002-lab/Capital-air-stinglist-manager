@@ -7,7 +7,7 @@ namespace StingListManager.Behaviors;
 public sealed class UppercaseTextBoxBehavior
 {
     public static readonly AttachedProperty<bool> IsEnabledProperty =
-        AvaloniaProperty.RegisterAttached<UppercaseTextBoxBehavior, TextBox, bool>("IsEnabled", true);
+        AvaloniaProperty.RegisterAttached<UppercaseTextBoxBehavior, TextBox, bool>("IsEnabled", false);
 
     private static readonly AttachedProperty<bool> IsUpdatingProperty =
         AvaloniaProperty.RegisterAttached<UppercaseTextBoxBehavior, TextBox, bool>("IsUpdating");

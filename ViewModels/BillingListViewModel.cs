@@ -23,6 +23,7 @@ public partial class BillingListRow : ObservableObject
     public string Company { get; set; } = "";
     public string Registration { get; set; } = "";
     public string? FleetNumber { get; set; }
+    public string PackageType { get; set; } = "";
     public string VehicleDescription { get; set; } = "";
     public string Code { get; set; } = "";
     public string PackageCharge { get; set; } = "";
@@ -132,6 +133,7 @@ public partial class BillingListViewModel : ViewModelBase
                     Company = entry.Company,
                     Registration = entry.Registration,
                     FleetNumber = entry.FleetNumber,
+                    PackageType = entry.StingPackageType ?? ResolvePackageLabel(entry),
                     VehicleDescription = BuildVehicleDescription(entry),
                     Code = BuildCode(entry),
                     PackageCharge = "",
@@ -151,7 +153,7 @@ public partial class BillingListViewModel : ViewModelBase
             var liveTrackingUnits = totalUnits;
             var packageTotal = packageSummary.StingCount + packageSummary.StingPlusCount + packageSummary.StingFmCount;
             var packageSourceNote = packageTotal <= 0
-                ? "Package mix unavailable (set unit type to STING/STING PLUS/STING FM)"
+                ? "Package mix unavailable (set package type to STING/STING PLUS/STING FM)"
                 : "Package mix from active STING list entries";
 
             Rows.Add(new BillingListRow
@@ -161,6 +163,7 @@ public partial class BillingListViewModel : ViewModelBase
                 Company = group.Key,
                 Registration = $"{totalUnits} units",
                 FleetNumber = $"{liveTrackingUnits} live",
+                PackageType = "TOTAL",
                 VehicleDescription =
                     $"STING {packageSummary.StingCount} | STING PLUS {packageSummary.StingPlusCount} | STING FM {packageSummary.StingFmCount}",
                 Code = string.Empty,
@@ -255,9 +258,9 @@ public partial class BillingListViewModel : ViewModelBase
 
     private static StingPackageFamily ResolvePackageFamily(BillingEntry entry)
     {
-        var fromUnit = StingPackageClassifier.Classify(entry.TrackingUnitMake);
-        if (fromUnit != StingPackageFamily.Unknown)
-            return fromUnit;
+        var fromSelectedPackage = StingPackageClassifier.Classify(entry.StingPackageType);
+        if (fromSelectedPackage != StingPackageFamily.Unknown)
+            return fromSelectedPackage;
 
         var fromNotes = StingPackageClassifier.Classify(entry.Notes);
         if (fromNotes != StingPackageFamily.Unknown)
@@ -268,6 +271,17 @@ public partial class BillingListViewModel : ViewModelBase
             return fromReason;
 
         return StingPackageFamily.Unknown;
+    }
+
+    private static string ResolvePackageLabel(BillingEntry entry)
+    {
+        return ResolvePackageFamily(entry) switch
+        {
+            StingPackageFamily.Sting => "STING",
+            StingPackageFamily.StingPlus => "STING PLUS",
+            StingPackageFamily.StingFm => "STING FM",
+            _ => "-"
+        };
     }
 
     private static string BuildVehicleDescription(BillingEntry entry)
