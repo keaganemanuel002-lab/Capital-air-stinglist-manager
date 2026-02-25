@@ -46,6 +46,16 @@
                 Classes="primary"
                 Margin="10,0,0,0"/>
 
+        <Button Content="Back to Menu"
+                Command="{Binding BackToMenuCommand}"
+                DockPanel.Dock="Right"
+                Margin="10,0,0,0"/>
+
+        <Button Content="Logout"
+                Command="{Binding LogoutCommand}"
+                DockPanel.Dock="Right"
+                Margin="10,0,0,0"/>
+
         <Button Command="{Binding ToggleNotificationHistoryCommand}"
                 DockPanel.Dock="Right"
                 Classes="icon-button"
@@ -119,6 +129,7 @@
           <ListBoxItem ToolTip.Tip="Wialon Reports"><TextBlock Text="&#xE9D2;" Classes="nav-icon"/></ListBoxItem>
           <ListBoxItem ToolTip.Tip="Dashcams"><TextBlock Text="&#xE722;" Classes="nav-icon"/></ListBoxItem>
           <ListBoxItem ToolTip.Tip="Phone Issue Log"><TextBlock Text="&#xE717;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Driver Tags"><TextBlock Text="&#xE8C8;" Classes="nav-icon"/></ListBoxItem>
         </ListBox>
 
         <ListBox x:Name="ExpandedNavList"
@@ -140,12 +151,13 @@
           <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE9D2;" Classes="nav-icon"/><TextBlock Text="Wialon Reports"/></StackPanel></ListBoxItem>
           <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE722;" Classes="nav-icon"/><TextBlock Text="Dashcams"/></StackPanel></ListBoxItem>
           <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE717;" Classes="nav-icon"/><TextBlock Text="Phone Issue Log"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE8C8;" Classes="nav-icon"/><TextBlock Text="Driver Tags"/></StackPanel></ListBoxItem>
         </ListBox>
       </StackPanel>
     </Border>
 
     <!-- Main content area -->
-    <Border Grid.Row="1" Grid.Column="1" Padding="20">
+    <Border Grid.Row="1" Grid.Column="1" Padding="20" Classes="main-pane" Margin="10,10,12,10">
       <ContentControl Content="{Binding CurrentPage}"/>
     </Border>
 

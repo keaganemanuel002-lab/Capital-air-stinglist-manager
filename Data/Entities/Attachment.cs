@@ -5,7 +5,8 @@ namespace StingListManager.Data.Entities;
 public enum AttachmentOwnerType
 {
     Quote = 0,
-    JobCard = 1
+    JobCard = 1,
+    PhoneIssue = 2
 }
 
 public enum AttachmentKind
@@ -22,7 +23,7 @@ public class Attachment
     public int Id { get; set; }
 
     public AttachmentOwnerType OwnerType { get; set; }
-    public int OwnerId { get; set; }              // Quote.Id or JobCard.Id
+    public int OwnerId { get; set; }              // Quote.Id, JobCard.Id, or PhoneIssueLogEntry.Id
     public AttachmentKind Kind { get; set; }      // signed quote, invoice, etc.
 
     public string FileName { get; set; } = "";    // display name

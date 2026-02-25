@@ -11,6 +11,7 @@ public sealed class StingListExportRow
 {
     public string Company { get; init; } = "";
     public string Registration { get; init; } = "";
+    public string? InstallationJobCard { get; init; }
     public string? FleetNumber { get; init; }
     public string? Make { get; init; }
     public string? Model { get; init; }
@@ -243,6 +244,7 @@ public class ExcelExportService
             {
                 Company = e.Company,
                 Registration = e.Registration,
+                InstallationJobCard = null,
                 FleetNumber = e.FleetNumber,
                 Make = e.Make,
                 Model = e.Model,
@@ -273,16 +275,17 @@ public class ExcelExportService
         // Header - matching the page display exactly
         ws.Cell(1, 1).Value = "COMPANY";
         ws.Cell(1, 2).Value = "REG";
-        ws.Cell(1, 3).Value = "FLEET";
-        ws.Cell(1, 4).Value = "MAKE";
-        ws.Cell(1, 5).Value = "MODEL";
-        ws.Cell(1, 6).Value = "COLOUR";
-        ws.Cell(1, 7).Value = "VIN";
-        ws.Cell(1, 8).Value = "IMEI";
-        ws.Cell(1, 9).Value = "SERIAL #";
-        ws.Cell(1, 10).Value = "ICCID";
-        ws.Cell(1, 11).Value = "WARRANTY";
-        ws.Cell(1, 12).Value = "ACTIVE FROM";
+        ws.Cell(1, 3).Value = "INSTALL JOBCARD";
+        ws.Cell(1, 4).Value = "FLEET";
+        ws.Cell(1, 5).Value = "MAKE";
+        ws.Cell(1, 6).Value = "MODEL";
+        ws.Cell(1, 7).Value = "COLOUR";
+        ws.Cell(1, 8).Value = "VIN";
+        ws.Cell(1, 9).Value = "IMEI";
+        ws.Cell(1, 10).Value = "SERIAL #";
+        ws.Cell(1, 11).Value = "ICCID";
+        ws.Cell(1, 12).Value = "WARRANTY";
+        ws.Cell(1, 13).Value = "ACTIVE FROM";
 
         // Data rows
         int r = 2;
@@ -290,16 +293,17 @@ public class ExcelExportService
         {
             ws.Cell(r, 1).Value = e.Company;
             ws.Cell(r, 2).Value = e.Registration;
-            ws.Cell(r, 3).Value = e.FleetNumber ?? "";
-            ws.Cell(r, 4).Value = e.Make ?? "";
-            ws.Cell(r, 5).Value = e.Model ?? "";
-            ws.Cell(r, 6).Value = e.Colour ?? "";
-            ws.Cell(r, 7).Value = e.VinNumber ?? "";
-            ws.Cell(r, 8).Value = e.Imei ?? "";
-            ws.Cell(r, 9).Value = e.SerialNumber ?? "";
-            ws.Cell(r, 10).Value = e.Iccid ?? "";
-            ws.Cell(r, 11).Value = e.Warranty;
-            ws.Cell(r, 12).Value = e.ActiveFrom.ToString("yyyy-MM-dd HH:mm");
+            ws.Cell(r, 3).Value = e.InstallationJobCard ?? "";
+            ws.Cell(r, 4).Value = e.FleetNumber ?? "";
+            ws.Cell(r, 5).Value = e.Make ?? "";
+            ws.Cell(r, 6).Value = e.Model ?? "";
+            ws.Cell(r, 7).Value = e.Colour ?? "";
+            ws.Cell(r, 8).Value = e.VinNumber ?? "";
+            ws.Cell(r, 9).Value = e.Imei ?? "";
+            ws.Cell(r, 10).Value = e.SerialNumber ?? "";
+            ws.Cell(r, 11).Value = e.Iccid ?? "";
+            ws.Cell(r, 12).Value = e.Warranty;
+            ws.Cell(r, 13).Value = e.ActiveFrom.ToString("yyyy-MM-dd HH:mm");
             r++;
         }
 

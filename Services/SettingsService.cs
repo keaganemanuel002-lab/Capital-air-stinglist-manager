@@ -40,10 +40,15 @@ public class AppSettings
     public string? TechnicianLoginPin { get; set; } = "1234";
     public bool FirebaseSyncEnabled { get; set; } = false;
     public bool FirestorePrimaryDataEnabled { get; set; } = false;
+    public bool MongoPrimaryDataEnabled { get; set; } = false;
     public string? FirebaseProjectId { get; set; } = null;
     public string? FirebaseStorageBucket { get; set; } = null;
     public string? FirebaseServiceAccountJsonPath { get; set; } = null;
     public int FirebaseSyncIntervalSeconds { get; set; } = 2;
+    public string? MongoConnectionString { get; set; } = null;
+    public string? MongoDatabaseName { get; set; } = "stinglistmanager";
+    public bool RememberMe { get; set; } = false;
+    public string? RememberedPasswordProtected { get; set; } = null;
     public List<FilterPreset> StingPresets { get; set; } = new();
 }
 
@@ -88,10 +93,16 @@ public class SettingsService
         settings.FirebaseProjectId = NormalizeLower(settings.FirebaseProjectId);
         settings.FirebaseStorageBucket = NormalizeLower(settings.FirebaseStorageBucket);
         settings.FirebaseServiceAccountJsonPath = NormalizeTrim(settings.FirebaseServiceAccountJsonPath);
+        settings.MongoConnectionString = NormalizeTrim(settings.MongoConnectionString);
+        settings.MongoDatabaseName = NormalizeTrim(settings.MongoDatabaseName);
+        settings.RememberedPasswordProtected = NormalizeTrim(settings.RememberedPasswordProtected);
         settings.WialonApiToken = NormalizeTrim(settings.WialonApiToken);
         settings.WialonClientProvisionApiToken = NormalizeTrim(settings.WialonClientProvisionApiToken);
         settings.FlickswitchApiKey = NormalizeTrim(settings.FlickswitchApiKey);
         settings.FlickswitchBaseUrl = NormalizeTrim(settings.FlickswitchBaseUrl);
+
+        if (!settings.RememberMe)
+            settings.RememberedPasswordProtected = null;
     }
 
     private static string? NormalizeLower(string? value)

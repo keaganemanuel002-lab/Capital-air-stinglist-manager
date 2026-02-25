@@ -24,10 +24,13 @@ public partial class PhoneIssueLogRow : ObservableObject
     public string? PhoneLabel { get; set; }
     public string? PhoneNumber { get; set; }
     public string? PhoneImei { get; set; }
+    public string? PhoneImeiSecondary { get; set; }
     public string IssuedAtDisplay { get; set; } = "";
     public string ReturnedAtDisplay { get; set; } = "";
     public string Status { get; set; } = "Issued";
+    public string? RepairDetails { get; set; }
     public string? Notes { get; set; }
+    public int InvoiceCount { get; set; }
     public bool IsReturned { get; set; }
 }
 
@@ -50,6 +53,7 @@ public partial class PhoneIssueLogViewModel : ViewModelBase
     public bool CanEditSelected => SelectedRow is { Id: > 0 };
     public bool CanMarkReturned => SelectedRow is { Id: > 0, IsReturned: false };
     public bool CanDeleteSelected => SelectedRow is { Id: > 0 };
+    public bool CanManageInvoices => SelectedRow is { Id: > 0 };
 
     public PhoneIssueLogViewModel(Window window, AppState appState)
     {
@@ -64,6 +68,7 @@ public partial class PhoneIssueLogViewModel : ViewModelBase
         OnPropertyChanged(nameof(CanEditSelected));
         OnPropertyChanged(nameof(CanMarkReturned));
         OnPropertyChanged(nameof(CanDeleteSelected));
+        OnPropertyChanged(nameof(CanManageInvoices));
     }
 
     partial void OnSelectedTeamChanged(string value)
@@ -111,6 +116,14 @@ public partial class PhoneIssueLogViewModel : ViewModelBase
                 .OrderByDescending(x => x.IssuedAt)
                 .ThenByDescending(x => x.Id)
                 .ToList();
+
+            var invoiceCounts = db.Attachments
+                .AsNoTracking()
+                .Where(a => a.OwnerType == AttachmentOwnerType.PhoneIssue
+                            && a.Kind == AttachmentKind.Invoice)
+                .GroupBy(a => a.OwnerId)
+                .Select(g => new { OwnerId = g.Key, Count = g.Count() })
+                .ToDictionary(x => x.OwnerId, x => x.Count);
 
             var billingRegistrations = db.BillingEntries
                 .AsNoTracking()
@@ -162,6 +175,8 @@ public partial class PhoneIssueLogViewModel : ViewModelBase
                     || Contains(x.PhoneLabel, search)
                     || Contains(x.PhoneNumber, search)
                     || Contains(x.PhoneImei, search)
+                    || Contains(x.PhoneImeiSecondary, search)
+                    || Contains(x.RepairDetails, search)
                     || Contains(x.Notes, search));
             }
 
@@ -180,12 +195,15 @@ public partial class PhoneIssueLogViewModel : ViewModelBase
                     PhoneLabel = entry.PhoneLabel,
                     PhoneNumber = entry.PhoneNumber,
                     PhoneImei = entry.PhoneImei,
+                    PhoneImeiSecondary = entry.PhoneImeiSecondary,
                     IssuedAtDisplay = ToLocal(entry.IssuedAt).ToString("yyyy-MM-dd"),
                     ReturnedAtDisplay = entry.ReturnedAt is DateTime returnedAt
                         ? ToLocal(returnedAt).ToString("yyyy-MM-dd")
                         : string.Empty,
                     Status = entry.ReturnedAt is null ? "Issued" : "Returned",
+                    RepairDetails = entry.RepairDetails,
                     Notes = entry.Notes,
+                    InvoiceCount = invoiceCounts.TryGetValue(entry.Id, out var count) ? count : 0,
                     IsReturned = entry.ReturnedAt is not null
                 });
             }
@@ -241,6 +259,33 @@ public partial class PhoneIssueLogViewModel : ViewModelBase
         catch (Exception ex)
         {
             _appState.SetStatus($"Could not open Amend Issue dialog: {ex.Message}", true);
+        }
+    }
+
+    [RelayCommand]
+    private async Task ManageInvoices()
+    {
+        if (!CanManageInvoices || SelectedRow is null)
+            return;
+
+        try
+        {
+            var wnd = new DocumentsWindow
+            {
+                Title = "Phone Issue Invoices",
+                Width = 820,
+                Height = 620
+            };
+
+            var vm = new PhoneIssueDocumentsViewModel(_window, _appState, SelectedRow.Id);
+            var view = new PhoneIssueDocumentsView { DataContext = vm };
+            wnd.Content = view;
+            await wnd.ShowDialog(_window);
+            Load();
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Could not open Phone Issue invoices: {ex.Message}", true);
         }
     }
 

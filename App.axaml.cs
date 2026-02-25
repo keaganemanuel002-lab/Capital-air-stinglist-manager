@@ -72,6 +72,15 @@ public partial class App : Application
                         {
                             // ignore shutdown failures on exit
                         }
+
+                        try
+                        {
+                            await MongoSyncService.Instance.StopAsync();
+                        }
+                        catch
+                        {
+                            // ignore shutdown failures on exit
+                        }
                     });
 
                     _ = stopTask.Wait(TimeSpan.FromSeconds(3));
@@ -121,6 +130,9 @@ public partial class App : Application
                 db.Database.Migrate();
                 BackfillClients(db);
                 AuthService.EnsureDefaultAdminUser(db);
+
+                using var ordersDb = new OrdersDbContext();
+                OrdersDbContext.EnsureSchema(ordersDb);
             });
 
             await Dispatcher.UIThread.InvokeAsync(() => splash.SetStatus("Finalizing startup checks..."));
@@ -159,14 +171,52 @@ public partial class App : Application
                 return;
             }
 
-            var mainWindow = new MainWindow(
+            var launcher = BuildWorkspaceLauncherWindow(
+                desktop,
                 loginWindow.AuthenticatedUsername,
                 loginWindow.AuthenticatedRole);
-            desktop.MainWindow = mainWindow;
-            mainWindow.Show();
+            desktop.MainWindow = launcher;
+            launcher.Show();
         };
 
         return loginWindow;
+    }
+
+    private static WorkspaceLauncherWindow BuildWorkspaceLauncherWindow(
+        IClassicDesktopStyleApplicationLifetime desktop,
+        string authenticatedUsername,
+        string authenticatedRole)
+    {
+        var launcher = new WorkspaceLauncherWindow(authenticatedUsername, authenticatedRole);
+        launcher.Closed += (_, _) =>
+        {
+            if (launcher.SelectedWorkspace is null)
+            {
+                desktop.Shutdown();
+                return;
+            }
+
+            switch (launcher.SelectedWorkspace.Value)
+            {
+                case WorkspaceChoice.Orders:
+                {
+                    var ordersWindow = new PurchaseOrdersWindow(authenticatedUsername, authenticatedRole);
+                    desktop.MainWindow = ordersWindow;
+                    ordersWindow.Show();
+                    break;
+                }
+                case WorkspaceChoice.StingManager:
+                default:
+                {
+                    var mainWindow = new MainWindow(authenticatedUsername, authenticatedRole);
+                    desktop.MainWindow = mainWindow;
+                    mainWindow.Show();
+                    break;
+                }
+            }
+        };
+
+        return launcher;
     }
 
     private static Window BuildLockWindow(IClassicDesktopStyleApplicationLifetime desktop, string baseDir)

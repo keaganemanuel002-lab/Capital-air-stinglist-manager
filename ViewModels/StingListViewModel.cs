@@ -19,6 +19,7 @@ public partial class StingListRow : ObservableObject
 {
     public int Id { get; set; }
     public int? LocalBillingEntryId { get; set; }
+    public string InstallationJobCard { get; set; } = "";
     public string Company { get; set; } = "";
     public string Registration { get; set; } = "";
     public string? FleetNumber { get; set; }
@@ -206,6 +207,7 @@ public partial class StingListViewModel : PagedViewModelBase
             query = query.Where(r =>
                 ContainsIgnoreCase(r.Company, search)
                 || ContainsIgnoreCase(r.Registration, search)
+                || ContainsIgnoreCase(r.InstallationJobCard, search)
                 || ContainsIgnoreCase(r.FleetNumber, search)
                 || ContainsIgnoreCase(r.Make, search)
                 || ContainsIgnoreCase(r.Model, search)
@@ -431,6 +433,7 @@ public partial class StingListViewModel : PagedViewModelBase
             .AsNoTracking()
             .OrderByDescending(x => x.ActiveFrom)
             .ToList();
+        var installationJobCardLookup = BuildInstallationJobCardLookup(db, billingEntries);
 
         var localByImei = billingEntries
             .Select(x => new { Key = NormalizeDigits(x.Imei), Entry = x })
@@ -464,6 +467,10 @@ public partial class StingListViewModel : PagedViewModelBase
             {
                 Id = report.Id > 0 ? report.Id : -fallbackId++,
                 LocalBillingEntryId = localMatch?.Id,
+                InstallationJobCard = localMatch is not null
+                    && installationJobCardLookup.TryGetValue(localMatch.Id, out var installationJobCard)
+                        ? installationJobCard
+                        : string.Empty,
                 Company = FirstNonEmpty(report.Client, localMatch?.Company) ?? "Unknown",
                 Registration = FirstNonEmpty(report.Registration, localMatch?.Registration, report.Name) ?? string.Empty,
                 FleetNumber = FirstNonEmpty(report.FleetNumber, localMatch?.FleetNumber),
@@ -490,7 +497,11 @@ public partial class StingListViewModel : PagedViewModelBase
 
         foreach (var entry in unmatchedLocalEntries)
         {
-            _allRows.Add(CreateRowFromLocalBillingEntry(entry));
+            _allRows.Add(CreateRowFromLocalBillingEntry(
+                entry,
+                installationJobCardLookup.TryGetValue(entry.Id, out var installationJobCard)
+                    ? installationJobCard
+                    : null));
         }
     }
 
@@ -501,28 +512,36 @@ public partial class StingListViewModel : PagedViewModelBase
             .AsNoTracking()
             .OrderByDescending(x => x.ActiveFrom)
             .ToList();
+        var installationJobCardLookup = BuildInstallationJobCardLookup(db, billingEntries);
 
-        MapLocalBillingEntriesToRows(billingEntries);
+        MapLocalBillingEntriesToRows(billingEntries, installationJobCardLookup);
         PageNumber = 1;
         LoadPage();
         return _allRows.Count;
     }
 
-    private void MapLocalBillingEntriesToRows(IReadOnlyCollection<BillingEntry> billingEntries)
+    private void MapLocalBillingEntriesToRows(
+        IReadOnlyCollection<BillingEntry> billingEntries,
+        IReadOnlyDictionary<int, string> installationJobCardLookup)
     {
         _allRows.Clear();
         foreach (var entry in billingEntries)
         {
-            _allRows.Add(CreateRowFromLocalBillingEntry(entry));
+            _allRows.Add(CreateRowFromLocalBillingEntry(
+                entry,
+                installationJobCardLookup.TryGetValue(entry.Id, out var installationJobCard)
+                    ? installationJobCard
+                    : null));
         }
     }
 
-    private static StingListRow CreateRowFromLocalBillingEntry(BillingEntry entry)
+    private static StingListRow CreateRowFromLocalBillingEntry(BillingEntry entry, string? installationJobCard = null)
     {
         return new StingListRow
         {
             Id = -Math.Max(1, entry.Id),
             LocalBillingEntryId = entry.Id,
+            InstallationJobCard = installationJobCard ?? string.Empty,
             Company = entry.Company,
             Registration = entry.Registration,
             FleetNumber = entry.FleetNumber,
@@ -541,6 +560,80 @@ public partial class StingListViewModel : PagedViewModelBase
             IsArchived = entry.ArchivedAt != null,
             ActiveFrom = entry.ActiveFrom == default ? DateTime.UtcNow : entry.ActiveFrom
         };
+    }
+
+    private static Dictionary<int, string> BuildInstallationJobCardLookup(
+        AppDbContext db,
+        IReadOnlyCollection<BillingEntry> billingEntries)
+    {
+        var lookup = new Dictionary<int, string>();
+        if (billingEntries.Count == 0)
+            return lookup;
+
+        var installJobs = db.JobCards
+            .AsNoTracking()
+            .Where(j => j.Type == JobType.Install && j.Status == JobStatus.Completed)
+            .OrderByDescending(j => j.CompletedAt ?? j.CreatedAt)
+            .ThenByDescending(j => j.Id)
+            .ToList();
+
+        if (installJobs.Count == 0)
+            return lookup;
+
+        var jobsByImei = installJobs
+            .Where(j => !string.IsNullOrWhiteSpace(NormalizeDigits(j.Imei)))
+            .GroupBy(j => NormalizeDigits(j.Imei), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var jobsBySerial = installJobs
+            .Where(j => !string.IsNullOrWhiteSpace(NormalizeLookup(j.SerialNumber)))
+            .GroupBy(j => NormalizeLookup(j.SerialNumber), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var jobsByIccid = installJobs
+            .Where(j => !string.IsNullOrWhiteSpace(NormalizeDigits(j.Iccid)))
+            .GroupBy(j => NormalizeDigits(j.Iccid), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        var jobsByCompanyReg = installJobs
+            .Where(j => !string.IsNullOrWhiteSpace(BuildCompanyRegistrationKey(j.Company, j.Registration)))
+            .GroupBy(j => BuildCompanyRegistrationKey(j.Company, j.Registration), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+
+        foreach (var entry in billingEntries)
+        {
+            JobCard? match = null;
+
+            var imeiKey = NormalizeDigits(entry.Imei);
+            if (!string.IsNullOrWhiteSpace(imeiKey))
+                jobsByImei.TryGetValue(imeiKey, out match);
+
+            if (match is null)
+            {
+                var serialKey = NormalizeLookup(entry.SerialNumber);
+                if (!string.IsNullOrWhiteSpace(serialKey))
+                    jobsBySerial.TryGetValue(serialKey, out match);
+            }
+
+            if (match is null)
+            {
+                var iccidKey = NormalizeDigits(entry.Iccid);
+                if (!string.IsNullOrWhiteSpace(iccidKey))
+                    jobsByIccid.TryGetValue(iccidKey, out match);
+            }
+
+            if (match is null)
+            {
+                var companyRegKey = BuildCompanyRegistrationKey(entry.Company, entry.Registration);
+                if (!string.IsNullOrWhiteSpace(companyRegKey))
+                    jobsByCompanyReg.TryGetValue(companyRegKey, out match);
+            }
+
+            if (match is not null)
+                lookup[entry.Id] = JobCardReferenceFormatter.Format(match.Type, match.JobCardNumber);
+        }
+
+        return lookup;
     }
 
     private static bool IsInactiveStatus(string? status)
@@ -694,7 +787,7 @@ public partial class StingListViewModel : PagedViewModelBase
         entry.ActiveTo = DateTime.UtcNow;
 
         db.SaveChanges();
-        _appState.SetStatus("Unit marked as removed.");
+        _appState.SetStatus("STING entry marked as removed.");
         await ReloadFromWialonAsync();
     }
 
@@ -734,7 +827,7 @@ public partial class StingListViewModel : PagedViewModelBase
         entry.ArchivedAt = DateTime.UtcNow;
 
         db.SaveChanges();
-        _appState.SetStatus("Entry archived.");
+        _appState.SetStatus("STING entry archived.");
         await ReloadFromWialonAsync();
     }
 
@@ -966,6 +1059,7 @@ public partial class StingListViewModel : PagedViewModelBase
             {
                 Company = x.Company,
                 Registration = x.Registration,
+                InstallationJobCard = x.InstallationJobCard,
                 FleetNumber = x.FleetNumber,
                 Make = x.Make,
                 Model = x.Model,

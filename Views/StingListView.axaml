@@ -71,6 +71,7 @@
       <DataGrid.Columns>
         <DataGridTextColumn Header="Company" Binding="{Binding Company}" Width="1.5*"/>
         <DataGridTextColumn Header="Reg." Binding="{Binding Registration}" Width="1*"/>
+        <DataGridTextColumn Header="Install Job Card" Binding="{Binding InstallationJobCard}" Width="1.2*"/>
         <DataGridTextColumn Header="Fleet" Binding="{Binding FleetNumber}" Width="0.9*"/>
         <DataGridTextColumn Header="Make" Binding="{Binding Make}" Width="0.9*"/>
         <DataGridTextColumn Header="Model" Binding="{Binding Model}" Width="1*"/>

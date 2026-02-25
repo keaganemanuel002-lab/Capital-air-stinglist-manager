@@ -101,6 +101,33 @@ public sealed class QuoteDeleteResult
     public string Message { get; init; } = string.Empty;
 }
 
+public sealed class BillingEntrySaveRequest
+{
+    public string Company { get; init; } = string.Empty;
+    public string Registration { get; init; } = string.Empty;
+    public string? FleetNumber { get; init; }
+    public string? Make { get; init; }
+    public string? Model { get; init; }
+    public string? Colour { get; init; }
+    public string? VinNumber { get; init; }
+    public string? TrackingUnitMake { get; init; }
+    public string? StingPackageType { get; init; }
+    public string? Imei { get; init; }
+    public string? SerialNumber { get; init; }
+    public string? Iccid { get; init; }
+    public string? SimNumber { get; init; }
+    public string? Notes { get; init; }
+    public string? Reason { get; init; }
+}
+
+public sealed class BillingEntrySaveResult
+{
+    public bool Success { get; init; }
+    public bool IsDuplicate { get; init; }
+    public string Message { get; init; } = string.Empty;
+    public BillingEntry? Entry { get; init; }
+}
+
 public interface IDataStore
 {
     Task<List<Client>> GetClientsAsync(
@@ -130,4 +157,11 @@ public interface IDataStore
     Task<Quote?> GetQuoteWithLineItemsAsync(int quoteId, CancellationToken cancellationToken = default);
     Task<DateTime?> GetJobCardScheduledForAsync(int jobCardId, CancellationToken cancellationToken = default);
     Task<bool> UpdateJobCardScheduleAsync(int jobCardId, DateTime? scheduledFor, CancellationToken cancellationToken = default);
+
+    Task<List<BillingEntry>> GetActiveBillingEntriesAsync(CancellationToken cancellationToken = default);
+    Task<BillingEntry?> GetBillingEntryByIdAsync(int billingEntryId, CancellationToken cancellationToken = default);
+    Task<BillingEntrySaveResult> SaveBillingEntryAsync(
+        int? billingEntryId,
+        BillingEntrySaveRequest request,
+        CancellationToken cancellationToken = default);
 }

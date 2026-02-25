@@ -24,6 +24,8 @@ public class AppDbContext : DbContext
     public DbSet<Dashcam> Dashcams => Set<Dashcam>();
     public DbSet<SdCard> SdCards => Set<SdCard>();
     public DbSet<PhoneIssueLogEntry> PhoneIssueLogEntries => Set<PhoneIssueLogEntry>();
+    public DbSet<DriverTag> DriverTags => Set<DriverTag>();
+    public DbSet<DriverTagTransfer> DriverTagTransfers => Set<DriverTagTransfer>();
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder options)
@@ -129,8 +131,17 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.TeamNameNorm);
         modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.VehicleRegistrationNorm);
         modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.PhoneImeiNorm);
+        modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.PhoneImeiSecondaryNorm);
         modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.IssuedAt);
         modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.ReturnedAt);
+        modelBuilder.Entity<DriverTag>().HasIndex(t => t.TagCodeNorm).IsUnique();
+        modelBuilder.Entity<DriverTag>().HasIndex(t => t.DriverNameNorm);
+        modelBuilder.Entity<DriverTag>().HasIndex(t => t.IssuedAt);
+        modelBuilder.Entity<DriverTag>().HasIndex(t => t.LostOrDamagedReportedAt);
+        modelBuilder.Entity<DriverTag>().HasIndex(t => t.EmploymentExitAt);
+        modelBuilder.Entity<DriverTag>().HasIndex(t => t.ReturnStatus);
+        modelBuilder.Entity<DriverTagTransfer>().HasIndex(t => t.DriverTagId);
+        modelBuilder.Entity<DriverTagTransfer>().HasIndex(t => t.TransferredAt);
         
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.Registration);
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.DateRequestReceived);
@@ -158,6 +169,8 @@ public class AppDbContext : DbContext
         NormalizeBillingEntries();
         NormalizeClients();
         NormalizePhoneIssueLogEntries();
+        NormalizeDriverTags();
+        NormalizeDriverTagTransfers();
         NormalizeUsers();
     }
 
@@ -230,10 +243,13 @@ public class AppDbContext : DbContext
             entity.PhoneLabel = NormalizeOptionalSingleLine(entity.PhoneLabel);
             entity.PhoneNumber = NormalizeOptionalSingleLine(entity.PhoneNumber);
             entity.PhoneImei = NormalizeDigitsOrNull(entity.PhoneImei);
+            entity.PhoneImeiSecondary = NormalizeDigitsOrNull(entity.PhoneImeiSecondary);
+            entity.RepairDetails = NormalizeOptionalMultiline(entity.RepairDetails);
             entity.Notes = NormalizeOptionalMultiline(entity.Notes);
             entity.TeamNameNorm = NormalizeComparableText(entity.TeamName);
             entity.VehicleRegistrationNorm = entity.VehicleRegistration;
             entity.PhoneImeiNorm = NormalizeDigits(entity.PhoneImei);
+            entity.PhoneImeiSecondaryNorm = NormalizeDigits(entity.PhoneImeiSecondary);
 
             if (entity.IssuedAt == default)
                 entity.IssuedAt = DateTime.UtcNow;
@@ -241,6 +257,64 @@ public class AppDbContext : DbContext
             entity.IssuedAt = EnsureUtc(entity.IssuedAt);
             if (entity.ReturnedAt is DateTime returnedAt)
                 entity.ReturnedAt = EnsureUtc(returnedAt);
+        }
+    }
+
+    private void NormalizeDriverTags()
+    {
+        foreach (var entry in ChangeTracker.Entries<DriverTag>())
+        {
+            if (entry.State is not EntityState.Added and not EntityState.Modified)
+                continue;
+
+            var entity = entry.Entity;
+            entity.TagCode = NormalizeOptionalSingleLine(entity.TagCode) ?? string.Empty;
+            entity.TagCodeNorm = NormalizeComparableText(entity.TagCode);
+            entity.DriverName = NormalizeClientName(entity.DriverName);
+            entity.DriverNameNorm = NormalizeComparableText(entity.DriverName);
+            entity.LostOrDamagedReason = NormalizeOptionalMultiline(entity.LostOrDamagedReason);
+            entity.Notes = NormalizeOptionalMultiline(entity.Notes);
+
+            if (entity.IssuedAt == default)
+                entity.IssuedAt = DateTime.UtcNow;
+
+            entity.IssuedAt = EnsureUtc(entity.IssuedAt);
+            if (entity.LostOrDamagedReportedAt is DateTime lostAt)
+                entity.LostOrDamagedReportedAt = EnsureUtc(lostAt);
+            if (entity.EmploymentExitAt is DateTime exitAt)
+                entity.EmploymentExitAt = EnsureUtc(exitAt);
+            if (entity.ReturnedAt is DateTime returnedAt)
+                entity.ReturnedAt = EnsureUtc(returnedAt);
+
+            if (entity.ReturnStatus != DriverTagReturnStatus.Returned)
+                entity.ReturnedAt = null;
+
+            if (entity.EmploymentExitType == DriverEmploymentExitType.None)
+            {
+                entity.EmploymentExitAt = null;
+                if (entity.ReturnStatus != DriverTagReturnStatus.Returned)
+                    entity.ReturnStatus = DriverTagReturnStatus.Unknown;
+            }
+        }
+    }
+
+    private void NormalizeDriverTagTransfers()
+    {
+        foreach (var entry in ChangeTracker.Entries<DriverTagTransfer>())
+        {
+            if (entry.State is not EntityState.Added and not EntityState.Modified)
+                continue;
+
+            var entity = entry.Entity;
+            entity.FromDriverName = NormalizeClientName(entity.FromDriverName);
+            entity.ToDriverName = NormalizeClientName(entity.ToDriverName);
+            entity.Reason = NormalizeOptionalMultiline(entity.Reason) ?? string.Empty;
+            entity.TransferredBy = NormalizeOptionalSingleLine(entity.TransferredBy);
+
+            if (entity.TransferredAt == default)
+                entity.TransferredAt = DateTime.UtcNow;
+
+            entity.TransferredAt = EnsureUtc(entity.TransferredAt);
         }
     }
 

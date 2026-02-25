@@ -382,6 +382,106 @@ namespace StingListManager.Migrations
                     b.ToTable("Dashcams");
                 });
 
+            modelBuilder.Entity("StingListManager.Data.Entities.DriverTag", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DriverName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DriverNameNorm")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("EmploymentExitAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("EmploymentExitType")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("IssuedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LostOrDamagedReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LostOrDamagedReportedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ReturnStatus")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("ReturnedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TagCode")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TagCodeNorm")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DriverNameNorm");
+
+                    b.HasIndex("EmploymentExitAt");
+
+                    b.HasIndex("IssuedAt");
+
+                    b.HasIndex("LostOrDamagedReportedAt");
+
+                    b.HasIndex("ReturnStatus");
+
+                    b.HasIndex("TagCodeNorm")
+                        .IsUnique();
+
+                    b.ToTable("DriverTags");
+                });
+
+            modelBuilder.Entity("StingListManager.Data.Entities.DriverTagTransfer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("DriverTagId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FromDriverName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ToDriverName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TransferredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TransferredBy")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DriverTagId");
+
+                    b.HasIndex("TransferredAt");
+
+                    b.ToTable("DriverTagTransfers");
+                });
+
             modelBuilder.Entity("StingListManager.Data.Entities.JobCard", b =>
                 {
                     b.Property<int>("Id")
@@ -493,10 +593,20 @@ namespace StingListManager.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("PhoneImeiSecondary")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PhoneImeiSecondaryNorm")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("PhoneLabel")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PhoneNumber")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RepairDetails")
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime?>("ReturnedAt")
@@ -531,6 +641,8 @@ namespace StingListManager.Migrations
                     b.HasIndex("IssuedAt");
 
                     b.HasIndex("PhoneImeiNorm");
+
+                    b.HasIndex("PhoneImeiSecondaryNorm");
 
                     b.HasIndex("ReturnedAt");
 

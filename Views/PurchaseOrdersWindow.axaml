@@ -1,0 +1,174 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.PurchaseOrdersWindow"
+        x:CompileBindings="False"
+        Width="1380" Height="820"
+        MinWidth="1220" MinHeight="740"
+        WindowStartupLocation="CenterScreen"
+        Title="Orders - Purchase Orders">
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Border Grid.Row="0" Classes="topbar" Padding="14">
+      <DockPanel>
+        <StackPanel DockPanel.Dock="Left" Spacing="2">
+          <TextBlock Text="Orders" Classes="h2"/>
+          <TextBlock Text="Purchase order tracking workspace" Classes="muted"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <TextBlock Text="{Binding SignedInAs}" Classes="muted" VerticalAlignment="Center"/>
+          <Button Content="Back to Menu"
+                  Command="{Binding BackToMenuCommand}"
+                  Classes="primary"/>
+          <Button Content="Logout"
+                  Command="{Binding LogoutCommand}"/>
+        </StackPanel>
+      </DockPanel>
+    </Border>
+
+    <Border Grid.Row="1" Classes="card" Margin="16,12,16,0">
+      <DockPanel LastChildFill="False">
+        <TextBox Width="360"
+                 Watermark="Search PO, supplier, status..."
+                 Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+
+        <Button Content="New Order"
+                Classes="primary"
+                Command="{Binding NewOrderCommand}"
+                DockPanel.Dock="Right"/>
+        <Button Content="Save"
+                Command="{Binding SaveOrderCommand}"
+                DockPanel.Dock="Right"
+                Margin="8,0,0,0"/>
+        <Button Content="Delete Selected"
+                Command="{Binding DeleteSelectedCommand}"
+                DockPanel.Dock="Right"
+                Margin="8,0,0,0"/>
+        <Button Content="Refresh"
+                Command="{Binding RefreshCommand}"
+                DockPanel.Dock="Right"
+                Margin="8,0,0,0"/>
+      </DockPanel>
+    </Border>
+
+    <Grid Grid.Row="2" Margin="16,12,16,12" ColumnDefinitions="2.35*,1*" ColumnSpacing="16">
+      <Grid Grid.Column="0" RowDefinitions="1.05*,0.95*" RowSpacing="12">
+        <Border Grid.Row="0" Classes="surface">
+          <DataGrid ItemsSource="{Binding Rows}"
+                    SelectedItem="{Binding SelectedRow}"
+                    AutoGenerateColumns="False"
+                    IsReadOnly="True"
+                    GridLinesVisibility="Horizontal">
+            <DataGrid.Columns>
+              <DataGridTextColumn Header="PO #" Binding="{Binding OrderReference}" Width="0.9*"/>
+              <DataGridTextColumn Header="Date" Binding="{Binding OrderDate, StringFormat=yyyy-MM-dd}" Width="0.9*"/>
+              <DataGridTextColumn Header="Supplier" Binding="{Binding Supplier}" Width="1.4*"/>
+              <DataGridTextColumn Header="Summary" Binding="{Binding Description}" Width="1.9*"/>
+              <DataGridTextColumn Header="Ex VAT" Binding="{Binding AmountExVat, StringFormat={}{0:0.00}}" Width="0.85*"/>
+              <DataGridTextColumn Header="VAT" Binding="{Binding VatAmount, StringFormat={}{0:0.00}}" Width="0.8*"/>
+              <DataGridTextColumn Header="Total" Binding="{Binding TotalAmountIncVat, StringFormat={}{0:0.00}}" Width="0.9*"/>
+              <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.9*"/>
+              <DataGridTextColumn Header="Requested By" Binding="{Binding RequestedBy}" Width="1*"/>
+            </DataGrid.Columns>
+          </DataGrid>
+        </Border>
+
+        <Border Grid.Row="1" Classes="surface">
+          <StackPanel Spacing="8">
+            <DockPanel LastChildFill="False">
+              <TextBlock Text="Line Items" Classes="h2"/>
+              <TextBlock Text="{Binding LineItemsCountLabel}" DockPanel.Dock="Right" Classes="muted"/>
+            </DockPanel>
+
+            <DataGrid ItemsSource="{Binding LineItems}"
+                      SelectedItem="{Binding SelectedLineItem}"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="False"
+                      GridLinesVisibility="Horizontal"
+                      Height="250">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="#" Binding="{Binding LineNumber}" Width="0.45*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Description" Binding="{Binding Description}" Width="2.1*"/>
+                <DataGridTextColumn Header="Qty" Binding="{Binding Quantity}" Width="0.7*"/>
+                <DataGridTextColumn Header="Unit Price" Binding="{Binding UnitPrice}" Width="0.95*"/>
+                <DataGridTextColumn Header="Ex VAT" Binding="{Binding AmountExVat, StringFormat={}{0:0.00}}" Width="0.85*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="VAT" Binding="{Binding VatAmount, StringFormat={}{0:0.00}}" Width="0.75*" IsReadOnly="True"/>
+                <DataGridTextColumn Header="Total" Binding="{Binding TotalAmountIncVat, StringFormat={}{0:0.00}}" Width="0.9*" IsReadOnly="True"/>
+              </DataGrid.Columns>
+            </DataGrid>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Add Line Item" Command="{Binding AddLineItemCommand}"/>
+              <Button Content="Remove Selected Line" Command="{Binding RemoveSelectedLineItemCommand}"/>
+              <TextBlock Text="{Binding LineItemsVatHint}" Classes="muted" VerticalAlignment="Center" Margin="10,0,0,0"/>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <Border Grid.Column="1" Classes="surface">
+        <StackPanel Spacing="8">
+          <TextBlock Text="Order Details" Classes="h2"/>
+
+          <TextBlock Text="Purchase Order #" Classes="muted"/>
+          <TextBox Text="{Binding OrderReference}" IsReadOnly="True"/>
+
+          <TextBlock Text="Order Date" Classes="muted"/>
+          <DatePicker SelectedDate="{Binding OrderDate}"/>
+
+          <TextBlock Text="Supplier List" Classes="muted"/>
+          <ComboBox ItemsSource="{Binding SupplierOptions}" SelectedItem="{Binding SelectedSupplier}"/>
+
+          <TextBlock Text="Supplier Name" Classes="muted"/>
+          <TextBox Text="{Binding Supplier, UpdateSourceTrigger=PropertyChanged}"/>
+
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <CheckBox Content="Supplier quote includes VAT"
+                      IsChecked="{Binding QuoteIncludesVat}"/>
+          </StackPanel>
+
+          <Button Content="Save Supplier to List"
+                  Command="{Binding SaveSupplierToListCommand}"/>
+
+          <TextBlock Text="VAT Rate (%)" Classes="muted"/>
+          <NumericUpDown Value="{Binding VatRatePercent}" Minimum="0" Maximum="100" Increment="0.5" FormatString="N2"/>
+
+          <TextBlock Text="Status" Classes="muted"/>
+          <ComboBox ItemsSource="{Binding StatusOptions}" SelectedItem="{Binding SelectedStatus}"/>
+
+          <TextBlock Text="Requested By" Classes="muted"/>
+          <TextBox Text="{Binding RequestedBy, UpdateSourceTrigger=PropertyChanged}"/>
+
+          <TextBlock Text="Notes" Classes="muted"/>
+          <TextBox Text="{Binding Notes, UpdateSourceTrigger=PropertyChanged}"
+                   TextWrapping="Wrap"
+                   AcceptsReturn="True"
+                   Height="100"/>
+
+          <Border Classes="card" Padding="10">
+            <StackPanel Spacing="6">
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="Subtotal (Ex VAT)" Classes="muted"/>
+                <TextBlock Grid.Column="1" Text="{Binding AmountExVat, StringFormat=R {0:0.00}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="VAT" Classes="muted"/>
+                <TextBlock Grid.Column="1" Text="{Binding VatAmount, StringFormat=R {0:0.00}}"/>
+              </Grid>
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Grid.Column="0" Text="Total (Inc VAT)" FontWeight="SemiBold"/>
+                <TextBlock Grid.Column="1" Text="{Binding TotalAmountIncVat, StringFormat=R {0:0.00}}" FontWeight="SemiBold"/>
+              </Grid>
+            </StackPanel>
+          </Border>
+        </StackPanel>
+      </Border>
+    </Grid>
+
+    <Border Grid.Row="3" Classes="statusbar" Padding="10,8,10,8">
+      <DockPanel>
+        <TextBlock Text="{Binding StatusMessage}" Foreground="{Binding StatusColor}" />
+      </DockPanel>
+    </Border>
+  </Grid>
+</Window>

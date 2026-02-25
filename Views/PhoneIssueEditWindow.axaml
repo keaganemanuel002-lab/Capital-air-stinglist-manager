@@ -41,7 +41,7 @@
         </StackPanel>
       </UniformGrid>
 
-      <UniformGrid Columns="3" Rows="1" ColumnSpacing="10">
+      <UniformGrid Columns="4" Rows="1" ColumnSpacing="10">
         <StackPanel Spacing="4">
           <TextBlock Text="Phone Label / Asset" Classes="muted"/>
           <TextBox Text="{Binding PhoneLabel}" Watermark="Phone label or asset number"/>
@@ -53,8 +53,13 @@
         </StackPanel>
 
         <StackPanel Spacing="4">
-          <TextBlock Text="Phone IMEI" Classes="muted"/>
-          <TextBox Text="{Binding PhoneImei}" Watermark="IMEI"/>
+          <TextBlock Text="Phone IMEI 1" Classes="muted"/>
+          <TextBox Text="{Binding PhoneImei}" Watermark="Primary IMEI"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Phone IMEI 2 (Dual SIM)" Classes="muted"/>
+          <TextBox Text="{Binding PhoneImeiSecondary}" Watermark="Secondary IMEI"/>
         </StackPanel>
       </UniformGrid>
 
@@ -74,6 +79,15 @@
                       IsEnabled="{Binding CanSetReturnedDate}"/>
         </StackPanel>
       </UniformGrid>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Repairs Done" Classes="muted"/>
+        <TextBox Text="{Binding RepairDetails}"
+                 Watermark="Describe repairs completed on this phone"
+                 Height="90"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"/>
+      </StackPanel>
 
       <StackPanel Spacing="4">
         <TextBlock Text="Notes" Classes="muted"/>

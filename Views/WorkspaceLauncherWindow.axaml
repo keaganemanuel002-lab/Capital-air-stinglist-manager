@@ -1,0 +1,51 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.WorkspaceLauncherWindow"
+        x:CompileBindings="False"
+        Width="900" Height="540"
+        MinWidth="860" MinHeight="500"
+        CanResize="False"
+        WindowStartupLocation="CenterScreen"
+        Title="Choose Workspace">
+
+  <Border Margin="18" Classes="surface">
+    <Grid RowDefinitions="Auto,*,Auto" RowSpacing="16">
+      <StackPanel Grid.Row="0" Spacing="4">
+        <TextBlock Text="Choose Workspace" Classes="h1"/>
+        <TextBlock Text="Select where you want to work today." Classes="muted"/>
+        <TextBlock Text="{Binding SignedInAs}" Classes="muted"/>
+      </StackPanel>
+
+      <Grid Grid.Row="1" ColumnDefinitions="*,*" ColumnSpacing="16">
+        <Button Grid.Column="0"
+                Classes="launch-tile"
+                Command="{Binding OpenOrdersCommand}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Orders" Classes="launch-tile-title"/>
+            <TextBlock Text="Purchase order workspace with its own database."
+                       TextWrapping="Wrap"
+                       Classes="launch-tile-subtitle"/>
+          </StackPanel>
+        </Button>
+
+        <Button Grid.Column="1"
+                Classes="launch-tile"
+                Command="{Binding OpenStingManagerCommand}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="Tracking" Classes="launch-tile-title"/>
+            <TextBlock Text="Open your tracking workspace with Quotes, Job Cards, STING, Billing, and settings."
+                       TextWrapping="Wrap"
+                       Classes="launch-tile-subtitle"/>
+          </StackPanel>
+        </Button>
+      </Grid>
+
+      <StackPanel Grid.Row="2"
+                  Orientation="Horizontal"
+                  HorizontalAlignment="Right"
+                  Spacing="10">
+        <Button Content="Exit" Command="{Binding ExitCommand}"/>
+      </StackPanel>
+    </Grid>
+  </Border>
+</Window>

@@ -1,0 +1,67 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.DriverTagsView"
+             x:CompileBindings="False">
+  <StackPanel Spacing="12">
+    <TextBlock Text="Driver Tags" Classes="h1"/>
+    <TextBlock Text="Track driver tag assignment, transfers, lost/damaged reports, and return outcomes."
+               Classes="muted"/>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Button Content="Issue Tag" Command="{Binding IssueTagCommand}" Classes="primary"/>
+      <Button Content="Amend Selected" Command="{Binding AmendSelectedCommand}" IsEnabled="{Binding CanAmendSelected}"/>
+      <Button Content="Transfer Tag" Command="{Binding TransferSelectedCommand}" IsEnabled="{Binding CanTransferSelected}"/>
+      <Button Content="Report Lost / Damaged" Command="{Binding ReportLostOrDamagedCommand}" IsEnabled="{Binding CanReportLostOrDamaged}"/>
+      <Button Content="Clear Lost / Damaged" Command="{Binding ClearLostOrDamagedCommand}" IsEnabled="{Binding CanClearLostOrDamaged}"/>
+      <Button Content="Record Exit" Command="{Binding RecordExitCommand}" IsEnabled="{Binding CanRecordExit}"/>
+      <Button Content="Refresh" Command="{Binding LoadCommand}"/>
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <TextBox Width="320"
+               Watermark="Search code, driver, reason, notes..."
+               Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+      <CheckBox Content="Show Closed" IsChecked="{Binding ShowClosed}" VerticalAlignment="Center"/>
+      <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}"/>
+      <TextBlock Text="Double-click a row to amend." Classes="muted" VerticalAlignment="Center"/>
+    </StackPanel>
+
+    <DataGrid AutoGenerateColumns="False"
+              ItemsSource="{Binding Rows}"
+              SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+              IsReadOnly="True"
+              GridLinesVisibility="All"
+              Height="430"
+              DoubleTapped="Grid_DoubleTapped">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Tag Code" Binding="{Binding TagCode}" Width="1.1*"/>
+        <DataGridTextColumn Header="Current Driver" Binding="{Binding DriverName}" Width="1.5*"/>
+        <DataGridTextColumn Header="Issued" Binding="{Binding IssuedDateDisplay}" Width="0.9*"/>
+        <DataGridTextColumn Header="Lost / Damaged" Binding="{Binding LostOrDamagedDateDisplay}" Width="1*"/>
+        <DataGridTextColumn Header="Exit" Binding="{Binding EmploymentExitDisplay}" Width="1.2*"/>
+        <DataGridTextColumn Header="Return Status" Binding="{Binding ReturnStatusDisplay}" Width="1.2*"/>
+        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="1*"/>
+        <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="1.8*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+
+    <Border Classes="card">
+      <StackPanel Spacing="8">
+        <TextBlock Text="Transfer History (Selected Tag)" Classes="h2"/>
+        <DataGrid AutoGenerateColumns="False"
+                  ItemsSource="{Binding TransferHistory}"
+                  IsReadOnly="True"
+                  GridLinesVisibility="All"
+                  Height="180">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="Date" Binding="{Binding DateDisplay}" Width="0.9*"/>
+            <DataGridTextColumn Header="From Driver" Binding="{Binding FromDriverName}" Width="1.3*"/>
+            <DataGridTextColumn Header="To Driver" Binding="{Binding ToDriverName}" Width="1.3*"/>
+            <DataGridTextColumn Header="Reason" Binding="{Binding Reason}" Width="2*"/>
+            <DataGridTextColumn Header="By" Binding="{Binding TransferredBy}" Width="1*"/>
+          </DataGrid.Columns>
+        </DataGrid>
+      </StackPanel>
+    </Border>
+  </StackPanel>
+</UserControl>

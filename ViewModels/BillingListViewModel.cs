@@ -9,8 +9,6 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.EntityFrameworkCore;
-using StingListManager.Data;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
 
@@ -39,6 +37,7 @@ public partial class BillingListViewModel : ViewModelBase
 {
     private readonly Window _window;
     private readonly AppState _appState;
+    private readonly IDataStore _dataStore;
     private static readonly IBrush ClientSummaryRowBackground = new SolidColorBrush(Color.Parse("#EAF0FB"));
     private static readonly IBrush ClientSummaryRowForeground = new SolidColorBrush(Color.Parse("#1E3A8A"));
     private bool _suppressFilterReload;
@@ -57,7 +56,8 @@ public partial class BillingListViewModel : ViewModelBase
     {
         _window = window;
         _appState = appState;
-        Load();
+        _dataStore = DataStoreFactory.Create(_appState.Settings);
+        _ = Load();
     }
 
     partial void OnSelectedClientChanged(string value)
@@ -65,7 +65,7 @@ public partial class BillingListViewModel : ViewModelBase
         if (_suppressFilterReload)
             return;
 
-        Load();
+        _ = Load();
     }
 
     partial void OnSelectedRowChanged(BillingListRow? value)
@@ -78,20 +78,22 @@ public partial class BillingListViewModel : ViewModelBase
         if (_suppressFilterReload)
             return;
 
-        Load();
+        _ = Load();
     }
 
     [RelayCommand]
-    private void Load()
+    private async Task Load()
     {
-        using var db = new AppDbContext();
-
-        var allEntries = db.BillingEntries
-            .AsNoTracking()
-            .Where(e => e.ArchivedAt == null && (e.Status == BillingStatus.Active || e.Status == BillingStatus.NotLoaded))
-            .OrderBy(e => e.Company)
-            .ThenBy(e => e.Registration)
-            .ToList();
+        List<BillingEntry> allEntries;
+        try
+        {
+            allEntries = await _dataStore.GetActiveBillingEntriesAsync();
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Could not load billing list: {ex.Message}", true);
+            return;
+        }
 
         RefreshClientOptions(allEntries);
 
@@ -182,7 +184,7 @@ public partial class BillingListViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void ClearFilters()
+    private async Task ClearFilters()
     {
         _suppressFilterReload = true;
         try
@@ -195,7 +197,7 @@ public partial class BillingListViewModel : ViewModelBase
             _suppressFilterReload = false;
         }
 
-        Load();
+        await Load();
     }
 
     private void RefreshClientOptions(IReadOnlyCollection<BillingEntry> entries)
@@ -333,7 +335,7 @@ public partial class BillingListViewModel : ViewModelBase
         dlg.DataContext = new BillingEntryEditViewModel(
             SelectedRow.Id,
             () => dlg.Close(),
-            Load,
+            () => _ = Load(),
             _appState);
 
         await dlg.ShowDialog(_window);

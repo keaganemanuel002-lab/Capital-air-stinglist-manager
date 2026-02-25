@@ -378,10 +378,126 @@ public class LocalSqliteDataStore : IDataStore
         return true;
     }
 
+    public async Task<List<BillingEntry>> GetActiveBillingEntriesAsync(CancellationToken cancellationToken = default)
+    {
+        using var db = new AppDbContext();
+        return await db.BillingEntries
+            .AsNoTracking()
+            .Where(e => e.ArchivedAt == null && (e.Status == BillingStatus.Active || e.Status == BillingStatus.NotLoaded))
+            .OrderBy(e => e.Company)
+            .ThenBy(e => e.Registration)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<BillingEntry?> GetBillingEntryByIdAsync(int billingEntryId, CancellationToken cancellationToken = default)
+    {
+        using var db = new AppDbContext();
+        return await db.BillingEntries
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == billingEntryId, cancellationToken);
+    }
+
+    public async Task<BillingEntrySaveResult> SaveBillingEntryAsync(
+        int? billingEntryId,
+        BillingEntrySaveRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedCompany = NormalizeText(request.Company);
+        var normalizedRegistration = NormalizeText(request.Registration).ToUpperInvariant();
+
+        if (string.IsNullOrWhiteSpace(normalizedCompany))
+        {
+            return new BillingEntrySaveResult
+            {
+                Success = false,
+                Message = "Company is required."
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(normalizedRegistration))
+        {
+            return new BillingEntrySaveResult
+            {
+                Success = false,
+                Message = "Registration is required."
+            };
+        }
+
+        using var db = new AppDbContext();
+        BillingEntry entry;
+        if (billingEntryId is int existingId)
+        {
+            var existing = await db.BillingEntries.FirstOrDefaultAsync(x => x.Id == existingId, cancellationToken);
+            if (existing is null)
+            {
+                return new BillingEntrySaveResult
+                {
+                    Success = false,
+                    Message = "Billing entry no longer exists."
+                };
+            }
+
+            entry = existing;
+        }
+        else
+        {
+            entry = new BillingEntry
+            {
+                ActiveFrom = DateTime.UtcNow
+            };
+            await db.BillingEntries.AddAsync(entry, cancellationToken);
+        }
+
+        entry.Company = normalizedCompany;
+        entry.Registration = normalizedRegistration;
+        entry.FleetNumber = TrimOrNull(request.FleetNumber);
+        entry.Make = TrimOrNull(request.Make);
+        entry.Model = TrimOrNull(request.Model);
+        entry.Colour = TrimOrNull(request.Colour);
+        entry.VinNumber = TrimOrNull(request.VinNumber);
+        entry.TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(request.TrackingUnitMake);
+        entry.StingPackageType = StingPackageCatalog.Normalize(request.StingPackageType)
+            ?? ResolvePackageTypeFallback(entry.TrackingUnitMake, request.Notes, request.Reason);
+        entry.Imei = TrimOrNull(request.Imei);
+        entry.SerialNumber = TrimOrNull(request.SerialNumber);
+        entry.Iccid = TrimOrNull(request.Iccid);
+        entry.SimNumber = TrimOrNull(request.SimNumber);
+        entry.Notes = TrimOrNull(request.Notes);
+        entry.Reason = TrimOrNull(request.Reason);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            return new BillingEntrySaveResult
+            {
+                Success = false,
+                IsDuplicate = true,
+                Message = "Could not save. Another active entry already uses this registration/IMEI/ICCID/serial."
+            };
+        }
+
+        var saved = await db.BillingEntries.AsNoTracking().FirstOrDefaultAsync(x => x.Id == entry.Id, cancellationToken);
+        return new BillingEntrySaveResult
+        {
+            Success = true,
+            Message = billingEntryId is int ? "Billing entry updated." : "Billing entry added.",
+            Entry = saved
+        };
+    }
+
     public async Task<List<Client>> GetClientsSnapshotAsync(CancellationToken cancellationToken = default)
     {
         using var db = new AppDbContext();
         return await db.Clients.AsNoTracking().OrderBy(c => c.Name).ToListAsync(cancellationToken);
+    }
+
+    public async Task<List<BillingEntry>> GetBillingEntriesSnapshotAsync(CancellationToken cancellationToken = default)
+    {
+        using var db = new AppDbContext();
+        return await db.BillingEntries.AsNoTracking().OrderBy(x => x.Id).ToListAsync(cancellationToken);
     }
 
     private static async Task<List<JobCardListItem>> GetJobCardsInternalAsync(
@@ -582,5 +698,33 @@ public class LocalSqliteDataStore : IDataStore
             .ToLowerInvariant()
             .Where(char.IsLetterOrDigit)
             .ToArray());
+    }
+
+    private static string NormalizeText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string? TrimOrNull(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return value.Trim();
+    }
+
+    private static string? ResolvePackageTypeFallback(params string?[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            var normalized = StingPackageCatalog.Normalize(candidate);
+            if (!string.IsNullOrWhiteSpace(normalized))
+                return normalized;
+        }
+
+        return null;
     }
 }

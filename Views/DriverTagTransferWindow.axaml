@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.DriverTagTransferWindow"
+        x:CompileBindings="False"
+        Width="560" Height="360"
+        MinWidth="520" MinHeight="320"
+        WindowStartupLocation="CenterOwner"
+        Title="Transfer Driver Tag">
+  <StackPanel Margin="16" Spacing="12">
+    <TextBlock Text="Transfer Driver Tag" Classes="h2"/>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Current Driver" Classes="muted"/>
+      <TextBlock Text="{Binding CurrentDriverName}" FontWeight="SemiBold"/>
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="New Driver" Classes="muted"/>
+      <TextBox Text="{Binding ToDriverName}" Watermark="Enter new driver name"/>
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Transfer Reason (Required)" Classes="muted"/>
+      <TextBox Text="{Binding TransferReason}" Watermark="Reason for transfer"/>
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Transfer Date" Classes="muted"/>
+      <DatePicker SelectedDate="{Binding TransferredAt, Mode=TwoWay}"/>
+    </StackPanel>
+
+    <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed"/>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+      <Button Content="Transfer Tag" Command="{Binding SaveCommand}" Classes="primary"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

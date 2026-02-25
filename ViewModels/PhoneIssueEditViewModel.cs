@@ -26,9 +26,11 @@ public partial class PhoneIssueEditViewModel : ViewModelBase
     [ObservableProperty] private string? phoneLabel;
     [ObservableProperty] private string? phoneNumber;
     [ObservableProperty] private string? phoneImei;
+    [ObservableProperty] private string? phoneImeiSecondary;
     [ObservableProperty] private DateTimeOffset? issuedAt = DateTimeOffset.Now.Date;
     [ObservableProperty] private bool isReturned;
     [ObservableProperty] private DateTimeOffset? returnedAt;
+    [ObservableProperty] private string? repairDetails;
     [ObservableProperty] private string? notes;
     [ObservableProperty] private string? selectedTeamSuggestion;
     [ObservableProperty] private string? selectedVehicleSuggestion;
@@ -153,6 +155,15 @@ public partial class PhoneIssueEditViewModel : ViewModelBase
             return;
         }
 
+        var imeiPrimary = NormalizeDigitsOnly(PhoneImei);
+        var imeiSecondary = NormalizeDigitsOnly(PhoneImeiSecondary);
+        if (!string.IsNullOrWhiteSpace(imeiPrimary)
+            && string.Equals(imeiPrimary, imeiSecondary, StringComparison.Ordinal))
+        {
+            ErrorMessage = "IMEI 1 and IMEI 2 cannot be the same value.";
+            return;
+        }
+
         using var db = new AppDbContext();
         PhoneIssueLogEntry entry;
         if (_entryId is int existingId)
@@ -179,8 +190,10 @@ public partial class PhoneIssueEditViewModel : ViewModelBase
         entry.PhoneLabel = TrimOrNull(PhoneLabel);
         entry.PhoneNumber = TrimOrNull(PhoneNumber);
         entry.PhoneImei = TrimOrNull(PhoneImei);
+        entry.PhoneImeiSecondary = TrimOrNull(PhoneImeiSecondary);
         entry.IssuedAt = issuedDate.Value.UtcDateTime;
         entry.ReturnedAt = IsReturned ? ReturnedAt?.UtcDateTime : null;
+        entry.RepairDetails = TrimOrNull(RepairDetails);
         entry.Notes = TrimOrNull(Notes);
 
         db.SaveChanges();
@@ -267,6 +280,8 @@ public partial class PhoneIssueEditViewModel : ViewModelBase
         PhoneLabel = entry.PhoneLabel;
         PhoneNumber = entry.PhoneNumber;
         PhoneImei = entry.PhoneImei;
+        PhoneImeiSecondary = entry.PhoneImeiSecondary;
+        RepairDetails = entry.RepairDetails;
         Notes = entry.Notes;
         IssuedAt = new DateTimeOffset(ToLocal(entry.IssuedAt));
         IsReturned = entry.ReturnedAt is not null;
@@ -313,6 +328,14 @@ public partial class PhoneIssueEditViewModel : ViewModelBase
             return null;
 
         return value.Trim();
+    }
+
+    private static string NormalizeDigitsOnly(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value.Where(char.IsDigit).ToArray());
     }
 
     private static DateTime ToLocal(DateTime value)

@@ -17,7 +17,13 @@ public class AttachmentStorageService
         if (kind == AttachmentKind.QuotePdf)
             return Paths.GeneratedQuotesDir;
 
-        var owner = ownerType == AttachmentOwnerType.Quote ? "quote" : "jobcard";
+        var owner = ownerType switch
+        {
+            AttachmentOwnerType.Quote => "quote",
+            AttachmentOwnerType.JobCard => "jobcard",
+            AttachmentOwnerType.PhoneIssue => "phoneissue",
+            _ => "misc"
+        };
         var path = Path.Combine(Paths.AttachmentsDir, owner, ownerId.ToString());
         Directory.CreateDirectory(path);
         return path;

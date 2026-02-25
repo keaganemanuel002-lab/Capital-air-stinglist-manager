@@ -258,6 +258,17 @@ public partial class SettingsViewModel : ViewModelBase
         }
     }
 
+    public bool MongoPrimaryDataEnabled
+    {
+        get => _appState.Settings.MongoPrimaryDataEnabled;
+        set
+        {
+            _appState.Settings.MongoPrimaryDataEnabled = value;
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
     public string FirebaseProjectId
     {
         get => _appState.Settings.FirebaseProjectId ?? string.Empty;
@@ -298,6 +309,29 @@ public partial class SettingsViewModel : ViewModelBase
         {
             var seconds = value < 2 ? 2 : value;
             _appState.Settings.FirebaseSyncIntervalSeconds = seconds;
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
+    public string MongoConnectionString
+    {
+        get => _appState.Settings.MongoConnectionString ?? string.Empty;
+        set
+        {
+            _appState.Settings.MongoConnectionString = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            _appState.SaveSettings();
+            OnPropertyChanged();
+        }
+    }
+
+    public string MongoDatabaseName
+    {
+        get => _appState.Settings.MongoDatabaseName ?? "stinglistmanager";
+        set
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? "stinglistmanager" : value.Trim();
+            _appState.Settings.MongoDatabaseName = normalized;
             _appState.SaveSettings();
             OnPropertyChanged();
         }

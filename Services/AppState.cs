@@ -36,9 +36,9 @@ public partial class AppState : ObservableObject
 
     public void SetStatus(string message, bool isError = false)
     {
+        StatusIsError = isError || LooksLikeError(message);
         StatusMessage = message;
         StatusTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm");
-        StatusIsError = isError || LooksLikeError(message);
     }
 
     private static bool LooksLikeError(string? message)

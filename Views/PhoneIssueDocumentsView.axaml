@@ -1,0 +1,29 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.PhoneIssueDocumentsView"
+             x:CompileBindings="False">
+  <Border Padding="12" Classes="surface">
+    <StackPanel Spacing="10">
+      <TextBlock Text="Phone Issue Invoices" Classes="h2"/>
+
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <Button Content="Upload Invoice" Command="{Binding UploadCommand}" Classes="primary"/>
+        <Button Content="Open" Command="{Binding OpenSelectedCommand}"/>
+        <Button Content="Delete" Command="{Binding DeleteSelectedCommand}"/>
+      </StackPanel>
+
+      <DataGrid AutoGenerateColumns="False"
+                ItemsSource="{Binding Rows}"
+                SelectedItem="{Binding Selected}"
+                IsReadOnly="True"
+                GridLinesVisibility="All"
+                Height="420">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="2.6*"/>
+          <DataGridTextColumn Header="Added" Binding="{Binding AddedAt}" Width="1.3*"/>
+          <DataGridTextColumn Header="By" Binding="{Binding AddedBy}" Width="1.2*"/>
+        </DataGrid.Columns>
+      </DataGrid>
+    </StackPanel>
+  </Border>
+</UserControl>

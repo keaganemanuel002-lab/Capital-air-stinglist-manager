@@ -1,0 +1,38 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.DriverTagLossWindow"
+        x:CompileBindings="False"
+        Width="560" Height="350"
+        MinWidth="520" MinHeight="320"
+        WindowStartupLocation="CenterOwner"
+        Title="Report Lost / Damaged Tag">
+  <StackPanel Margin="16" Spacing="12">
+    <TextBlock Text="Report Lost / Damaged Tag" Classes="h2"/>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Tag Code" Classes="muted"/>
+      <TextBlock Text="{Binding TagCode}" FontWeight="SemiBold"/>
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Reported Date" Classes="muted"/>
+      <DatePicker SelectedDate="{Binding ReportedAt, Mode=TwoWay}"/>
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Reason (Lost or Damaged)" Classes="muted"/>
+      <TextBox Text="{Binding LossOrDamageReason}"
+               Watermark="Example: Lost by driver / Damaged and unreadable"
+               Height="90"
+               AcceptsReturn="True"
+               TextWrapping="Wrap"/>
+    </StackPanel>
+
+    <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed"/>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+      <Button Content="Save" Command="{Binding SaveCommand}" Classes="primary"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

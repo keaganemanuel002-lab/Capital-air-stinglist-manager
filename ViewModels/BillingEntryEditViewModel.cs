@@ -6,9 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.EntityFrameworkCore;
-using StingListManager.Data;
-using StingListManager.Data.Entities;
 using StingListManager.Services;
 
 namespace StingListManager.ViewModels;
@@ -19,6 +16,7 @@ public partial class BillingEntryEditViewModel : ViewModelBase
     private readonly Action _close;
     private readonly Action _onSaved;
     private readonly AppState _appState;
+    private readonly IDataStore _dataStore;
     private bool _suppressIccidAutoLookup;
     private string? _lastAutoLookupIccid;
     private CancellationTokenSource? _flickswitchLookupCts;
@@ -72,10 +70,11 @@ public partial class BillingEntryEditViewModel : ViewModelBase
         _close = close;
         _onSaved = onSaved;
         _appState = appState;
+        _dataStore = DataStoreFactory.Create(_appState.Settings);
 
         ReplaceOptions(TrackingUnitMakeOptions, TrackingUnitMakeCatalog.Options);
         ReplaceOptions(PackageTypeOptions, StingPackageCatalog.Options);
-        Load();
+        _ = LoadAsync();
     }
 
     public BillingEntryEditViewModel(Action close, Action onSaved, AppState appState)
@@ -84,13 +83,14 @@ public partial class BillingEntryEditViewModel : ViewModelBase
         _close = close;
         _onSaved = onSaved;
         _appState = appState;
+        _dataStore = DataStoreFactory.Create(_appState.Settings);
 
         WindowTitle = "Add Billing Entry";
         SaveButtonText = "Add Entry";
 
         ReplaceOptions(TrackingUnitMakeOptions, TrackingUnitMakeCatalog.Options);
         ReplaceOptions(PackageTypeOptions, StingPackageCatalog.Options);
-        Load();
+        _ = LoadAsync();
     }
 
     partial void OnFlickswitchRulesTextChanged(string? value)
@@ -111,13 +111,12 @@ public partial class BillingEntryEditViewModel : ViewModelBase
         _ = AutoLookupFromIccidAsync(value);
     }
 
-    private void Load()
+    private async Task LoadAsync()
     {
         if (_billingEntryId is null)
             return;
 
-        using var db = new AppDbContext();
-        var entry = db.BillingEntries.AsNoTracking().FirstOrDefault(x => x.Id == _billingEntryId.Value);
+        var entry = await _dataStore.GetBillingEntryByIdAsync(_billingEntryId.Value);
         if (entry is null)
         {
             ErrorMessage = "Billing entry not found.";
@@ -172,7 +171,7 @@ public partial class BillingEntryEditViewModel : ViewModelBase
     }
 
     [RelayCommand]
-    private void Save()
+    private async Task Save()
     {
         ErrorMessage = null;
 
@@ -191,58 +190,39 @@ public partial class BillingEntryEditViewModel : ViewModelBase
             return;
         }
 
-        using var db = new AppDbContext();
-        BillingEntry entry;
-        if (_billingEntryId is int existingId)
-        {
-            var existing = db.BillingEntries.FirstOrDefault(x => x.Id == existingId);
-            if (existing is null)
+        var result = await _dataStore.SaveBillingEntryAsync(
+            _billingEntryId,
+            new BillingEntrySaveRequest
             {
-                ErrorMessage = "Billing entry no longer exists.";
-                return;
-            }
+                Company = normalizedCompany,
+                Registration = normalizedRegistration,
+                FleetNumber = FleetNumber,
+                Make = Make,
+                Model = Model,
+                Colour = Colour,
+                VinNumber = VinNumber,
+                TrackingUnitMake = TrackingUnitMake,
+                StingPackageType = StingPackageType,
+                Imei = Imei,
+                SerialNumber = SerialNumber,
+                Iccid = Iccid,
+                SimNumber = SimNumber,
+                Notes = Notes,
+                Reason = Reason
+            });
 
-            entry = existing;
-        }
-        else
+        if (!result.Success || result.Entry is null)
         {
-            entry = new BillingEntry
-            {
-                ActiveFrom = DateTime.UtcNow
-            };
-            db.BillingEntries.Add(entry);
-        }
-
-        entry.Company = normalizedCompany;
-        entry.Registration = normalizedRegistration;
-        entry.FleetNumber = TrimOrNull(FleetNumber);
-        entry.Make = TrimOrNull(Make);
-        entry.Model = TrimOrNull(Model);
-        entry.Colour = TrimOrNull(Colour);
-        entry.VinNumber = TrimOrNull(VinNumber);
-        entry.TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(TrackingUnitMake);
-        entry.StingPackageType = StingPackageCatalog.Normalize(StingPackageType)
-            ?? ResolvePackageTypeFallback(entry.TrackingUnitMake, Notes, Reason);
-        entry.Imei = TrimOrNull(Imei);
-        entry.SerialNumber = TrimOrNull(SerialNumber);
-        entry.Iccid = TrimOrNull(Iccid);
-        entry.SimNumber = TrimOrNull(SimNumber);
-        entry.Notes = TrimOrNull(Notes);
-        entry.Reason = TrimOrNull(Reason);
-
-        try
-        {
-            db.SaveChanges();
-        }
-        catch (DbUpdateException)
-        {
-            ErrorMessage = "Could not save. Another active entry already uses this registration/IMEI/ICCID/serial.";
+            ErrorMessage = string.IsNullOrWhiteSpace(result.Message)
+                ? "Could not save billing entry."
+                : result.Message;
             return;
         }
 
+        var entry = result.Entry;
         _appState.SetStatus(_billingEntryId is int
-            ? $"Billing entry updated: {entry.Company} / {entry.Registration}"
-            : $"Billing entry added: {entry.Company} / {entry.Registration}");
+            ? $"Billing entry updated: {entry.Company} / {entry.Registration}. {result.Message}"
+            : $"Billing entry added: {entry.Company} / {entry.Registration}. {result.Message}");
         _onSaved();
         _close();
     }
@@ -497,11 +477,4 @@ public partial class BillingEntryEditViewModel : ViewModelBase
         return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
-    private static string? TrimOrNull(string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-            return null;
-
-        return value.Trim();
-    }
 }

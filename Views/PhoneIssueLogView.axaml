@@ -4,7 +4,7 @@
              x:CompileBindings="False">
   <StackPanel Spacing="12">
     <TextBlock Text="Phone Issue Log" Classes="h1"/>
-    <TextBlock Text="Issue phones to teams, link each phone to a vehicle, and track two team members."
+    <TextBlock Text="Issue phones to teams, link each phone to a vehicle, track repairs, and store invoices."
                Classes="muted"/>
 
     <StackPanel Orientation="Horizontal" Spacing="8">
@@ -15,6 +15,9 @@
       <Button Content="Mark Returned"
               Command="{Binding MarkReturnedCommand}"
               IsEnabled="{Binding CanMarkReturned}"/>
+      <Button Content="Manage Invoices"
+              Command="{Binding ManageInvoicesCommand}"
+              IsEnabled="{Binding CanManageInvoices}"/>
       <Button Content="Delete"
               Command="{Binding DeleteSelectedCommand}"
               IsEnabled="{Binding CanDeleteSelected}"/>
@@ -52,11 +55,14 @@
         <DataGridTextColumn Header="Member 2" Binding="{Binding TeamMemberTwo}" Width="1.2*"/>
         <DataGridTextColumn Header="Phone" Binding="{Binding PhoneLabel}" Width="1.2*"/>
         <DataGridTextColumn Header="Phone Number" Binding="{Binding PhoneNumber}" Width="1.2*"/>
-        <DataGridTextColumn Header="IMEI" Binding="{Binding PhoneImei}" Width="1.2*"/>
+        <DataGridTextColumn Header="IMEI 1" Binding="{Binding PhoneImei}" Width="1.2*"/>
+        <DataGridTextColumn Header="IMEI 2" Binding="{Binding PhoneImeiSecondary}" Width="1.2*"/>
         <DataGridTextColumn Header="Issued" Binding="{Binding IssuedAtDisplay}" Width="0.9*"/>
         <DataGridTextColumn Header="Returned" Binding="{Binding ReturnedAtDisplay}" Width="0.9*"/>
         <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.9*"/>
+        <DataGridTextColumn Header="Repairs Done" Binding="{Binding RepairDetails}" Width="1.8*"/>
         <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="1.8*"/>
+        <DataGridTextColumn Header="Invoices" Binding="{Binding InvoiceCount}" Width="0.8*"/>
       </DataGrid.Columns>
     </DataGrid>
   </StackPanel>

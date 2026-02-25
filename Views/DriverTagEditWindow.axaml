@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.DriverTagEditWindow"
+        x:CompileBindings="False"
+        Width="620" Height="440"
+        MinWidth="560" MinHeight="380"
+        WindowStartupLocation="CenterOwner"
+        Title="{Binding WindowTitle}">
+  <StackPanel Margin="16" Spacing="12">
+    <TextBlock Text="{Binding WindowTitle}" Classes="h2"/>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Tag Code" Classes="muted"/>
+      <TextBox Text="{Binding TagCode}" Watermark="Unique driver tag code"/>
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Driver Name" Classes="muted"/>
+      <TextBox Text="{Binding DriverName}" Watermark="Driver full name"/>
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Issued Date" Classes="muted"/>
+      <DatePicker SelectedDate="{Binding IssuedAt, Mode=TwoWay}"/>
+    </StackPanel>
+
+    <StackPanel Spacing="4">
+      <TextBlock Text="Notes" Classes="muted"/>
+      <TextBox Text="{Binding Notes}" AcceptsReturn="True" Height="90" TextWrapping="Wrap"/>
+    </StackPanel>
+
+    <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed"/>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+      <Button Content="{Binding SaveButtonText}" Command="{Binding SaveCommand}" Classes="primary"/>
+    </StackPanel>
+  </StackPanel>
+</Window>

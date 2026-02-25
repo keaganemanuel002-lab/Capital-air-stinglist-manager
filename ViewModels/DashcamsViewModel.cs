@@ -12,6 +12,8 @@ namespace StingListManager.ViewModels;
 
 public partial class DashcamsViewModel : ViewModelBase
 {
+    private readonly AppState? _appState;
+
     public ObservableCollection<Dashcam> Dashcams { get; } = new();
     public ObservableCollection<Dashcam> FilteredDashcams { get; } = new();
     public ObservableCollection<SdCard> SdCards { get; } = new();
@@ -28,6 +30,12 @@ public partial class DashcamsViewModel : ViewModelBase
 
     public DashcamsViewModel()
     {
+        Load();
+    }
+
+    public DashcamsViewModel(AppState appState)
+    {
+        _appState = appState;
         Load();
     }
 
@@ -57,6 +65,7 @@ public partial class DashcamsViewModel : ViewModelBase
         Dashcams.Add(d);
         ApplyDashcamFilter();
         Selected = d;
+        _appState?.SetStatus("Dashcam added.");
     }
 
     partial void OnSelectedChanged(Dashcam? value)
@@ -102,6 +111,7 @@ public partial class DashcamsViewModel : ViewModelBase
         db.SaveChanges();
         SdCards.Add(c);
         SelectedSdCard = c;
+        _appState?.SetStatus("Dashcam SD card added.");
     }
 
     [RelayCommand]
@@ -147,6 +157,7 @@ public partial class DashcamsViewModel : ViewModelBase
             db.SdCards.Update(SelectedSdCard);
             db.SaveChanges();
             OnSelectedChanged(Selected);
+            _appState?.SetStatus("Dashcam SD card updated.");
         }
         catch (Exception ex)
         {
@@ -163,6 +174,7 @@ public partial class DashcamsViewModel : ViewModelBase
         db.SaveChanges();
         SdCards.Remove(SelectedSdCard);
         SelectedSdCard = null;
+        _appState?.SetStatus("Dashcam SD card deleted.");
     }
 
     [RelayCommand]
@@ -176,6 +188,7 @@ public partial class DashcamsViewModel : ViewModelBase
             db.SaveChanges();
             ApplyDashcamFilter();
             OnSelectedChanged(Selected);
+            _appState?.SetStatus("Dashcam updated.");
         }
         catch (Exception ex)
         {
@@ -192,6 +205,7 @@ public partial class DashcamsViewModel : ViewModelBase
         db.SaveChanges();
         Dashcams.Remove(Selected);
         ApplyDashcamFilter();
+        _appState?.SetStatus("Dashcam deleted.");
     }
 
     [RelayCommand]

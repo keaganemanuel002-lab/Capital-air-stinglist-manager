@@ -3,7 +3,7 @@
         xmlns:behaviors="using:StingListManager.Behaviors"
         x:Class="StingListManager.Views.LoginWindow"
         x:CompileBindings="False"
-        Width="420" Height="340"
+        Width="420" Height="370"
         CanResize="False"
         WindowStartupLocation="CenterScreen"
         Title="Capital Air - Login">
@@ -19,16 +19,20 @@
 
       <StackPanel Spacing="4">
         <TextBlock Text="Username" Classes="muted"/>
-        <TextBox Text="{Binding Username}"
+        <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"
                  Watermark="Username"/>
       </StackPanel>
 
       <StackPanel Spacing="4">
         <TextBlock Text="Password" Classes="muted"/>
-        <TextBox Text="{Binding Password}"
+        <TextBox Text="{Binding Password, UpdateSourceTrigger=PropertyChanged}"
                  behaviors:UppercaseTextBoxBehavior.IsEnabled="False"
+                 PasswordChar="*"
                  Watermark="Password"/>
       </StackPanel>
+
+      <CheckBox Content="Remember me"
+                IsChecked="{Binding RememberMe}"/>
 
       <TextBlock Text="{Binding Message}"
                  Foreground="{Binding MessageColor}"
@@ -42,6 +46,7 @@
         <Button Content="Login"
                 Classes="primary"
                 IsEnabled="{Binding !IsBusy}"
+                IsDefault="True"
                 Command="{Binding LoginCommand}"/>
       </StackPanel>
     </StackPanel>

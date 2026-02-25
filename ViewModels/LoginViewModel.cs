@@ -11,9 +11,12 @@ public partial class LoginViewModel : ViewModelBase
 {
     private readonly LoginWindow _window;
     private readonly AuthService _authService = new();
+    private readonly SettingsService _settingsService = new();
+    private readonly AppSettings _settings;
 
     [ObservableProperty] private string username = string.Empty;
     [ObservableProperty] private string password = string.Empty;
+    [ObservableProperty] private bool rememberMe;
     [ObservableProperty] private string message = "Sign in to continue.";
     [ObservableProperty] private bool isError;
     [ObservableProperty] private bool isBusy;
@@ -22,7 +25,13 @@ public partial class LoginViewModel : ViewModelBase
     public LoginViewModel(LoginWindow window)
     {
         _window = window;
-        Username = new SettingsService().Load().OperatorName ?? string.Empty;
+        _settings = _settingsService.Load();
+        Username = _settings.OperatorName ?? string.Empty;
+        RememberMe = _settings.RememberMe;
+        if (RememberMe)
+        {
+            Password = CredentialProtectionService.Unprotect(_settings.RememberedPasswordProtected) ?? string.Empty;
+        }
     }
 
     partial void OnIsErrorChanged(bool value)
@@ -48,6 +57,14 @@ public partial class LoginViewModel : ViewModelBase
             Message = result.Message;
             return;
         }
+
+        _settings.OperatorName = result.User.Username;
+        _settings.Role = result.User.Role;
+        _settings.RememberMe = RememberMe;
+        _settings.RememberedPasswordProtected = RememberMe
+            ? CredentialProtectionService.Protect(Password)
+            : null;
+        _settingsService.Save(_settings);
 
         Message = result.Message;
         _window.CompleteLogin(result.User.Username, result.User.Role);

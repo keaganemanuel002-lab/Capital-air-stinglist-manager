@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -26,6 +27,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly AppState _appState;
     private readonly TechnicianApiHostService _technicianApiHost = TechnicianApiHostService.Instance;
     private readonly FirebaseSyncService _firebaseSyncService = FirebaseSyncService.Instance;
+    private readonly MongoSyncService _mongoSyncService = MongoSyncService.Instance;
     private readonly string _notificationStorePath;
     private readonly ObservableCollection<AppNotificationItem> _notifications = new();
     private readonly Dictionary<int, ViewModelBase> _pageCache = new();
@@ -33,6 +35,34 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     private string? _lastNotificationMessage;
     private DateTime _lastNotificationUtc = DateTime.MinValue;
     private bool _isDisposing;
+    private static readonly string[] NotificationActionMarkers =
+    {
+        "created",
+        "added",
+        "updated",
+        "deleted",
+        "archived",
+        "approved",
+        "cancelled",
+        "completed",
+        "issued",
+        "transferred",
+        "marked",
+        "recorded",
+        "cleared"
+    };
+
+    private static readonly string[] NotificationEntityMarkers =
+    {
+        "job card",
+        "quote",
+        "billing entry",
+        "sting",
+        "driver tag",
+        "dashcam",
+        "sd card",
+        "installation"
+    };
 
     [ObservableProperty]
     private ViewModelBase currentPage;
@@ -95,6 +125,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         CurrentPage = GetOrCreatePage(0);
         _ = StartTechnicianApiAsync();
         _ = StartFirebaseSyncAsync();
+        _ = StartMongoSyncAsync();
     }
 
     public void Dispose()
@@ -115,6 +146,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 await _technicianApiHost.StopAsync();
                 await _firebaseSyncService.StopAsync();
+                await _mongoSyncService.StopAsync();
             }
             catch
             {
@@ -149,6 +181,22 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
         if (!started)
         {
             if (_appState.Settings.FirebaseSyncEnabled)
+                _appState.SetStatus(message, true);
+            return;
+        }
+
+        _appState.SetStatus(message);
+    }
+
+    private async Task StartMongoSyncAsync()
+    {
+        var (started, message) = await _mongoSyncService.StartAsync(
+            _appState.Settings,
+            (status, isError) => _appState.SetStatus(status, isError));
+
+        if (!started)
+        {
+            if (_appState.Settings.MongoPrimaryDataEnabled)
                 _appState.SetStatus(message, true);
             return;
         }
@@ -209,6 +257,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             return;
 
         var trimmedMessage = message.Trim();
+        if (!ShouldPublishNotification(trimmedMessage, isError))
+            return;
+
         if (string.Equals(_lastNotificationMessage, trimmedMessage, StringComparison.Ordinal)
             && DateTime.UtcNow - _lastNotificationUtc < TimeSpan.FromSeconds(2))
         {
@@ -236,6 +287,34 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             UnreadNotificationCount++;
 
         ShowToast(notification);
+    }
+
+    private static bool ShouldPublishNotification(string message, bool isError)
+    {
+        if (isError)
+            return true;
+
+        if (string.Equals(message, "Schedule updated.", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(message, "Schedule cleared.", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(message))
+            return false;
+
+        var hasAction = NotificationActionMarkers.Any(marker =>
+            message.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        if (!hasAction)
+            return false;
+
+        var hasEntity = NotificationEntityMarkers.Any(marker =>
+            message.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        if (hasEntity)
+            return true;
+
+        return message.Contains("tag ", StringComparison.OrdinalIgnoreCase)
+               || message.Contains(" schedule", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ShowToast(AppNotificationItem notification)
@@ -375,6 +454,12 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         try
         {
+            if (_pageCache.TryGetValue(value, out var cachedPage)
+                && ReferenceEquals(CurrentPage, cachedPage))
+            {
+                return;
+            }
+
             CurrentPage = GetOrCreatePage(value);
         }
         catch (Exception ex)
@@ -413,8 +498,9 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             10 => new ExportViewModel(_window, _appState),
             11 => new SettingsViewModel(_window, _appState),
             12 => new WialonReportsViewModel(_window, _appState),
-            13 => new DashcamsViewModel(),
+            13 => new DashcamsViewModel(_appState),
             14 => new PhoneIssueLogViewModel(_window, _appState),
+            15 => new DriverTagsViewModel(_window, _appState),
             _ => new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult)
         };
     }
@@ -423,6 +509,13 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
     {
         if (pageOverride is not null)
             _pageCache[navTarget] = pageOverride;
+
+        if (pageOverride is null
+            && _pageCache.TryGetValue(navTarget, out var cachedPage)
+            && ReferenceEquals(CurrentPage, cachedPage))
+        {
+            return;
+        }
 
         if (NavIndex == navTarget)
         {
@@ -557,6 +650,97 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     [RelayCommand]
     private void GoExport() => NavIndex = 10;
+
+    [RelayCommand]
+    private void BackToMenu()
+    {
+        if (Avalonia.Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return;
+
+        var launcher = new WorkspaceLauncherWindow(_appState.OperatorName, _appState.Role);
+        _window.Hide();
+
+        launcher.Closed += (_, _) =>
+        {
+            if (launcher.SelectedWorkspace is null
+                || launcher.SelectedWorkspace == WorkspaceChoice.StingManager)
+            {
+                desktop.MainWindow = _window;
+                _window.Show();
+                return;
+            }
+
+            var ordersWindow = new PurchaseOrdersWindow(_appState.OperatorName, _appState.Role);
+            desktop.MainWindow = ordersWindow;
+            ordersWindow.Show();
+            _window.Close();
+        };
+
+        desktop.MainWindow = launcher;
+        launcher.Show();
+    }
+
+    [RelayCommand]
+    private void Logout()
+    {
+        if (Avalonia.Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+            return;
+
+        var loginWindow = new LoginWindow();
+        _window.Hide();
+
+        loginWindow.Closed += (_, _) =>
+        {
+            if (!loginWindow.LoginSucceeded)
+            {
+                desktop.Shutdown();
+                return;
+            }
+
+            var launcher = new WorkspaceLauncherWindow(
+                loginWindow.AuthenticatedUsername,
+                loginWindow.AuthenticatedRole);
+
+            launcher.Closed += (_, _) =>
+            {
+                if (launcher.SelectedWorkspace is null)
+                {
+                    desktop.Shutdown();
+                    return;
+                }
+
+                switch (launcher.SelectedWorkspace.Value)
+                {
+                    case WorkspaceChoice.Orders:
+                    {
+                        var ordersWindow = new PurchaseOrdersWindow(
+                            loginWindow.AuthenticatedUsername,
+                            loginWindow.AuthenticatedRole);
+                        desktop.MainWindow = ordersWindow;
+                        ordersWindow.Show();
+                        break;
+                    }
+                    case WorkspaceChoice.StingManager:
+                    default:
+                    {
+                        var mainWindow = new MainWindow(
+                            loginWindow.AuthenticatedUsername,
+                            loginWindow.AuthenticatedRole);
+                        desktop.MainWindow = mainWindow;
+                        mainWindow.Show();
+                        break;
+                    }
+                }
+            };
+
+            desktop.MainWindow = launcher;
+            launcher.Show();
+            _window.Close();
+        };
+
+        desktop.MainWindow = loginWindow;
+        loginWindow.Show();
+    }
 
     [RelayCommand]
     private void SaveSettings()

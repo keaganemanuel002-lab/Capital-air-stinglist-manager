@@ -424,6 +424,10 @@ namespace StingListManager.ViewModels
                 }
 
                 db.SaveChanges();
+                var quoteReference = QuoteReferenceFormatter.Format(q.QuoteNumber);
+                _appState.SetStatus(_quoteId is null
+                    ? $"Quote {quoteReference} created."
+                    : $"Quote {quoteReference} updated.");
                 _close();
             }
             catch (Exception ex)
