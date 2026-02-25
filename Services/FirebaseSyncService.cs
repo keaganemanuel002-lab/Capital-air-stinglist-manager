@@ -40,10 +40,12 @@ public sealed class FirebaseSyncService : IDisposable
     private readonly Dictionary<int, string> _openPayloadHashes = new();
     private readonly Dictionary<int, string> _completedPayloadHashes = new();
     private readonly Dictionary<string, string> _mobileUserPayloadHashes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _billingPayloadHashes = new(StringComparer.Ordinal);
     private bool _openSnapshotInitialized;
     private bool _openRemoteCacheInitialized;
     private bool _completedRemoteCacheInitialized;
     private bool _mobileUsersRemoteCacheInitialized;
+    private bool _billingRemoteCacheInitialized;
     private int _pendingTriggerFlag;
     private bool _localJobCardChangeSubscribed;
 
@@ -85,6 +87,36 @@ public sealed class FirebaseSyncService : IDisposable
         public string PasswordSalt { get; init; } = string.Empty;
     }
 
+    private sealed class BillingSyncRow
+    {
+        public string DocId { get; init; } = string.Empty;
+        public int Id { get; init; }
+        public string Company { get; init; } = string.Empty;
+        public string Registration { get; init; } = string.Empty;
+        public string? FleetNumber { get; init; }
+        public string? Make { get; init; }
+        public string? Model { get; init; }
+        public string? Colour { get; init; }
+        public string? VinNumber { get; init; }
+        public string? TrackingUnitMake { get; init; }
+        public string? StingPackageType { get; init; }
+        public string? Notes { get; init; }
+        public string? Reason { get; init; }
+        public string? Imei { get; init; }
+        public string? SerialNumber { get; init; }
+        public string? Iccid { get; init; }
+        public string? SimNumber { get; init; }
+        public BillingStatus Status { get; init; }
+        public DateTime ActiveFrom { get; init; }
+        public DateTime? ActiveTo { get; init; }
+        public DateTime? ArchivedAt { get; init; }
+        public string RegistrationNorm { get; init; } = string.Empty;
+        public string ImeiNorm { get; init; } = string.Empty;
+        public string IccidNorm { get; init; } = string.Empty;
+        public string SerialNumberNorm { get; init; } = string.Empty;
+        public DateTime RemoteUpdatedAtUtc { get; init; } = DateTime.UnixEpoch;
+    }
+
     private FirebaseSyncService()
     {
     }
@@ -107,10 +139,12 @@ public sealed class FirebaseSyncService : IDisposable
             _openPayloadHashes.Clear();
             _completedPayloadHashes.Clear();
             _mobileUserPayloadHashes.Clear();
+            _billingPayloadHashes.Clear();
             _openSnapshotInitialized = false;
             _openRemoteCacheInitialized = false;
             _completedRemoteCacheInitialized = false;
             _mobileUsersRemoteCacheInitialized = false;
+            _billingRemoteCacheInitialized = false;
             _pendingTriggerFlag = 0;
             _localJobCardChangeSubscribed = false;
             while (_syncTrigger.CurrentCount > 0)
@@ -164,10 +198,12 @@ public sealed class FirebaseSyncService : IDisposable
             _openPayloadHashes.Clear();
             _completedPayloadHashes.Clear();
             _mobileUserPayloadHashes.Clear();
+            _billingPayloadHashes.Clear();
             _openSnapshotInitialized = false;
             _openRemoteCacheInitialized = false;
             _completedRemoteCacheInitialized = false;
             _mobileUsersRemoteCacheInitialized = false;
+            _billingRemoteCacheInitialized = false;
             _pendingTriggerFlag = 0;
             _localJobCardChangeSubscribed = false;
             while (_syncTrigger.CurrentCount > 0)
@@ -294,14 +330,19 @@ public sealed class FirebaseSyncService : IDisposable
         var changedMobileUsers = await PublishMobileUsersAsync(cancellationToken);
         var (exportedOpenCount, changedOpenCount) = await PublishOpenJobCardsAsync(cancellationToken);
         var (exportedCompletedCount, changedCompletedCount) = await PublishCompletedJobCardsAsync(cancellationToken);
+        var (exportedBillingCount, changedBillingCount, importedBillingCount) = await SyncBillingEntriesAsync(cancellationToken);
         var importedCount = await ImportPhotoSubmissionsAsync(cancellationToken);
 
         if (importedCount > 0)
             _statusSink?.Invoke($"Firebase sync: imported {importedCount} technician photo submission(s).", false);
-        else if (changedOpenCount > 0 || changedCompletedCount > 0 || changedMobileUsers > 0)
+        else if (changedOpenCount > 0
+                 || changedCompletedCount > 0
+                 || changedMobileUsers > 0
+                 || changedBillingCount > 0
+                 || importedBillingCount > 0)
             _statusSink?.Invoke(
-                $"Firebase sync: applied {changedOpenCount + changedCompletedCount + changedMobileUsers} update(s) " +
-                $"({exportedOpenCount} open, {exportedCompletedCount} completed, {changedMobileUsers} mobile user records).",
+                $"Firebase sync: applied {changedOpenCount + changedCompletedCount + changedMobileUsers + changedBillingCount + importedBillingCount} update(s) " +
+                $"({exportedOpenCount} open, {exportedCompletedCount} completed, {changedMobileUsers} mobile users, {exportedBillingCount} billing exported, {importedBillingCount} billing imported).",
                 false);
     }
 
@@ -567,6 +608,472 @@ public sealed class FirebaseSyncService : IDisposable
         return changedCount;
     }
 
+    private async Task<(int exportedCount, int changedCount, int importedCount)> SyncBillingEntriesAsync(CancellationToken cancellationToken)
+    {
+        if (_firestore is null)
+            return (0, 0, 0);
+
+        var collection = _firestore.Collection(FirestoreCollections.BillingEntries);
+        await EnsureBillingRemoteCacheInitializedAsync(collection, cancellationToken);
+        var (exportedCount, changedCount) = await PublishBillingEntriesAsync(collection, cancellationToken);
+        var importedCount = await ImportBillingEntriesAsync(collection, cancellationToken);
+        return (exportedCount, changedCount, importedCount);
+    }
+
+    private async Task<(int exportedCount, int changedCount)> PublishBillingEntriesAsync(
+        CollectionReference collection,
+        CancellationToken cancellationToken)
+    {
+        using var db = new AppDbContext();
+        var rows = db.BillingEntries
+            .AsNoTracking()
+            .OrderBy(x => x.Id)
+            .ToList()
+            .Select(MapBillingEntityToSyncRow)
+            .ToList();
+
+        var now = Timestamp.FromDateTime(DateTime.UtcNow);
+        var changedCount = 0;
+        foreach (var row in rows)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var payloadFingerprint = BuildBillingPayloadFingerprint(row);
+            if (_billingPayloadHashes.TryGetValue(row.DocId, out var knownFingerprint)
+                && string.Equals(knownFingerprint, payloadFingerprint, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var payload = BuildBillingPayload(row, now);
+            await collection.Document(row.DocId).SetAsync(payload, SetOptions.MergeAll, cancellationToken);
+            _billingPayloadHashes[row.DocId] = payloadFingerprint;
+            changedCount++;
+        }
+
+        return (rows.Count, changedCount);
+    }
+
+    private async Task<int> ImportBillingEntriesAsync(
+        CollectionReference collection,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = await collection.GetSnapshotAsync(cancellationToken);
+        if (snapshot.Count == 0)
+            return 0;
+
+        using var db = new AppDbContext();
+        var localRows = db.BillingEntries.ToList();
+        var importedCount = 0;
+        var remoteRows = snapshot.Documents
+            .Select(MapBillingDocumentToSyncRow)
+            .Where(x => x is not null)
+            .Cast<BillingSyncRow>()
+            .OrderBy(x => x.RemoteUpdatedAtUtc)
+            .ThenBy(x => x.DocId, StringComparer.Ordinal)
+            .ToList();
+
+        foreach (var remoteRow in remoteRows)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var remoteFingerprint = BuildBillingPayloadFingerprint(remoteRow);
+            var localMatch = FindLocalBillingEntry(localRows, remoteRow);
+            var isNew = localMatch is null;
+
+            if (localMatch is null)
+            {
+                localMatch = new BillingEntry();
+                db.BillingEntries.Add(localMatch);
+            }
+            else
+            {
+                var localFingerprint = BuildBillingPayloadFingerprint(MapBillingEntityToSyncRow(localMatch));
+                if (string.Equals(localFingerprint, remoteFingerprint, StringComparison.Ordinal))
+                {
+                    _billingPayloadHashes[remoteRow.DocId] = remoteFingerprint;
+                    continue;
+                }
+
+                // Keep local edits when this remote document has not changed since our last synced hash.
+                if (_billingPayloadHashes.TryGetValue(remoteRow.DocId, out var knownRemoteFingerprint)
+                    && !string.IsNullOrWhiteSpace(knownRemoteFingerprint)
+                    && !string.Equals(localFingerprint, knownRemoteFingerprint, StringComparison.Ordinal)
+                    && string.Equals(remoteFingerprint, knownRemoteFingerprint, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+            }
+
+            ApplyBillingSyncRow(localMatch, remoteRow);
+
+            try
+            {
+                var changed = db.SaveChanges();
+                if (changed > 0)
+                {
+                    if (isNew)
+                        localRows.Add(localMatch);
+
+                    importedCount++;
+                }
+
+                _billingPayloadHashes[remoteRow.DocId] = remoteFingerprint;
+            }
+            catch (DbUpdateException)
+            {
+                if (isNew)
+                {
+                    db.Entry(localMatch).State = EntityState.Detached;
+                }
+                else
+                {
+                    db.Entry(localMatch).Reload();
+                }
+            }
+        }
+
+        return importedCount;
+    }
+
+    private static BillingSyncRow MapBillingEntityToSyncRow(BillingEntry entry)
+    {
+        var company = NormalizeDisplayText(entry.Company) ?? string.Empty;
+        var registration = NormalizeBillingComparable(entry.Registration);
+        var activeFrom = entry.ActiveFrom == default ? DateTime.UnixEpoch : entry.ActiveFrom;
+        var activeFromUtc = EnsureUtc(activeFrom);
+        var registrationNorm = string.IsNullOrWhiteSpace(entry.RegistrationNorm)
+            ? NormalizeBillingComparable(registration)
+            : NormalizeBillingComparable(entry.RegistrationNorm);
+        var imeiNorm = string.IsNullOrWhiteSpace(entry.ImeiNorm)
+            ? NormalizeBillingDigits(entry.Imei)
+            : NormalizeBillingDigits(entry.ImeiNorm);
+        var iccidNorm = string.IsNullOrWhiteSpace(entry.IccidNorm)
+            ? NormalizeBillingDigits(entry.Iccid)
+            : NormalizeBillingDigits(entry.IccidNorm);
+        var serialNorm = string.IsNullOrWhiteSpace(entry.SerialNumberNorm)
+            ? NormalizeBillingComparable(entry.SerialNumber)
+            : NormalizeBillingComparable(entry.SerialNumberNorm);
+
+        return new BillingSyncRow
+        {
+            DocId = BuildBillingDocId(
+                company,
+                registration,
+                imeiNorm,
+                iccidNorm,
+                serialNorm,
+                activeFromUtc),
+            Id = entry.Id,
+            Company = company,
+            Registration = registration,
+            FleetNumber = NormalizeDisplayText(entry.FleetNumber),
+            Make = NormalizeDisplayText(entry.Make),
+            Model = NormalizeDisplayText(entry.Model),
+            Colour = NormalizeDisplayText(entry.Colour),
+            VinNumber = NormalizeDisplayText(entry.VinNumber),
+            TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(entry.TrackingUnitMake) ?? NormalizeDisplayText(entry.TrackingUnitMake),
+            StingPackageType = StingPackageCatalog.Normalize(entry.StingPackageType)
+                               ?? StingPackageCatalog.Normalize(entry.TrackingUnitMake)
+                               ?? NormalizeDisplayText(entry.StingPackageType),
+            Notes = NormalizeDisplayText(entry.Notes),
+            Reason = NormalizeDisplayText(entry.Reason),
+            Imei = NormalizeDisplayText(entry.Imei),
+            SerialNumber = NormalizeDisplayText(entry.SerialNumber),
+            Iccid = NormalizeDisplayText(entry.Iccid),
+            SimNumber = NormalizeDisplayText(entry.SimNumber),
+            Status = entry.Status,
+            ActiveFrom = activeFromUtc,
+            ActiveTo = entry.ActiveTo is DateTime activeTo ? EnsureUtc(activeTo) : null,
+            ArchivedAt = entry.ArchivedAt is DateTime archivedAt ? EnsureUtc(archivedAt) : null,
+            RegistrationNorm = registrationNorm,
+            ImeiNorm = imeiNorm,
+            IccidNorm = iccidNorm,
+            SerialNumberNorm = serialNorm
+        };
+    }
+
+    private static BillingSyncRow? MapBillingDocumentToSyncRow(DocumentSnapshot doc)
+    {
+        var data = doc.ToDictionary();
+        var company = NormalizeDisplayText(GetString(data, "company")) ?? string.Empty;
+        var registration = NormalizeBillingComparable(GetString(data, "registration"));
+        var activeFrom = GetDateTime(data, "activeFromUtc") ?? DateTime.UnixEpoch;
+        var activeFromUtc = EnsureUtc(activeFrom);
+        var registrationNorm = NormalizeBillingComparable(GetString(data, "registrationNorm"));
+        if (string.IsNullOrWhiteSpace(registrationNorm))
+            registrationNorm = NormalizeBillingComparable(registration);
+
+        var imeiNorm = NormalizeBillingDigits(GetString(data, "imeiNorm"));
+        var iccidNorm = NormalizeBillingDigits(GetString(data, "iccidNorm"));
+        var serialNorm = NormalizeBillingComparable(GetString(data, "serialNumberNorm"));
+
+        if (string.IsNullOrWhiteSpace(imeiNorm))
+            imeiNorm = NormalizeBillingDigits(GetString(data, "imei"));
+        if (string.IsNullOrWhiteSpace(iccidNorm))
+            iccidNorm = NormalizeBillingDigits(GetString(data, "iccid"));
+        if (string.IsNullOrWhiteSpace(serialNorm))
+            serialNorm = NormalizeBillingComparable(GetString(data, "serialNumber"));
+
+        if (string.IsNullOrWhiteSpace(registration)
+            && string.IsNullOrWhiteSpace(imeiNorm)
+            && string.IsNullOrWhiteSpace(iccidNorm)
+            && string.IsNullOrWhiteSpace(serialNorm))
+        {
+            return null;
+        }
+
+        var status = ParseBillingStatus(GetString(data, "status"), GetInt(data, "statusCode"));
+
+        return new BillingSyncRow
+        {
+            DocId = string.IsNullOrWhiteSpace(doc.Id)
+                ? BuildBillingDocId(company, registration, imeiNorm, iccidNorm, serialNorm, activeFromUtc)
+                : doc.Id,
+            Id = GetInt(data, "sourceLocalId"),
+            Company = company,
+            Registration = registration,
+            FleetNumber = NormalizeDisplayText(GetString(data, "fleetNumber")),
+            Make = NormalizeDisplayText(GetString(data, "make")),
+            Model = NormalizeDisplayText(GetString(data, "model")),
+            Colour = NormalizeDisplayText(GetString(data, "colour")),
+            VinNumber = NormalizeDisplayText(GetString(data, "vinNumber")),
+            TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(GetString(data, "trackingUnitMake"))
+                               ?? NormalizeDisplayText(GetString(data, "trackingUnitMake")),
+            StingPackageType = StingPackageCatalog.Normalize(GetString(data, "stingPackageType"))
+                               ?? StingPackageCatalog.Normalize(GetString(data, "trackingUnitMake")),
+            Notes = NormalizeDisplayText(GetString(data, "notes")),
+            Reason = NormalizeDisplayText(GetString(data, "reason")),
+            Imei = NormalizeDisplayText(GetString(data, "imei")),
+            SerialNumber = NormalizeDisplayText(GetString(data, "serialNumber")),
+            Iccid = NormalizeDisplayText(GetString(data, "iccid")),
+            SimNumber = NormalizeDisplayText(GetString(data, "simNumber")),
+            Status = status,
+            ActiveFrom = activeFromUtc,
+            ActiveTo = GetDateTime(data, "activeToUtc"),
+            ArchivedAt = GetDateTime(data, "archivedAtUtc"),
+            RegistrationNorm = registrationNorm,
+            ImeiNorm = imeiNorm,
+            IccidNorm = iccidNorm,
+            SerialNumberNorm = serialNorm,
+            RemoteUpdatedAtUtc = GetDocumentUpdatedAtUtc(doc, data)
+        };
+    }
+
+    private static BillingEntry? FindLocalBillingEntry(
+        IReadOnlyCollection<BillingEntry> localRows,
+        BillingSyncRow remoteRow)
+    {
+        var byDocId = localRows.FirstOrDefault(x =>
+            string.Equals(BuildBillingDocId(x), remoteRow.DocId, StringComparison.Ordinal));
+        if (byDocId is not null)
+            return byDocId;
+
+        if (!string.IsNullOrWhiteSpace(remoteRow.ImeiNorm))
+        {
+            var byImei = localRows.FirstOrDefault(x =>
+                string.Equals(
+                    NormalizeBillingDigits(string.IsNullOrWhiteSpace(x.ImeiNorm) ? x.Imei : x.ImeiNorm),
+                    remoteRow.ImeiNorm,
+                    StringComparison.Ordinal));
+            if (byImei is not null)
+                return byImei;
+        }
+
+        if (!string.IsNullOrWhiteSpace(remoteRow.IccidNorm))
+        {
+            var byIccid = localRows.FirstOrDefault(x =>
+                string.Equals(
+                    NormalizeBillingDigits(string.IsNullOrWhiteSpace(x.IccidNorm) ? x.Iccid : x.IccidNorm),
+                    remoteRow.IccidNorm,
+                    StringComparison.Ordinal));
+            if (byIccid is not null)
+                return byIccid;
+        }
+
+        if (!string.IsNullOrWhiteSpace(remoteRow.SerialNumberNorm))
+        {
+            var bySerial = localRows.FirstOrDefault(x =>
+                string.Equals(
+                    NormalizeBillingComparable(string.IsNullOrWhiteSpace(x.SerialNumberNorm) ? x.SerialNumber : x.SerialNumberNorm),
+                    remoteRow.SerialNumberNorm,
+                    StringComparison.Ordinal));
+            if (bySerial is not null)
+                return bySerial;
+        }
+
+        var companyNorm = NormalizeBillingComparable(remoteRow.Company);
+        var registrationNorm = NormalizeBillingComparable(remoteRow.Registration);
+        if (string.IsNullOrWhiteSpace(companyNorm) || string.IsNullOrWhiteSpace(registrationNorm))
+            return null;
+
+        var remoteActiveFromUtc = EnsureUtc(remoteRow.ActiveFrom);
+        return localRows.FirstOrDefault(x =>
+        {
+            var localCompany = NormalizeBillingComparable(x.Company);
+            var localRegistration = NormalizeBillingComparable(x.Registration);
+            if (!string.Equals(localCompany, companyNorm, StringComparison.Ordinal)
+                || !string.Equals(localRegistration, registrationNorm, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var localActiveFrom = x.ActiveFrom == default ? DateTime.UnixEpoch : EnsureUtc(x.ActiveFrom);
+            return Math.Abs((localActiveFrom - remoteActiveFromUtc).TotalSeconds) <= 1;
+        });
+    }
+
+    private static void ApplyBillingSyncRow(BillingEntry entry, BillingSyncRow row)
+    {
+        entry.Company = row.Company;
+        entry.Registration = row.Registration;
+        entry.FleetNumber = row.FleetNumber;
+        entry.Make = row.Make;
+        entry.Model = row.Model;
+        entry.Colour = row.Colour;
+        entry.VinNumber = row.VinNumber;
+        entry.TrackingUnitMake = TrackingUnitMakeCatalog.Normalize(row.TrackingUnitMake) ?? row.TrackingUnitMake;
+        entry.StingPackageType = StingPackageCatalog.Normalize(row.StingPackageType)
+                                 ?? StingPackageCatalog.Normalize(row.TrackingUnitMake)
+                                 ?? row.StingPackageType;
+        entry.Notes = row.Notes;
+        entry.Reason = row.Reason;
+        entry.Imei = row.Imei;
+        entry.SerialNumber = row.SerialNumber;
+        entry.Iccid = row.Iccid;
+        entry.SimNumber = row.SimNumber;
+        entry.Status = row.Status;
+        entry.ActiveFrom = EnsureUtc(row.ActiveFrom);
+        entry.ActiveTo = row.ActiveTo is DateTime activeTo ? EnsureUtc(activeTo) : null;
+        entry.ArchivedAt = row.ArchivedAt is DateTime archivedAt ? EnsureUtc(archivedAt) : null;
+        entry.RegistrationNorm = string.IsNullOrWhiteSpace(row.RegistrationNorm)
+            ? NormalizeBillingComparable(row.Registration)
+            : NormalizeBillingComparable(row.RegistrationNorm);
+        entry.ImeiNorm = string.IsNullOrWhiteSpace(row.ImeiNorm)
+            ? NormalizeBillingDigits(row.Imei)
+            : NormalizeBillingDigits(row.ImeiNorm);
+        entry.IccidNorm = string.IsNullOrWhiteSpace(row.IccidNorm)
+            ? NormalizeBillingDigits(row.Iccid)
+            : NormalizeBillingDigits(row.IccidNorm);
+        entry.SerialNumberNorm = string.IsNullOrWhiteSpace(row.SerialNumberNorm)
+            ? NormalizeBillingComparable(row.SerialNumber)
+            : NormalizeBillingComparable(row.SerialNumberNorm);
+    }
+
+    private static Dictionary<string, object?> BuildBillingPayload(BillingSyncRow row, Timestamp now)
+    {
+        return new Dictionary<string, object?>
+        {
+            ["sourceLocalId"] = row.Id,
+            ["company"] = row.Company,
+            ["registration"] = row.Registration,
+            ["fleetNumber"] = row.FleetNumber,
+            ["make"] = row.Make,
+            ["model"] = row.Model,
+            ["colour"] = row.Colour,
+            ["vinNumber"] = row.VinNumber,
+            ["trackingUnitMake"] = row.TrackingUnitMake,
+            ["stingPackageType"] = row.StingPackageType,
+            ["notes"] = row.Notes,
+            ["reason"] = row.Reason,
+            ["imei"] = row.Imei,
+            ["serialNumber"] = row.SerialNumber,
+            ["iccid"] = row.Iccid,
+            ["simNumber"] = row.SimNumber,
+            ["status"] = row.Status.ToString(),
+            ["statusCode"] = (int)row.Status,
+            ["activeFromUtc"] = Timestamp.FromDateTime(EnsureUtc(row.ActiveFrom)),
+            ["activeToUtc"] = row.ActiveTo is DateTime activeTo
+                ? Timestamp.FromDateTime(EnsureUtc(activeTo))
+                : null,
+            ["archivedAtUtc"] = row.ArchivedAt is DateTime archivedAt
+                ? Timestamp.FromDateTime(EnsureUtc(archivedAt))
+                : null,
+            ["registrationNorm"] = row.RegistrationNorm,
+            ["imeiNorm"] = row.ImeiNorm,
+            ["iccidNorm"] = row.IccidNorm,
+            ["serialNumberNorm"] = row.SerialNumberNorm,
+            ["desktopSyncedAtUtc"] = now
+        };
+    }
+
+    private static string BuildBillingPayloadFingerprint(BillingSyncRow row)
+    {
+        return string.Join("|",
+            row.Company,
+            row.Registration,
+            row.FleetNumber ?? string.Empty,
+            row.Make ?? string.Empty,
+            row.Model ?? string.Empty,
+            row.Colour ?? string.Empty,
+            row.VinNumber ?? string.Empty,
+            row.TrackingUnitMake ?? string.Empty,
+            row.StingPackageType ?? string.Empty,
+            row.Notes ?? string.Empty,
+            row.Reason ?? string.Empty,
+            row.Imei ?? string.Empty,
+            row.SerialNumber ?? string.Empty,
+            row.Iccid ?? string.Empty,
+            row.SimNumber ?? string.Empty,
+            row.Status.ToString(),
+            EnsureUtc(row.ActiveFrom).Ticks.ToString(),
+            row.ActiveTo?.ToUniversalTime().Ticks.ToString() ?? string.Empty,
+            row.ArchivedAt?.ToUniversalTime().Ticks.ToString() ?? string.Empty,
+            row.RegistrationNorm,
+            row.ImeiNorm,
+            row.IccidNorm,
+            row.SerialNumberNorm);
+    }
+
+    private static string BuildBillingDocId(BillingEntry entry)
+    {
+        var activeFrom = entry.ActiveFrom == default ? DateTime.UnixEpoch : entry.ActiveFrom;
+        var registrationNorm = string.IsNullOrWhiteSpace(entry.RegistrationNorm)
+            ? NormalizeBillingComparable(entry.Registration)
+            : NormalizeBillingComparable(entry.RegistrationNorm);
+        var imeiNorm = string.IsNullOrWhiteSpace(entry.ImeiNorm)
+            ? NormalizeBillingDigits(entry.Imei)
+            : NormalizeBillingDigits(entry.ImeiNorm);
+        var iccidNorm = string.IsNullOrWhiteSpace(entry.IccidNorm)
+            ? NormalizeBillingDigits(entry.Iccid)
+            : NormalizeBillingDigits(entry.IccidNorm);
+        var serialNorm = string.IsNullOrWhiteSpace(entry.SerialNumberNorm)
+            ? NormalizeBillingComparable(entry.SerialNumber)
+            : NormalizeBillingComparable(entry.SerialNumberNorm);
+
+        return BuildBillingDocId(
+            entry.Company,
+            registrationNorm,
+            imeiNorm,
+            iccidNorm,
+            serialNorm,
+            activeFrom);
+    }
+
+    private static string BuildBillingDocId(
+        string? company,
+        string? registration,
+        string? imeiNorm,
+        string? iccidNorm,
+        string? serialNorm,
+        DateTime activeFrom)
+    {
+        var activeTicks = EnsureUtc(activeFrom).Ticks;
+        if (!string.IsNullOrWhiteSpace(imeiNorm))
+            return $"imei-{imeiNorm}-{activeTicks}";
+        if (!string.IsNullOrWhiteSpace(iccidNorm))
+            return $"iccid-{iccidNorm}-{activeTicks}";
+        if (!string.IsNullOrWhiteSpace(serialNorm))
+            return $"serial-{serialNorm}-{activeTicks}";
+
+        var companyNorm = NormalizeBillingComparable(company);
+        var registrationNorm = NormalizeBillingComparable(registration);
+        if (!string.IsNullOrWhiteSpace(companyNorm) && !string.IsNullOrWhiteSpace(registrationNorm))
+            return $"reg-{companyNorm}-{registrationNorm}-{activeTicks}";
+
+        return $"row-{activeTicks}";
+    }
+
     private async Task<int> PublishJobCardsCollectionAsync(
         CollectionReference collection,
         IReadOnlyCollection<JobCardSyncRow> rows,
@@ -728,6 +1235,29 @@ public sealed class FirebaseSyncService : IDisposable
         }
 
         _mobileUsersRemoteCacheInitialized = true;
+    }
+
+    private async Task EnsureBillingRemoteCacheInitializedAsync(
+        CollectionReference collection,
+        CancellationToken cancellationToken)
+    {
+        if (_billingRemoteCacheInitialized)
+            return;
+
+        var snapshot = await collection.GetSnapshotAsync(cancellationToken);
+        foreach (var existing in snapshot.Documents)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_billingPayloadHashes.ContainsKey(existing.Id))
+                continue;
+
+            var remoteRow = MapBillingDocumentToSyncRow(existing);
+            _billingPayloadHashes[existing.Id] = remoteRow is null
+                ? string.Empty
+                : BuildBillingPayloadFingerprint(remoteRow);
+        }
+
+        _billingRemoteCacheInitialized = true;
     }
 
     private async Task NotifyTechniciansForNewJobCardsAsync(
@@ -1252,6 +1782,87 @@ public sealed class FirebaseSyncService : IDisposable
             return null;
 
         return raw.ToString();
+    }
+
+    private static DateTime? GetDateTime(IReadOnlyDictionary<string, object> data, string key)
+    {
+        if (!data.TryGetValue(key, out var raw) || raw is null)
+            return null;
+
+        return raw switch
+        {
+            Timestamp timestamp => timestamp.ToDateTime(),
+            DateTime dateTime => EnsureUtc(dateTime),
+            string text when DateTime.TryParse(text, out var parsed) => EnsureUtc(parsed),
+            _ => null
+        };
+    }
+
+    private static DateTime GetDocumentUpdatedAtUtc(DocumentSnapshot doc, IReadOnlyDictionary<string, object> data)
+    {
+        if (doc.UpdateTime is Timestamp updateTime)
+            return EnsureUtc(updateTime.ToDateTime());
+
+        return GetDateTime(data, "desktopSyncedAtUtc") ?? DateTime.UnixEpoch;
+    }
+
+    private static DateTime EnsureUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
+    }
+
+    private static string? NormalizeDisplayText(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string NormalizeBillingComparable(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return value.Trim().ToUpperInvariant();
+    }
+
+    private static string NormalizeBillingDigits(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value.Where(char.IsDigit).ToArray());
+    }
+
+    private static BillingStatus ParseBillingStatus(string? statusText, int statusCode)
+    {
+        if (!string.IsNullOrWhiteSpace(statusText))
+        {
+            if (Enum.TryParse<BillingStatus>(statusText.Trim(), true, out var parsed))
+                return parsed;
+
+            var normalized = statusText.Trim().ToUpperInvariant();
+            if (normalized.Contains("REMOV", StringComparison.Ordinal))
+                return BillingStatus.Removed;
+
+            if (normalized.Contains("NOT LOADED", StringComparison.Ordinal)
+                || normalized.Contains("NOTLOADED", StringComparison.Ordinal)
+                || normalized.Contains("INACTIVE", StringComparison.Ordinal))
+            {
+                return BillingStatus.NotLoaded;
+            }
+        }
+
+        if (Enum.IsDefined(typeof(BillingStatus), statusCode))
+            return (BillingStatus)statusCode;
+
+        return BillingStatus.Active;
     }
 
     private static string? ValidateSettings(AppSettings settings)

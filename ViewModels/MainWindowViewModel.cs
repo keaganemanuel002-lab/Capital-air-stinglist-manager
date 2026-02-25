@@ -373,7 +373,17 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
     partial void OnNavIndexChanged(int value)
     {
-        CurrentPage = GetOrCreatePage(value);
+        try
+        {
+            CurrentPage = GetOrCreatePage(value);
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Could not open selected page: {ex.Message}", true);
+            CurrentPage = GetOrCreatePage(0);
+            if (value != 0)
+                NavIndex = 0;
+        }
     }
 
     private ViewModelBase GetOrCreatePage(int navTarget)
@@ -404,6 +414,7 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
             11 => new SettingsViewModel(_window, _appState),
             12 => new WialonReportsViewModel(_window, _appState),
             13 => new DashcamsViewModel(),
+            14 => new PhoneIssueLogViewModel(_window, _appState),
             _ => new SearchViewModel(_appState, OpenResult, StartRemovalFromResult, OpenDocsFromResult)
         };
     }

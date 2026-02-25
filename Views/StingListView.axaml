@@ -22,6 +22,9 @@
 
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Content="Refresh" Command="{Binding RefreshCommand}"/>
+      <Button Content="Add Entry"
+              Command="{Binding AddEntryCommand}"
+              IsEnabled="{Binding CanAddEntry}"/>
       <Button Content="Edit Selected" Command="{Binding EditSelectedCommand}"
               IsEnabled="{Binding CanEditSelectedRow}"/>
       <Button Content="Export to Excel" Command="{Binding ExportToExcelCommand}"/>

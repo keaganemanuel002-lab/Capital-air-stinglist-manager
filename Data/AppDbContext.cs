@@ -23,6 +23,7 @@ public class AppDbContext : DbContext
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Dashcam> Dashcams => Set<Dashcam>();
     public DbSet<SdCard> SdCards => Set<SdCard>();
+    public DbSet<PhoneIssueLogEntry> PhoneIssueLogEntries => Set<PhoneIssueLogEntry>();
     public DbSet<UserAccount> UserAccounts => Set<UserAccount>();
 
     protected override void OnConfiguring(DbContextOptionsBuilder options)
@@ -125,6 +126,11 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<Client>().HasIndex(c => c.NameNorm).IsUnique();
         modelBuilder.Entity<UserAccount>().HasIndex(u => u.UsernameNorm).IsUnique();
+        modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.TeamNameNorm);
+        modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.VehicleRegistrationNorm);
+        modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.PhoneImeiNorm);
+        modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.IssuedAt);
+        modelBuilder.Entity<PhoneIssueLogEntry>().HasIndex(p => p.ReturnedAt);
         
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.Registration);
         modelBuilder.Entity<CancellationEntry>().HasIndex(c => c.DateRequestReceived);
@@ -151,6 +157,7 @@ public class AppDbContext : DbContext
     {
         NormalizeBillingEntries();
         NormalizeClients();
+        NormalizePhoneIssueLogEntries();
         NormalizeUsers();
     }
 
@@ -208,6 +215,35 @@ public class AppDbContext : DbContext
         }
     }
 
+    private void NormalizePhoneIssueLogEntries()
+    {
+        foreach (var entry in ChangeTracker.Entries<PhoneIssueLogEntry>())
+        {
+            if (entry.State is not EntityState.Added and not EntityState.Modified)
+                continue;
+
+            var entity = entry.Entity;
+            entity.TeamName = NormalizeClientName(entity.TeamName);
+            entity.TeamMemberOne = NormalizeClientName(entity.TeamMemberOne);
+            entity.TeamMemberTwo = NormalizeClientName(entity.TeamMemberTwo);
+            entity.VehicleRegistration = NormalizeRegistration(entity.VehicleRegistration);
+            entity.PhoneLabel = NormalizeOptionalSingleLine(entity.PhoneLabel);
+            entity.PhoneNumber = NormalizeOptionalSingleLine(entity.PhoneNumber);
+            entity.PhoneImei = NormalizeDigitsOrNull(entity.PhoneImei);
+            entity.Notes = NormalizeOptionalMultiline(entity.Notes);
+            entity.TeamNameNorm = NormalizeComparableText(entity.TeamName);
+            entity.VehicleRegistrationNorm = entity.VehicleRegistration;
+            entity.PhoneImeiNorm = NormalizeDigits(entity.PhoneImei);
+
+            if (entity.IssuedAt == default)
+                entity.IssuedAt = DateTime.UtcNow;
+
+            entity.IssuedAt = EnsureUtc(entity.IssuedAt);
+            if (entity.ReturnedAt is DateTime returnedAt)
+                entity.ReturnedAt = EnsureUtc(returnedAt);
+        }
+    }
+
     private static string NormalizeRegistration(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -230,6 +266,25 @@ public class AppDbContext : DbContext
             return string.Empty;
 
         return new string(value.Where(char.IsDigit).ToArray());
+    }
+
+    private static string? NormalizeDigitsOrNull(string? value)
+    {
+        var digits = NormalizeDigits(value);
+        return string.IsNullOrWhiteSpace(digits) ? null : digits;
+    }
+
+    private static string? NormalizeOptionalSingleLine(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string? NormalizeOptionalMultiline(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
     private static string NormalizeClientName(string? value)
@@ -258,6 +313,16 @@ public class AppDbContext : DbContext
             return string.Empty;
 
         return value.Trim();
+    }
+
+    private static DateTime EnsureUtc(DateTime value)
+    {
+        return value.Kind switch
+        {
+            DateTimeKind.Utc => value,
+            DateTimeKind.Local => value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(value, DateTimeKind.Utc)
+        };
     }
 
     private static string NormalizeRole(string? role)

@@ -162,7 +162,7 @@
 
       <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
         <Button Content="Cancel" Command="{Binding CancelCommand}"/>
-        <Button Content="Save Changes" Command="{Binding SaveCommand}" Classes="primary"/>
+        <Button Content="{Binding SaveButtonText}" Command="{Binding SaveCommand}" Classes="primary"/>
       </StackPanel>
     </StackPanel>
   </ScrollViewer>

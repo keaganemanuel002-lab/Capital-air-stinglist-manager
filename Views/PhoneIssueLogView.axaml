@@ -1,0 +1,63 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="StingListManager.Views.PhoneIssueLogView"
+             x:CompileBindings="False">
+  <StackPanel Spacing="12">
+    <TextBlock Text="Phone Issue Log" Classes="h1"/>
+    <TextBlock Text="Issue phones to teams, link each phone to a vehicle, and track two team members."
+               Classes="muted"/>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Button Content="Issue Phone" Command="{Binding IssuePhoneCommand}" Classes="primary"/>
+      <Button Content="Amend Issue"
+              Command="{Binding EditSelectedCommand}"
+              IsEnabled="{Binding CanEditSelected}"/>
+      <Button Content="Mark Returned"
+              Command="{Binding MarkReturnedCommand}"
+              IsEnabled="{Binding CanMarkReturned}"/>
+      <Button Content="Delete"
+              Command="{Binding DeleteSelectedCommand}"
+              IsEnabled="{Binding CanDeleteSelected}"/>
+      <Button Content="Refresh" Command="{Binding LoadCommand}"/>
+    </StackPanel>
+
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <TextBox Width="260"
+               Watermark="Search team, vehicle, members, phone..."
+               Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"/>
+
+      <ComboBox Width="180"
+                ItemsSource="{Binding AvailableTeams}"
+                SelectedItem="{Binding SelectedTeam}"/>
+
+      <ComboBox Width="180"
+                ItemsSource="{Binding AvailableVehicles}"
+                SelectedItem="{Binding SelectedVehicle}"/>
+
+      <CheckBox Content="Show Returned" IsChecked="{Binding ShowReturned}" VerticalAlignment="Center"/>
+      <Button Content="Clear Filters" Command="{Binding ClearFiltersCommand}"/>
+    </StackPanel>
+
+    <DataGrid AutoGenerateColumns="False"
+              ItemsSource="{Binding Rows}"
+              SelectedItem="{Binding SelectedRow, Mode=TwoWay}"
+              IsReadOnly="True"
+              GridLinesVisibility="All"
+              Height="600"
+              DoubleTapped="Grid_DoubleTapped">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Team" Binding="{Binding TeamName}" Width="1.4*"/>
+        <DataGridTextColumn Header="Vehicle" Binding="{Binding VehicleRegistration}" Width="1*"/>
+        <DataGridTextColumn Header="Member 1" Binding="{Binding TeamMemberOne}" Width="1.2*"/>
+        <DataGridTextColumn Header="Member 2" Binding="{Binding TeamMemberTwo}" Width="1.2*"/>
+        <DataGridTextColumn Header="Phone" Binding="{Binding PhoneLabel}" Width="1.2*"/>
+        <DataGridTextColumn Header="Phone Number" Binding="{Binding PhoneNumber}" Width="1.2*"/>
+        <DataGridTextColumn Header="IMEI" Binding="{Binding PhoneImei}" Width="1.2*"/>
+        <DataGridTextColumn Header="Issued" Binding="{Binding IssuedAtDisplay}" Width="0.9*"/>
+        <DataGridTextColumn Header="Returned" Binding="{Binding ReturnedAtDisplay}" Width="0.9*"/>
+        <DataGridTextColumn Header="Status" Binding="{Binding Status}" Width="0.9*"/>
+        <DataGridTextColumn Header="Notes" Binding="{Binding Notes}" Width="1.8*"/>
+      </DataGrid.Columns>
+    </DataGrid>
+  </StackPanel>
+</UserControl>

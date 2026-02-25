@@ -1,0 +1,91 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="StingListManager.Views.PhoneIssueEditWindow"
+        x:CompileBindings="False"
+        Width="820" Height="720"
+        MinWidth="760" MinHeight="680"
+        WindowStartupLocation="CenterOwner"
+        Title="{Binding WindowTitle}">
+
+  <ScrollViewer>
+    <StackPanel Margin="16" Spacing="10">
+      <TextBlock Text="{Binding WindowTitle}" Classes="h2"/>
+
+      <UniformGrid Columns="2" Rows="2" ColumnSpacing="10" RowSpacing="10">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Team" Classes="muted"/>
+          <TextBox Text="{Binding TeamName}" Watermark="Team name"/>
+          <ComboBox ItemsSource="{Binding TeamOptions}"
+                    SelectedItem="{Binding SelectedTeamSuggestion}"
+                    Width="280"
+                    HorizontalAlignment="Left"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Vehicle Registration" Classes="muted"/>
+          <TextBox Text="{Binding VehicleRegistration}" Watermark="Vehicle registration"/>
+          <ComboBox ItemsSource="{Binding VehicleOptions}"
+                    SelectedItem="{Binding SelectedVehicleSuggestion}"
+                    Width="280"
+                    HorizontalAlignment="Left"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Team Member 1" Classes="muted"/>
+          <TextBox Text="{Binding TeamMemberOne}" Watermark="First team member"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Team Member 2" Classes="muted"/>
+          <TextBox Text="{Binding TeamMemberTwo}" Watermark="Second team member"/>
+        </StackPanel>
+      </UniformGrid>
+
+      <UniformGrid Columns="3" Rows="1" ColumnSpacing="10">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Phone Label / Asset" Classes="muted"/>
+          <TextBox Text="{Binding PhoneLabel}" Watermark="Phone label or asset number"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Phone Number" Classes="muted"/>
+          <TextBox Text="{Binding PhoneNumber}" Watermark="+27..."/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Phone IMEI" Classes="muted"/>
+          <TextBox Text="{Binding PhoneImei}" Watermark="IMEI"/>
+        </StackPanel>
+      </UniformGrid>
+
+      <UniformGrid Columns="3" Rows="1" ColumnSpacing="10">
+        <StackPanel Spacing="4">
+          <TextBlock Text="Issued Date" Classes="muted"/>
+          <DatePicker SelectedDate="{Binding IssuedAt, Mode=TwoWay}"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4" VerticalAlignment="Bottom">
+          <CheckBox Content="Phone returned" IsChecked="{Binding IsReturned}"/>
+        </StackPanel>
+
+        <StackPanel Spacing="4">
+          <TextBlock Text="Returned Date" Classes="muted"/>
+          <DatePicker SelectedDate="{Binding ReturnedAt, Mode=TwoWay}"
+                      IsEnabled="{Binding CanSetReturnedDate}"/>
+        </StackPanel>
+      </UniformGrid>
+
+      <StackPanel Spacing="4">
+        <TextBlock Text="Notes" Classes="muted"/>
+        <TextBox Text="{Binding Notes}" Watermark="Additional notes" Height="100" AcceptsReturn="True" TextWrapping="Wrap"/>
+      </StackPanel>
+
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="IndianRed"/>
+
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,8,0,0">
+        <Button Content="Cancel" Command="{Binding CancelCommand}"/>
+        <Button Content="{Binding SaveButtonText}" Command="{Binding SaveCommand}" Classes="primary"/>
+      </StackPanel>
+    </StackPanel>
+  </ScrollViewer>
+</Window>

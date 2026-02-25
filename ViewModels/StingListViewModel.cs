@@ -106,6 +106,7 @@ public partial class StingListViewModel : PagedViewModelBase
 
     public bool CanModifySelectedRow => CanArchive && SelectedRow?.HasLocalBillingEntry == true;
     public bool CanEditSelectedRow => CanModifySelectedRow;
+    public bool CanAddEntry => CanArchive;
 
     partial void OnShowArchivedChanged(bool value) => FirstPageCommand.Execute(null);
     partial void OnSearchTextChanged(string? value) => FirstPageCommand.Execute(null);
@@ -116,6 +117,7 @@ public partial class StingListViewModel : PagedViewModelBase
         OnPropertyChanged(nameof(CanStartTransfer));
         OnPropertyChanged(nameof(CanModifySelectedRow));
         OnPropertyChanged(nameof(CanEditSelectedRow));
+        OnPropertyChanged(nameof(CanAddEntry));
     }
 
     partial void OnSelectedStatusChanged(string value) => FirstPageCommand.Execute(null);
@@ -170,6 +172,7 @@ public partial class StingListViewModel : PagedViewModelBase
         OnPropertyChanged(nameof(CanStartTransfer));
         OnPropertyChanged(nameof(CanModifySelectedRow));
         OnPropertyChanged(nameof(CanEditSelectedRow));
+        OnPropertyChanged(nameof(CanAddEntry));
     }
 
     private List<StingListRow> BuildFilteredRows(bool applyPaging)
@@ -591,6 +594,25 @@ public partial class StingListViewModel : PagedViewModelBase
         }
 
         return deduped.Values.ToList();
+    }
+
+    [RelayCommand]
+    private async Task AddEntry()
+    {
+        if (!CanAddEntry)
+        {
+            _appState.SetStatus("Not permitted.");
+            return;
+        }
+
+        var dlg = new StingListManager.Views.BillingEntryEditWindow();
+        dlg.DataContext = new BillingEntryEditViewModel(
+            () => dlg.Close(),
+            () => { },
+            _appState);
+
+        await dlg.ShowDialog(_window);
+        await ReloadFromWialonAsync();
     }
 
     [RelayCommand]

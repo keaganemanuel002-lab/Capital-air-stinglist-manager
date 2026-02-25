@@ -29,7 +29,7 @@
     <Setter Property="FontSize" Value="13"/>
   </Style>
   <Style Selector="TextBox">
-    <Setter Property="behaviors:UppercaseTextBoxBehavior.IsEnabled" Value="True"/>
+    <Setter Property="behaviors:UppercaseTextBoxBehavior.IsEnabled" Value="False"/>
   </Style>
 
   <!-- Typography helpers -->

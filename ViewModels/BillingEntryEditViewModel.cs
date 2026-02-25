@@ -15,7 +15,7 @@ namespace StingListManager.ViewModels;
 
 public partial class BillingEntryEditViewModel : ViewModelBase
 {
-    private readonly int _billingEntryId;
+    private readonly int? _billingEntryId;
     private readonly Action _close;
     private readonly Action _onSaved;
     private readonly AppState _appState;
@@ -47,6 +47,7 @@ public partial class BillingEntryEditViewModel : ViewModelBase
     [ObservableProperty] private DateTimeOffset? simLastBalanceCheckAt;
     [ObservableProperty] private string? flickswitchBalanceStatusMessage;
     [ObservableProperty] private bool isLookingUpFlickswitch;
+    [ObservableProperty] private string saveButtonText = "Save Changes";
     [ObservableProperty] private string? errorMessage;
 
     public ObservableCollection<string> TrackingUnitMakeOptions { get; } = new();
@@ -77,6 +78,21 @@ public partial class BillingEntryEditViewModel : ViewModelBase
         Load();
     }
 
+    public BillingEntryEditViewModel(Action close, Action onSaved, AppState appState)
+    {
+        _billingEntryId = null;
+        _close = close;
+        _onSaved = onSaved;
+        _appState = appState;
+
+        WindowTitle = "Add Billing Entry";
+        SaveButtonText = "Add Entry";
+
+        ReplaceOptions(TrackingUnitMakeOptions, TrackingUnitMakeCatalog.Options);
+        ReplaceOptions(PackageTypeOptions, StingPackageCatalog.Options);
+        Load();
+    }
+
     partial void OnFlickswitchRulesTextChanged(string? value)
     {
         OnPropertyChanged(nameof(HasFlickswitchRules));
@@ -97,8 +113,11 @@ public partial class BillingEntryEditViewModel : ViewModelBase
 
     private void Load()
     {
+        if (_billingEntryId is null)
+            return;
+
         using var db = new AppDbContext();
-        var entry = db.BillingEntries.AsNoTracking().FirstOrDefault(x => x.Id == _billingEntryId);
+        var entry = db.BillingEntries.AsNoTracking().FirstOrDefault(x => x.Id == _billingEntryId.Value);
         if (entry is null)
         {
             ErrorMessage = "Billing entry not found.";
@@ -173,11 +192,25 @@ public partial class BillingEntryEditViewModel : ViewModelBase
         }
 
         using var db = new AppDbContext();
-        var entry = db.BillingEntries.FirstOrDefault(x => x.Id == _billingEntryId);
-        if (entry is null)
+        BillingEntry entry;
+        if (_billingEntryId is int existingId)
         {
-            ErrorMessage = "Billing entry no longer exists.";
-            return;
+            var existing = db.BillingEntries.FirstOrDefault(x => x.Id == existingId);
+            if (existing is null)
+            {
+                ErrorMessage = "Billing entry no longer exists.";
+                return;
+            }
+
+            entry = existing;
+        }
+        else
+        {
+            entry = new BillingEntry
+            {
+                ActiveFrom = DateTime.UtcNow
+            };
+            db.BillingEntries.Add(entry);
         }
 
         entry.Company = normalizedCompany;
@@ -207,7 +240,9 @@ public partial class BillingEntryEditViewModel : ViewModelBase
             return;
         }
 
-        _appState.SetStatus($"Billing entry updated: {entry.Company} / {entry.Registration}");
+        _appState.SetStatus(_billingEntryId is int
+            ? $"Billing entry updated: {entry.Company} / {entry.Registration}"
+            : $"Billing entry added: {entry.Company} / {entry.Registration}");
         _onSaved();
         _close();
     }

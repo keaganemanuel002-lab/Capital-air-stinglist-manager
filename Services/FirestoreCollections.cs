@@ -3,6 +3,7 @@ namespace StingListManager.Services;
 public static class FirestoreCollections
 {
     public const string Clients = "clients";
+    public const string BillingEntries = "billing_entries";
     public const string JobCards = "job_cards";
     public const string Quotes = "quotes";
     public const string Attachments = "attachments";

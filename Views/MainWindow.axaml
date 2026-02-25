@@ -118,6 +118,7 @@
           <ListBoxItem ToolTip.Tip="Settings"><TextBlock Text="&#xE713;" Classes="nav-icon"/></ListBoxItem>
           <ListBoxItem ToolTip.Tip="Wialon Reports"><TextBlock Text="&#xE9D2;" Classes="nav-icon"/></ListBoxItem>
           <ListBoxItem ToolTip.Tip="Dashcams"><TextBlock Text="&#xE722;" Classes="nav-icon"/></ListBoxItem>
+          <ListBoxItem ToolTip.Tip="Phone Issue Log"><TextBlock Text="&#xE717;" Classes="nav-icon"/></ListBoxItem>
         </ListBox>
 
         <ListBox x:Name="ExpandedNavList"
@@ -138,6 +139,7 @@
           <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE713;" Classes="nav-icon"/><TextBlock Text="Settings"/></StackPanel></ListBoxItem>
           <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE9D2;" Classes="nav-icon"/><TextBlock Text="Wialon Reports"/></StackPanel></ListBoxItem>
           <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE722;" Classes="nav-icon"/><TextBlock Text="Dashcams"/></StackPanel></ListBoxItem>
+          <ListBoxItem><StackPanel Orientation="Horizontal" Spacing="10"><TextBlock Text="&#xE717;" Classes="nav-icon"/><TextBlock Text="Phone Issue Log"/></StackPanel></ListBoxItem>
         </ListBox>
       </StackPanel>
     </Border>
