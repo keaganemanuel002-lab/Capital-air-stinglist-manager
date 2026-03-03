@@ -18,4 +18,12 @@ public partial class BillingListView : UserControl
             viewModel.ViewDetailsCommand.Execute(null);
         }
     }
+
+    private void Grid_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not DataGrid grid || grid.SelectedItem is null)
+            return;
+
+        grid.ScrollIntoView(grid.SelectedItem, null);
+    }
 }

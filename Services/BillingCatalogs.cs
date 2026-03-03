@@ -11,6 +11,8 @@ public static class TrackingUnitMakeCatalog
         "FMB 120",
         "FMC 130",
         "FMC 150",
+        "FMC 920",
+        "FMT 100",
         "GL33",
         "GL521",
         "TMT 250",

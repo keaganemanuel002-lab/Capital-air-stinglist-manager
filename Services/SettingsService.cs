@@ -90,6 +90,11 @@ public class SettingsService
 
     private static void Normalize(AppSettings settings)
     {
+        // Desktop app runs in local-only mode.
+        settings.FirebaseSyncEnabled = false;
+        settings.FirestorePrimaryDataEnabled = false;
+        settings.MongoPrimaryDataEnabled = false;
+
         settings.FirebaseProjectId = NormalizeLower(settings.FirebaseProjectId);
         settings.FirebaseStorageBucket = NormalizeLower(settings.FirebaseStorageBucket);
         settings.FirebaseServiceAccountJsonPath = NormalizeTrim(settings.FirebaseServiceAccountJsonPath);

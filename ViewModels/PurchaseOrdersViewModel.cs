@@ -2,12 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
 using StingListManager.Data;
 using StingListManager.Data.Entities;
+using StingListManager.Services;
 using StingListManager.Views;
 
 namespace StingListManager.ViewModels;
@@ -18,6 +21,7 @@ public sealed class PurchaseOrderRow
     public int OrderNumber { get; init; }
     public string OrderReference { get; init; } = string.Empty;
     public DateTime OrderDate { get; init; }
+    public string Company { get; init; } = string.Empty;
     public string Supplier { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public decimal AmountExVat { get; init; }
@@ -66,6 +70,12 @@ public partial class PurchaseOrderLineItemRow : ObservableObject
 public partial class PurchaseOrdersViewModel : ViewModelBase
 {
     private const int MaxLineItems = 10;
+    private static readonly string[] SupportedCompanies =
+    {
+        "Capital Air (Pty) Ltd",
+        "Capital Air Reaction Services (Pty) Ltd",
+        "Capital Air Security Operations (Pty) Ltd"
+    };
 
     private readonly PurchaseOrdersWindow _window;
     private readonly string _signedInUser;
@@ -73,10 +83,13 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
     private readonly List<PurchaseOrderRow> _allRows = new();
     private bool _suppressLineRecalculate;
     private int? _editingId;
+    private string? _signedOrderStoredPath;
+    private string? _invoiceStoredPath;
 
     public ObservableCollection<PurchaseOrderRow> Rows { get; } = new();
     public ObservableCollection<SupplierOption> SupplierOptions { get; } = new();
     public ObservableCollection<PurchaseOrderLineItemRow> LineItems { get; } = new();
+    public IReadOnlyList<string> CompanyOptions { get; } = SupportedCompanies;
     public List<string> StatusOptions { get; } = new()
     {
         "Draft",
@@ -93,6 +106,7 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
     [ObservableProperty] private string searchText = string.Empty;
 
     [ObservableProperty] private int orderNumber;
+    [ObservableProperty] private string selectedCompany = SupportedCompanies[0];
     [ObservableProperty] private string supplier = string.Empty;
     [ObservableProperty] private bool quoteIncludesVat;
     [ObservableProperty] private decimal vatRatePercent = 15m;
@@ -106,11 +120,15 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
     [ObservableProperty] private decimal totalAmountIncVat;
     [ObservableProperty] private string statusMessage = "Ready.";
     [ObservableProperty] private bool statusIsError;
+    [ObservableProperty] private string signedOrderFileName = "No signed order uploaded.";
+    [ObservableProperty] private string invoiceFileName = "No invoice uploaded.";
 
     public string StatusColor => StatusIsError ? "#B91C1C" : "#334155";
     public string SignedInAs => $"{_signedInUser} ({_signedInRole})";
     public string OrderReference => FormatOrderReference(OrderNumber);
     public string LineItemsCountLabel => $"{LineItems.Count}/{MaxLineItems} items";
+    public bool HasSignedOrder => !string.IsNullOrWhiteSpace(_signedOrderStoredPath);
+    public bool HasInvoice => !string.IsNullOrWhiteSpace(_invoiceStoredPath);
     public string LineItemsVatHint => QuoteIncludesVat
         ? "Line prices are VAT-inclusive."
         : "Line prices are VAT-exclusive.";
@@ -215,6 +233,106 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
     }
 
     [RelayCommand]
+    private async Task UploadSignedOrder()
+    {
+        if (_editingId is null)
+        {
+            SetStatus("Save or select a purchase order before uploading a signed order.", true);
+            return;
+        }
+
+        var files = await _window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Select signed order scan",
+            AllowMultiple = false
+        });
+
+        var file = files?.FirstOrDefault();
+        if (file is null)
+            return;
+
+        var sourcePath = file.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            SetStatus("Could not read the selected file path.", true);
+            return;
+        }
+
+        DeletePurchaseOrderAttachments(_editingId.Value, AttachmentKind.PurchaseOrderSigned);
+        new AttachmentStorageService().AddAttachment(
+            _signedInUser,
+            AttachmentOwnerType.PurchaseOrder,
+            _editingId.Value,
+            AttachmentKind.PurchaseOrderSigned,
+            sourcePath);
+
+        LoadOrderAttachments(_editingId.Value);
+        SetStatus($"Signed order uploaded for {OrderReference}.");
+    }
+
+    [RelayCommand]
+    private async Task UploadInvoice()
+    {
+        if (_editingId is null)
+        {
+            SetStatus("Save or select a purchase order before uploading an invoice.", true);
+            return;
+        }
+
+        var files = await _window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Select invoice",
+            AllowMultiple = false
+        });
+
+        var file = files?.FirstOrDefault();
+        if (file is null)
+            return;
+
+        var sourcePath = file.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(sourcePath))
+        {
+            SetStatus("Could not read the selected file path.", true);
+            return;
+        }
+
+        DeletePurchaseOrderAttachments(_editingId.Value, AttachmentKind.Invoice);
+        new AttachmentStorageService().AddAttachment(
+            _signedInUser,
+            AttachmentOwnerType.PurchaseOrder,
+            _editingId.Value,
+            AttachmentKind.Invoice,
+            sourcePath);
+
+        LoadOrderAttachments(_editingId.Value);
+        SetStatus($"Invoice uploaded for {OrderReference}.");
+    }
+
+    [RelayCommand]
+    private void OpenSignedOrder()
+    {
+        if (!HasSignedOrder)
+        {
+            SetStatus("No signed order uploaded for this purchase order.", true);
+            return;
+        }
+
+        new AttachmentStorageService().OpenAttachment(_signedOrderStoredPath!);
+    }
+
+    [RelayCommand]
+    private void OpenInvoice()
+    {
+        if (!HasInvoice)
+        {
+            SetStatus("No invoice uploaded for this purchase order.", true);
+            return;
+        }
+
+        new AttachmentStorageService().OpenAttachment(_invoiceStoredPath!);
+    }
+
+    [RelayCommand]
     private void SaveSupplierToList()
     {
         var normalizedSupplier = NormalizeSingleLine(Supplier);
@@ -236,6 +354,8 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
     [RelayCommand]
     private void SaveOrder()
     {
+        var normalizedCompany = ResolveCompany(SelectedCompany);
+
         var normalizedSupplier = NormalizeSingleLine(Supplier);
         if (string.IsNullOrWhiteSpace(normalizedSupplier))
         {
@@ -293,6 +413,7 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
             }
         }
 
+        entity.Company = normalizedCompany;
         entity.Supplier = normalizedSupplier;
         entity.Description = BuildOrderSummary(preparedItems);
         entity.QuoteIncludesVat = QuoteIncludesVat;
@@ -366,6 +487,7 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
         }
 
         var reference = FormatOrderReference(entity.OrderNumber);
+        DeletePurchaseOrderAttachments(entity.Id);
         db.PurchaseOrders.Remove(entity);
         db.SaveChanges();
 
@@ -493,12 +615,14 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
             .FirstOrDefault(x => x.Id == orderId);
         if (entity is null)
         {
+            ResetAttachmentState();
             SetStatus("Selected purchase order no longer exists.", true);
             return;
         }
 
         _editingId = entity.Id;
         OrderNumber = entity.OrderNumber;
+        SelectedCompany = ResolveCompany(entity.Company);
         Supplier = entity.Supplier;
         QuoteIncludesVat = entity.QuoteIncludesVat;
         VatRatePercent = Math.Round(entity.VatRate * 100m, 2);
@@ -509,6 +633,7 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
 
         var supplierNorm = NormalizeComparable(entity.Supplier);
         SelectedSupplier = SupplierOptions.FirstOrDefault(x => x.NameNorm == supplierNorm);
+        LoadOrderAttachments(entity.Id);
 
         ClearLineItems();
 
@@ -548,6 +673,7 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
             var search = SearchText.Trim();
             query = query.Where(x =>
                 ContainsIgnoreCase(x.OrderReference, search)
+                || ContainsIgnoreCase(x.Company, search)
                 || ContainsIgnoreCase(x.Supplier, search)
                 || ContainsIgnoreCase(x.Description, search)
                 || ContainsIgnoreCase(x.Status, search)
@@ -592,6 +718,59 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
         SelectedSupplier = SupplierOptions.FirstOrDefault(x => x.NameNorm == targetNorm);
     }
 
+    private void LoadOrderAttachments(int purchaseOrderId)
+    {
+        using var db = new AppDbContext();
+        var attachments = db.Attachments
+            .AsNoTracking()
+            .Where(a => a.OwnerType == AttachmentOwnerType.PurchaseOrder
+                        && a.OwnerId == purchaseOrderId
+                        && (a.Kind == AttachmentKind.PurchaseOrderSigned || a.Kind == AttachmentKind.Invoice))
+            .OrderByDescending(a => a.AddedAt)
+            .ToList();
+
+        var signed = attachments.FirstOrDefault(a => a.Kind == AttachmentKind.PurchaseOrderSigned);
+        var invoice = attachments.FirstOrDefault(a => a.Kind == AttachmentKind.Invoice);
+
+        _signedOrderStoredPath = signed?.StoredPath;
+        _invoiceStoredPath = invoice?.StoredPath;
+
+        SignedOrderFileName = signed?.FileName ?? "No signed order uploaded.";
+        InvoiceFileName = invoice?.FileName ?? "No invoice uploaded.";
+
+        OnPropertyChanged(nameof(HasSignedOrder));
+        OnPropertyChanged(nameof(HasInvoice));
+    }
+
+    private static void DeletePurchaseOrderAttachments(int purchaseOrderId, AttachmentKind? kind = null)
+    {
+        using var db = new AppDbContext();
+        var ids = db.Attachments
+            .AsNoTracking()
+            .Where(a => a.OwnerType == AttachmentOwnerType.PurchaseOrder
+                        && a.OwnerId == purchaseOrderId
+                        && (!kind.HasValue || a.Kind == kind.Value))
+            .Select(a => a.Id)
+            .ToList();
+
+        if (ids.Count == 0)
+            return;
+
+        var service = new AttachmentStorageService();
+        foreach (var id in ids)
+            service.DeleteAttachment(id);
+    }
+
+    private void ResetAttachmentState()
+    {
+        _signedOrderStoredPath = null;
+        _invoiceStoredPath = null;
+        SignedOrderFileName = "No signed order uploaded.";
+        InvoiceFileName = "No invoice uploaded.";
+        OnPropertyChanged(nameof(HasSignedOrder));
+        OnPropertyChanged(nameof(HasInvoice));
+    }
+
     private void PrepareNewOrder(bool skipReadyMessage = false)
     {
         using var db = new OrdersDbContext();
@@ -601,8 +780,10 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
         SelectedRow = null;
         SelectedLineItem = null;
         SelectedSupplier = null;
+        ResetAttachmentState();
 
         OrderNumber = GetNextOrderNumber(db);
+        SelectedCompany = CompanyOptions.First();
         Supplier = string.Empty;
         QuoteIncludesVat = false;
         VatRatePercent = 15m;
@@ -774,9 +955,12 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
     {
         var currentMax = db.PurchaseOrders
             .Select(x => (int?)x.OrderNumber)
-            .Max()
-            ?? 0;
-        return currentMax + 1;
+            .Max();
+        if (!currentMax.HasValue)
+            return 80;
+
+        var next = currentMax.Value + 1;
+        return next < 80 ? 80 : next;
     }
 
     private static PurchaseOrderRow MapRow(PurchaseOrder entity)
@@ -787,6 +971,7 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
             OrderNumber = entity.OrderNumber,
             OrderReference = FormatOrderReference(entity.OrderNumber),
             OrderDate = ToLocal(entity.OrderDate),
+            Company = ResolveCompany(entity.Company),
             Supplier = entity.Supplier,
             Description = entity.Description,
             AmountExVat = entity.AmountExVat,
@@ -824,7 +1009,7 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
 
     private static string FormatOrderReference(int orderNumber)
     {
-        return $"PO-{orderNumber:000000}";
+        return $"KEA{orderNumber:000}";
     }
 
     private static bool ContainsIgnoreCase(string? value, string search)
@@ -839,6 +1024,17 @@ public partial class PurchaseOrdersViewModel : ViewModelBase
             return string.Empty;
 
         return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string ResolveCompany(string? value)
+    {
+        var normalized = NormalizeSingleLine(value);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return SupportedCompanies[0];
+
+        var exact = SupportedCompanies
+            .FirstOrDefault(x => string.Equals(x, normalized, StringComparison.OrdinalIgnoreCase));
+        return exact ?? SupportedCompanies[0];
     }
 
     private static string NormalizeComparable(string? value)

@@ -107,6 +107,7 @@ public partial class StingListViewModel : PagedViewModelBase
 
     public bool CanModifySelectedRow => CanArchive && SelectedRow?.HasLocalBillingEntry == true;
     public bool CanEditSelectedRow => CanModifySelectedRow;
+    public bool CanDeleteSelectedRow => CanModifySelectedRow;
     public bool CanAddEntry => CanArchive;
 
     partial void OnShowArchivedChanged(bool value) => FirstPageCommand.Execute(null);
@@ -118,6 +119,7 @@ public partial class StingListViewModel : PagedViewModelBase
         OnPropertyChanged(nameof(CanStartTransfer));
         OnPropertyChanged(nameof(CanModifySelectedRow));
         OnPropertyChanged(nameof(CanEditSelectedRow));
+        OnPropertyChanged(nameof(CanDeleteSelectedRow));
         OnPropertyChanged(nameof(CanAddEntry));
     }
 
@@ -173,6 +175,7 @@ public partial class StingListViewModel : PagedViewModelBase
         OnPropertyChanged(nameof(CanStartTransfer));
         OnPropertyChanged(nameof(CanModifySelectedRow));
         OnPropertyChanged(nameof(CanEditSelectedRow));
+        OnPropertyChanged(nameof(CanDeleteSelectedRow));
         OnPropertyChanged(nameof(CanAddEntry));
     }
 
@@ -318,6 +321,11 @@ public partial class StingListViewModel : PagedViewModelBase
         if (_isLoadingFromWialon)
             return;
 
+        var selectedRowBeforeReload = SelectedRow;
+        var selectedRowIndexBeforeReload = selectedRowBeforeReload is null
+            ? -1
+            : Rows.IndexOf(selectedRowBeforeReload);
+
         var localCount = LoadRowsFromLocalBillingEntries();
         var token = _appState.Settings.WialonApiToken;
         if (string.IsNullOrWhiteSpace(token))
@@ -337,6 +345,7 @@ public partial class StingListViewModel : PagedViewModelBase
             }
 
             _wialonTokenInUse = null;
+            RestoreSelectionFallback(selectedRowIndexBeforeReload);
             _appState.SetStatus(localCount > 0
                 ? $"Loaded {localCount} STING entries from local data. Wialon IMEI status check is disabled (no token)."
                 : "No STING entries found in local data.");
@@ -382,8 +391,9 @@ public partial class StingListViewModel : PagedViewModelBase
 
             await ApplyWialonImeiStatusesAsync(_wialonService);
 
-            PageNumber = 1;
+            EnsurePageNumberInRange();
             LoadPage();
+            RestoreSelectionFallback(selectedRowIndexBeforeReload);
             var activeCount = _allRows.Count(r => string.Equals(r.Status, BillingStatus.Active.ToString(), StringComparison.OrdinalIgnoreCase));
             var inactiveCount = _allRows.Count(r => IsInactiveStatus(r.Status));
             _appState.SetStatus($"Loaded {_allRows.Count} STING entries. Wialon IMEI check complete: {activeCount} active, {inactiveCount} inactive.");
@@ -515,9 +525,28 @@ public partial class StingListViewModel : PagedViewModelBase
         var installationJobCardLookup = BuildInstallationJobCardLookup(db, billingEntries);
 
         MapLocalBillingEntriesToRows(billingEntries, installationJobCardLookup);
-        PageNumber = 1;
+        EnsurePageNumberInRange();
         LoadPage();
         return _allRows.Count;
+    }
+
+    private void EnsurePageNumberInRange()
+    {
+        var filteredCount = BuildFilteredRows(applyPaging: false).Count;
+        var totalPages = Math.Max(1, (int)Math.Ceiling(filteredCount / (double)PageSize));
+        if (PageNumber < 1)
+            PageNumber = 1;
+        else if (PageNumber > totalPages)
+            PageNumber = totalPages;
+    }
+
+    private void RestoreSelectionFallback(int preferredIndex)
+    {
+        if (SelectedRow is not null || preferredIndex < 0 || Rows.Count == 0)
+            return;
+
+        var clampedIndex = Math.Clamp(preferredIndex, 0, Rows.Count - 1);
+        SelectedRow = Rows[clampedIndex];
     }
 
     private void MapLocalBillingEntriesToRows(
@@ -828,6 +857,56 @@ public partial class StingListViewModel : PagedViewModelBase
 
         db.SaveChanges();
         _appState.SetStatus("STING entry archived.");
+        await ReloadFromWialonAsync();
+    }
+
+    [RelayCommand]
+    private async Task DeleteSelected()
+    {
+        if (!CanDeleteSelectedRow || SelectedRow is null)
+            return;
+
+        if (!CanArchive)
+        {
+            _appState.SetStatus("Not permitted.");
+            return;
+        }
+
+        if (SelectedRow.LocalBillingEntryId is null)
+        {
+            _appState.SetStatus("This Wialon entry is not linked to a local billing record.");
+            return;
+        }
+
+        var ok = await DialogService.Confirm(
+            _window,
+            "Delete STING Entry",
+            $"Delete this STING entry permanently?\n\n{SelectedRow.Company}\n{SelectedRow.Registration}\n\nThis action cannot be undone.");
+
+        if (!ok)
+            return;
+
+        using var db = new AppDbContext();
+        var entry = await db.BillingEntries.FirstOrDefaultAsync(x => x.Id == SelectedRow.LocalBillingEntryId.Value);
+        if (entry is null)
+        {
+            _appState.SetStatus("Linked billing entry was not found.");
+            await ReloadFromWialonAsync();
+            return;
+        }
+
+        db.BillingEntries.Remove(entry);
+        await db.SaveChangesAsync();
+
+        new AuditService().Log(
+            _appState.OperatorName,
+            "BILLING_DELETE",
+            "BillingEntry",
+            entry.Id,
+            entry.Registration,
+            "Deleted from STING list");
+
+        _appState.SetStatus("STING entry deleted.");
         await ReloadFromWialonAsync();
     }
 

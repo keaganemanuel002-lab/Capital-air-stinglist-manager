@@ -7,6 +7,7 @@ public class PurchaseOrder
 {
     public int Id { get; set; }
     public int OrderNumber { get; set; }
+    public string Company { get; set; } = "Capital Air (Pty) Ltd";
     public string Supplier { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal AmountExVat { get; set; }

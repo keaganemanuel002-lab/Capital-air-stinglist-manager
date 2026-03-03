@@ -9,6 +9,8 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.EntityFrameworkCore;
+using StingListManager.Data;
 using StingListManager.Data.Entities;
 using StingListManager.Services;
 
@@ -51,6 +53,8 @@ public partial class BillingListViewModel : ViewModelBase
 
     public bool CanEditSelectedRow =>
         SelectedRow is { IsClientSummaryRow: false, Id: > 0 };
+    public bool CanDeleteSelectedRow =>
+        _appState.CanArchive && SelectedRow is { IsClientSummaryRow: false, Id: > 0 };
 
     public BillingListViewModel(Window window, AppState appState)
     {
@@ -71,6 +75,7 @@ public partial class BillingListViewModel : ViewModelBase
     partial void OnSelectedRowChanged(BillingListRow? value)
     {
         OnPropertyChanged(nameof(CanEditSelectedRow));
+        OnPropertyChanged(nameof(CanDeleteSelectedRow));
     }
 
     partial void OnRegistrationSearchChanged(string? value)
@@ -84,6 +89,13 @@ public partial class BillingListViewModel : ViewModelBase
     [RelayCommand]
     private async Task Load()
     {
+        var selectedRowIdBeforeReload = SelectedRow is { IsClientSummaryRow: false, Id: > 0 }
+            ? SelectedRow.Id
+            : (int?)null;
+        var selectedRowIndexBeforeReload = SelectedRow is null
+            ? -1
+            : Rows.IndexOf(SelectedRow);
+
         List<BillingEntry> allEntries;
         try
         {
@@ -100,8 +112,12 @@ public partial class BillingListViewModel : ViewModelBase
         IEnumerable<BillingEntry> filtered = allEntries;
         if (!string.Equals(SelectedClient, "All", StringComparison.OrdinalIgnoreCase))
         {
+            var selectedClientName = NormalizeClientDisplayName(SelectedClient);
             filtered = filtered.Where(e =>
-                string.Equals(e.Company, SelectedClient, StringComparison.OrdinalIgnoreCase));
+                string.Equals(
+                    NormalizeClientDisplayName(e.Company),
+                    selectedClientName,
+                    StringComparison.OrdinalIgnoreCase));
         }
 
         if (!string.IsNullOrWhiteSpace(RegistrationSearch))
@@ -179,8 +195,23 @@ public partial class BillingListViewModel : ViewModelBase
             });
         }
 
+        BillingListRow? restoredSelection = null;
+        if (selectedRowIdBeforeReload is int selectedId)
+        {
+            restoredSelection = Rows.FirstOrDefault(row =>
+                !row.IsClientSummaryRow && row.Id == selectedId);
+        }
+
+        if (restoredSelection is null && selectedRowIndexBeforeReload >= 0)
+        {
+            restoredSelection = FindNearestDataRow(selectedRowIndexBeforeReload);
+        }
+
+        SelectedRow = restoredSelection;
+
         _appState.SetStatus($"Loaded billing list: {entries.Count} entries across {grouped.Count()} clients ({Rows.Count} rows incl. totals).");
         OnPropertyChanged(nameof(CanEditSelectedRow));
+        OnPropertyChanged(nameof(CanDeleteSelectedRow));
     }
 
     [RelayCommand]
@@ -202,8 +233,9 @@ public partial class BillingListViewModel : ViewModelBase
 
     private void RefreshClientOptions(IReadOnlyCollection<BillingEntry> entries)
     {
+        var selectedBeforeRefresh = NormalizeClientDisplayName(SelectedClient);
         var clients = entries
-            .Select(e => e.Company)
+            .Select(e => NormalizeClientDisplayName(e.Company))
             .Where(c => !string.IsNullOrWhiteSpace(c))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(c => c)
@@ -219,16 +251,58 @@ public partial class BillingListViewModel : ViewModelBase
                 AvailableClients.Add(client);
             }
 
-            if (string.IsNullOrWhiteSpace(SelectedClient)
-                || !AvailableClients.Any(x => string.Equals(x, SelectedClient, StringComparison.OrdinalIgnoreCase)))
-            {
-                SelectedClient = "All";
-            }
+            var restoredSelection = AvailableClients.FirstOrDefault(x =>
+                string.Equals(x, selectedBeforeRefresh, StringComparison.OrdinalIgnoreCase));
+            SelectedClient = restoredSelection ?? "All";
         }
         finally
         {
             _suppressFilterReload = false;
         }
+    }
+
+    [RelayCommand]
+    private async Task DeleteSelected()
+    {
+        if (!CanDeleteSelectedRow || SelectedRow is null)
+            return;
+
+        if (!_appState.CanArchive)
+        {
+            _appState.SetStatus("Not permitted.");
+            return;
+        }
+
+        var ok = await DialogService.Confirm(
+            _window,
+            "Delete Billing Entry",
+            $"Delete this billing entry permanently?\n\n{SelectedRow.Company}\n{SelectedRow.Registration}\n\nThis action cannot be undone.");
+
+        if (!ok)
+            return;
+
+        using var db = new AppDbContext();
+        var entry = await db.BillingEntries.FirstOrDefaultAsync(x => x.Id == SelectedRow.Id);
+        if (entry is null)
+        {
+            _appState.SetStatus("Billing entry no longer exists.");
+            await Load();
+            return;
+        }
+
+        db.BillingEntries.Remove(entry);
+        await db.SaveChangesAsync();
+
+        new AuditService().Log(
+            _appState.OperatorName,
+            "BILLING_DELETE",
+            "BillingEntry",
+            entry.Id,
+            entry.Registration,
+            "Deleted from Billing List");
+
+        _appState.SetStatus($"Billing entry deleted: {entry.Company} / {entry.Registration}.");
+        await Load();
     }
 
     private static ClientQuoteSummary BuildPackageSummaryFromEntries(string company, IReadOnlyCollection<BillingEntry> entries)
@@ -313,6 +387,34 @@ public partial class BillingListViewModel : ViewModelBase
             ? entry.SerialNumber.Trim()
             : (!string.IsNullOrWhiteSpace(entry.Imei) ? entry.Imei.Trim() : "-");
         return $"{unit} - {serial}";
+    }
+
+    private BillingListRow? FindNearestDataRow(int preferredIndex)
+    {
+        if (Rows.Count == 0)
+            return null;
+
+        var clampedIndex = Math.Clamp(preferredIndex, 0, Rows.Count - 1);
+        for (var offset = 0; offset < Rows.Count; offset++)
+        {
+            var forward = clampedIndex + offset;
+            if (forward < Rows.Count && !Rows[forward].IsClientSummaryRow)
+                return Rows[forward];
+
+            var backward = clampedIndex - offset;
+            if (backward >= 0 && !Rows[backward].IsClientSummaryRow)
+                return Rows[backward];
+        }
+
+        return null;
+    }
+
+    private static string NormalizeClientDisplayName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
     }
 
     [RelayCommand]

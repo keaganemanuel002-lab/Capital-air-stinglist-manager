@@ -37,6 +37,8 @@
                 IsEnabled="{Binding CanModifySelectedRow}"/>
         <Button Content="Archive" Command="{Binding ArchiveCommand}"
                 IsEnabled="{Binding CanModifySelectedRow}"/>
+        <Button Content="Delete Selected" Command="{Binding DeleteSelectedCommand}"
+                IsEnabled="{Binding CanDeleteSelectedRow}"/>
       </StackPanel>
     </DockPanel>
 

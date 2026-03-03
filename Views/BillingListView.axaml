@@ -10,6 +10,9 @@
       <Button Content="Edit Selected"
               Command="{Binding EditSelectedCommand}"
               IsEnabled="{Binding CanEditSelectedRow}"/>
+      <Button Content="Delete Selected"
+              Command="{Binding DeleteSelectedCommand}"
+              IsEnabled="{Binding CanDeleteSelectedRow}"/>
       <Button Content="Export to Excel" Command="{Binding ExportToExcelCommand}"/>
     </StackPanel>
 
@@ -31,6 +34,7 @@
               SelectedItem="{Binding SelectedRow}"
               IsReadOnly="True"
               GridLinesVisibility="All"
+              SelectionChanged="Grid_SelectionChanged"
               DoubleTapped="Grid_DoubleTapped">
       <DataGrid.Styles>
         <Style Selector="DataGridRow">

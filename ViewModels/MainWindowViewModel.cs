@@ -124,8 +124,6 @@ public partial class MainWindowViewModel : ViewModelBase, IDisposable
 
         CurrentPage = GetOrCreatePage(0);
         _ = StartTechnicianApiAsync();
-        _ = StartFirebaseSyncAsync();
-        _ = StartMongoSyncAsync();
     }
 
     public void Dispose()

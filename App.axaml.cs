@@ -305,7 +305,7 @@ public partial class App : Application
         try
         {
             var svc = new BackupService();
-            svc.CreateBackup(settings.OperatorName);
+            svc.CreateDocumentsBackup(settings.OperatorName);
             settings.LastAutoBackupDate = today;
             settingsService.Save(settings);
         }

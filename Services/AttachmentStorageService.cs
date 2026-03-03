@@ -22,6 +22,7 @@ public class AttachmentStorageService
             AttachmentOwnerType.Quote => "quote",
             AttachmentOwnerType.JobCard => "jobcard",
             AttachmentOwnerType.PhoneIssue => "phoneissue",
+            AttachmentOwnerType.PurchaseOrder => "purchaseorder",
             _ => "misc"
         };
         var path = Path.Combine(Paths.AttachmentsDir, owner, ownerId.ToString());

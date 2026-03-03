@@ -30,6 +30,7 @@ public class OrdersDbContext : DbContext
     {
         modelBuilder.Entity<PurchaseOrder>().HasIndex(x => x.OrderNumber).IsUnique();
         modelBuilder.Entity<PurchaseOrder>().HasIndex(x => x.OrderDate);
+        modelBuilder.Entity<PurchaseOrder>().HasIndex(x => x.Company);
         modelBuilder.Entity<PurchaseOrder>().HasIndex(x => x.Supplier);
         modelBuilder.Entity<PurchaseOrder>().HasIndex(x => x.Status);
 
@@ -88,6 +89,11 @@ CREATE TABLE IF NOT EXISTS ""PurchaseOrderLineItems"" (
 
         if (!HasColumn(db, "PurchaseOrders", "QuoteIncludesVat"))
             db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PurchaseOrders"" ADD COLUMN ""QuoteIncludesVat"" INTEGER NOT NULL DEFAULT 0;");
+        if (!HasColumn(db, "PurchaseOrders", "Company"))
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""PurchaseOrders"" ADD COLUMN ""Company"" TEXT NOT NULL DEFAULT 'Capital Air (Pty) Ltd';");
+
+        db.Database.ExecuteSqlRaw(@"UPDATE ""PurchaseOrders"" SET ""Company"" = 'Capital Air (Pty) Ltd' WHERE ""Company"" IS NULL OR TRIM(""Company"") = '';");
+        db.Database.ExecuteSqlRaw(@"CREATE INDEX IF NOT EXISTS ""IX_PurchaseOrders_Company"" ON ""PurchaseOrders"" (""Company"");");
     }
 
     private static bool HasColumn(OrdersDbContext db, string tableName, string columnName)

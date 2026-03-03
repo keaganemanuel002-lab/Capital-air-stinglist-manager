@@ -6,7 +6,8 @@ public enum AttachmentOwnerType
 {
     Quote = 0,
     JobCard = 1,
-    PhoneIssue = 2
+    PhoneIssue = 2,
+    PurchaseOrder = 3
 }
 
 public enum AttachmentKind
@@ -15,6 +16,7 @@ public enum AttachmentKind
     QuoteSigned = 1,
     Invoice = 2,
     JobPhoto = 3,
+    PurchaseOrderSigned = 4,
     Other = 9
 }
 
@@ -23,7 +25,7 @@ public class Attachment
     public int Id { get; set; }
 
     public AttachmentOwnerType OwnerType { get; set; }
-    public int OwnerId { get; set; }              // Quote.Id, JobCard.Id, or PhoneIssueLogEntry.Id
+    public int OwnerId { get; set; }              // Quote.Id, JobCard.Id, PhoneIssueLogEntry.Id, or PurchaseOrder.Id
     public AttachmentKind Kind { get; set; }      // signed quote, invoice, etc.
 
     public string FileName { get; set; } = "";    // display name
