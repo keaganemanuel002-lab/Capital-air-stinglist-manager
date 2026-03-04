@@ -32,6 +32,7 @@
               AutoGenerateColumns="False"
               ItemsSource="{Binding Rows}"
               SelectedItem="{Binding SelectedRow}"
+              SelectionMode="Extended"
               IsReadOnly="True"
               GridLinesVisibility="All"
               SelectionChanged="Grid_SelectionChanged"

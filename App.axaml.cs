@@ -128,6 +128,7 @@ public partial class App : Application
                 using var db = new AppDbContext();
                 AppDbContext.ConfigureSqlitePragmas(db);
                 db.Database.Migrate();
+                AppDbContext.EnsureSchemaCompatibility(db);
                 BackfillClients(db);
                 AuthService.EnsureDefaultAdminUser(db);
 

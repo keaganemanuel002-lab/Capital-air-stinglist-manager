@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -164,6 +165,8 @@ public partial class JobCardsViewModel : ViewModelBase
                     CreatedAt = j.CreatedAt
                 });
             }
+
+            _appState.SetStatus($"Loaded {Rows.Count} job card(s).");
         }
         catch (OperationCanceledException)
         {
@@ -197,9 +200,8 @@ public partial class JobCardsViewModel : ViewModelBase
             return;
         }
 
-        var today = DateTime.Today;
-        StartDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1));
-        EndDate = new DateTimeOffset(new DateTime(today.Year, today.Month, 1).AddMonths(1).AddDays(-1));
+        StartDate = null;
+        EndDate = null;
     }
 
     private async void DebounceLoad()
@@ -233,7 +235,7 @@ public partial class JobCardsViewModel : ViewModelBase
         if (row is null) return;
 
         var dlg = new StingListManager.Views.JobCardEditWindow();
-        dlg.DataContext = new JobCardEditViewModel(row.Id, () => dlg.Close(), _appState);
+        dlg.DataContext = new JobCardEditViewModel(dlg, row.Id, () => dlg.Close(), _appState);
 
         await dlg.ShowDialog(_window);
 
@@ -341,6 +343,7 @@ public partial class JobCardsViewModel : ViewModelBase
             
             var selectedIds = SelectedRows.Select(r => r.Id).ToList();
             var jobCards = db.JobCards
+                .AsNoTracking()
                 .Where(j => selectedIds.Contains(j.Id))
                 .OrderBy(j => j.JobCardNumber)
                 .ToList();
@@ -351,16 +354,59 @@ public partial class JobCardsViewModel : ViewModelBase
                 return;
             }
 
+            var quoteIds = jobCards
+                .Where(j => j.QuoteId.HasValue)
+                .Select(j => j.QuoteId!.Value)
+                .Distinct()
+                .ToList();
+
+            var quotesById = quoteIds.Count == 0
+                ? new Dictionary<int, Quote>()
+                : db.Quotes
+                    .AsNoTracking()
+                    .Include(q => q.LineItems)
+                    .Where(q => quoteIds.Contains(q.Id))
+                    .ToDictionary(q => q.Id);
+
+            var photosByJobCardId = db.Attachments
+                .AsNoTracking()
+                .Where(a => selectedIds.Contains(a.OwnerId)
+                            && a.OwnerType == AttachmentOwnerType.JobCard
+                            && a.Kind == AttachmentKind.JobPhoto)
+                .OrderBy(a => a.OwnerId)
+                .ThenBy(a => a.AddedAt)
+                .ToList()
+                .GroupBy(a => a.OwnerId)
+                .ToDictionary(g => g.Key, g => (IReadOnlyList<Attachment>)g.ToList());
+
+            var pdfData = jobCards.Select(job =>
+            {
+                Quote? quote = null;
+                if (job.QuoteId.HasValue)
+                    quotesById.TryGetValue(job.QuoteId.Value, out quote);
+
+                var photos = photosByJobCardId.TryGetValue(job.Id, out var jobPhotos)
+                    ? jobPhotos
+                    : Array.Empty<Attachment>();
+
+                return new JobCardPdfService.JobCardPdfData
+                {
+                    JobCard = job,
+                    RelatedQuote = quote,
+                    TechnicianPhotos = photos
+                };
+            }).ToList();
+
             var pdfService = new JobCardPdfService();
             byte[] pdfBytes;
 
-            if (jobCards.Count == 1)
+            if (pdfData.Count == 1)
             {
-                pdfBytes = pdfService.BuildJobCardPdf(jobCards[0]);
+                pdfBytes = pdfService.BuildJobCardPdf(pdfData[0]);
             }
             else
             {
-                pdfBytes = pdfService.BuildMultipleJobCardsPdf(jobCards);
+                pdfBytes = pdfService.BuildMultipleJobCardsPdf(pdfData);
             }
 
             var firstJob = jobCards.First();
@@ -386,15 +432,18 @@ public partial class JobCardsViewModel : ViewModelBase
 
             if (file is null)
             {
-                _appState.SetStatus($"Generated {jobCards.Count} job card PDF(s) in Generated\\JobCards: {Path.GetFileName(managedPath)}");
+                var generatedMessage = $"Generated {jobCards.Count} job card PDF(s) in Generated\\JobCards: {Path.GetFileName(managedPath)}";
+                TryOpenPdf(managedPath, generatedMessage);
                 return;
             }
 
-            await File.WriteAllBytesAsync(file.Path.LocalPath, pdfBytes);
+            var selectedPath = file.Path.LocalPath;
+            await File.WriteAllBytesAsync(selectedPath, pdfBytes);
 
-            _appState.SetStatus(
+            var exportedMessage =
                 $"Exported {jobCards.Count} job card(s) to PDF: {Path.GetFileName(file.Path.LocalPath)}. " +
-                $"Managed copy: {Path.GetFileName(managedPath)}");
+                $"Managed copy: {Path.GetFileName(managedPath)}";
+            TryOpenPdf(selectedPath, exportedMessage);
         }
         catch (Exception ex)
         {
@@ -408,5 +457,18 @@ public partial class JobCardsViewModel : ViewModelBase
             return SelectedRow;
 
         return SelectedRows?.FirstOrDefault();
+    }
+
+    private void TryOpenPdf(string path, string successMessage)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            _appState.SetStatus($"{successMessage} Opened in default PDF viewer.");
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"{successMessage} Could not open automatically: {ex.Message}", true);
+        }
     }
 }

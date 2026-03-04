@@ -2,6 +2,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using System;
+using System.Data;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,6 +47,16 @@ public class AppDbContext : DbContext
         db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
         db.Database.ExecuteSqlRaw("PRAGMA synchronous=NORMAL;");
         db.Database.ExecuteSqlRaw("PRAGMA busy_timeout=5000;");
+    }
+
+    public static void EnsureSchemaCompatibility(AppDbContext db)
+    {
+        ConfigureSqlitePragmas(db);
+
+        if (!HasColumn(db, "JobCards", "InstallationTechnician"))
+        {
+            db.Database.ExecuteSqlRaw(@"ALTER TABLE ""JobCards"" ADD COLUMN ""InstallationTechnician"" TEXT;");
+        }
     }
 
     public override int SaveChanges()
@@ -413,5 +424,24 @@ public class AppDbContext : DbContext
             "ReadOnly" => "ReadOnly",
             _ => "Tech"
         };
+    }
+
+    private static bool HasColumn(AppDbContext db, string tableName, string columnName)
+    {
+        var connection = db.Database.GetDbConnection();
+        if (connection.State != ConnectionState.Open)
+            connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info(\"{tableName}\");";
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var name = reader["name"]?.ToString();
+            if (string.Equals(name, columnName, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
     }
 }

@@ -18,6 +18,7 @@ publish/
 *.sqlite
 *.db-shm
 *.db-wal
+!database/sting.db
 
 # Dependencies
 packages/

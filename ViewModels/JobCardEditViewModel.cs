@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Controls;
+using Avalonia.Platform.Storage;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.EntityFrameworkCore;
@@ -27,6 +30,14 @@ public partial class TechnicianPhotoRow : ObservableObject
 
 public partial class JobCardEditViewModel : ViewModelBase
 {
+    private static readonly string[] DefaultInstallationTechnicians =
+    [
+        "Mario Muchanga",
+        "Rydell Harvey",
+        "Contractor"
+    ];
+
+    private readonly Window _window;
     private readonly int _jobCardId;
     private readonly Action _close;
     private readonly AppState _appState;
@@ -70,6 +81,7 @@ public partial class JobCardEditViewModel : ViewModelBase
     [ObservableProperty] private bool isInspectionCard;
     [ObservableProperty] private int inspectionOutcomeIndex;
     [ObservableProperty] private string? selectedClientName;
+    [ObservableProperty] private string? installationTechnician;
     [ObservableProperty] private int technicianPhotoCount;
     [ObservableProperty] private DateTimeOffset? lastTechnicianPhotoAt;
     [ObservableProperty] private TechnicianPhotoRow? selectedTechnicianPhoto;
@@ -80,6 +92,7 @@ public partial class JobCardEditViewModel : ViewModelBase
     public ObservableCollection<string> FilteredMakes { get; } = new();
     public ObservableCollection<string> FilteredModels { get; } = new();
     public ObservableCollection<string> ClientNames { get; } = new();
+    public ObservableCollection<string> InstallationTechnicianOptions { get; } = new();
     public ObservableCollection<string> InspectionOutcomeOptions { get; } = new();
     public ObservableCollection<TechnicianPhotoRow> TechnicianPhotos { get; } = new();
     public bool ShowTransferCompanyPicker => IsTransferCard;
@@ -245,14 +258,16 @@ public partial class JobCardEditViewModel : ViewModelBase
         ShowModelsList = false;
     }
 
-    public JobCardEditViewModel(int jobCardId, Action close, AppState appState)
+    public JobCardEditViewModel(Window window, int jobCardId, Action close, AppState appState)
     {
+        _window = window;
         _jobCardId = jobCardId;
         _close = close;
         _appState = appState;
 
         InspectionOutcomeOptions.Add("Inspection Only (Unit Repaired)");
         InspectionOutcomeOptions.Add("Unit Replaced");
+        LoadInstallationTechnicianOptions();
 
         // Load all available makes
         RefreshAvailableMakes();
@@ -281,6 +296,8 @@ public partial class JobCardEditViewModel : ViewModelBase
             Company = NormalizeUpperText(job.Company, emptyAsNull: false) ?? string.Empty;
             AddClientNameIfMissing(Company);
             SelectedClientName = Company;
+            InstallationTechnician = NormalizeSingleLine(job.InstallationTechnician);
+            AddInstallationTechnicianIfMissing(InstallationTechnician);
             Registration = NormalizeUpperText(job.Registration, emptyAsNull: false) ?? string.Empty;
             CompletedRegistrationUpdate = Registration;
             FleetNumber = NormalizeUpperText(job.FleetNumber);
@@ -363,6 +380,27 @@ public partial class JobCardEditViewModel : ViewModelBase
             return;
 
         ClientNames.Add(companyName.Trim());
+    }
+
+    private void LoadInstallationTechnicianOptions()
+    {
+        InstallationTechnicianOptions.Clear();
+        foreach (var technician in DefaultInstallationTechnicians)
+        {
+            InstallationTechnicianOptions.Add(technician);
+        }
+    }
+
+    private void AddInstallationTechnicianIfMissing(string? technicianName)
+    {
+        var normalized = NormalizeSingleLine(technicianName);
+        if (string.IsNullOrWhiteSpace(normalized))
+            return;
+
+        if (InstallationTechnicianOptions.Any(x => string.Equals(x, normalized, StringComparison.OrdinalIgnoreCase)))
+            return;
+
+        InstallationTechnicianOptions.Add(normalized);
     }
 
     private void UpdateAvailableModels()
@@ -609,6 +647,14 @@ public partial class JobCardEditViewModel : ViewModelBase
         return value.Trim().ToUpperInvariant();
     }
 
+    private static string? NormalizeSingleLine(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        return string.Join(" ", value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
     [RelayCommand]
     private void Cancel() => _close();
 
@@ -616,6 +662,179 @@ public partial class JobCardEditViewModel : ViewModelBase
     private void RefreshTechnicianPhotos()
     {
         LoadTechnicianPhotoSummary();
+    }
+
+    [RelayCommand]
+    private async Task UploadDesktopPhotos()
+    {
+        var files = await _window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Select technician photos",
+            AllowMultiple = true,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("Image files")
+                {
+                    Patterns = new[] { "*.jpg", "*.jpeg", "*.png", "*.bmp", "*.gif", "*.webp" }
+                }
+            }
+        });
+
+        if (files is null || files.Count == 0)
+            return;
+
+        var service = new AttachmentStorageService();
+        var added = 0;
+        Exception? lastError = null;
+
+        foreach (var file in files)
+        {
+            var sourcePath = file.Path.LocalPath;
+            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                continue;
+
+            try
+            {
+                service.AddAttachment(
+                    _appState.OperatorName,
+                    AttachmentOwnerType.JobCard,
+                    _jobCardId,
+                    AttachmentKind.JobPhoto,
+                    sourcePath);
+                added++;
+            }
+            catch (Exception ex)
+            {
+                lastError = ex;
+            }
+        }
+
+        LoadTechnicianPhotoSummary();
+
+        if (added > 0)
+        {
+            _appState.SetStatus(lastError is null
+                ? $"Uploaded {added} technician photo(s)."
+                : $"Uploaded {added} technician photo(s); some files failed.");
+            return;
+        }
+
+        _appState.SetStatus(lastError is null
+            ? "No valid photos were selected."
+            : $"Photo upload failed: {lastError.Message}", true);
+    }
+
+    [RelayCommand]
+    private async Task ReplaceSelectedTechnicianPhoto()
+    {
+        if (SelectedTechnicianPhoto is null)
+        {
+            _appState.SetStatus("Select a technician photo first.");
+            return;
+        }
+
+        var files = await _window.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Select replacement photo",
+            AllowMultiple = false,
+            FileTypeFilter = new[]
+            {
+                new FilePickerFileType("Image files")
+                {
+                    Patterns = new[] { "*.jpg", "*.jpeg", "*.png", "*.bmp", "*.gif", "*.webp" }
+                }
+            }
+        });
+
+        var file = files?.FirstOrDefault();
+        if (file is null)
+            return;
+
+        var sourcePath = file.Path.LocalPath;
+        if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+        {
+            _appState.SetStatus("Replacement photo file was not found on disk.", true);
+            return;
+        }
+
+        using var db = new AppDbContext();
+        var existing = db.Attachments
+            .AsNoTracking()
+            .FirstOrDefault(a => a.Id == SelectedTechnicianPhoto.Id
+                                 && a.OwnerType == AttachmentOwnerType.JobCard
+                                 && a.OwnerId == _jobCardId
+                                 && a.Kind == AttachmentKind.JobPhoto);
+
+        if (existing is null)
+        {
+            _appState.SetStatus("Selected photo no longer exists.", true);
+            LoadTechnicianPhotoSummary();
+            return;
+        }
+
+        var service = new AttachmentStorageService();
+        service.DeleteAttachment(existing.Id);
+        service.AddAttachment(
+            _appState.OperatorName,
+            AttachmentOwnerType.JobCard,
+            _jobCardId,
+            AttachmentKind.JobPhoto,
+            sourcePath,
+            existing.Notes);
+
+        LoadTechnicianPhotoSummary();
+        _appState.SetStatus("Technician photo replaced.");
+    }
+
+    [RelayCommand]
+    private void DeleteSelectedTechnicianPhoto()
+    {
+        if (SelectedTechnicianPhoto is null)
+        {
+            _appState.SetStatus("Select a technician photo first.");
+            return;
+        }
+
+        new AttachmentStorageService().DeleteAttachment(SelectedTechnicianPhoto.Id);
+        LoadTechnicianPhotoSummary();
+        _appState.SetStatus("Technician photo deleted.");
+    }
+
+    [RelayCommand]
+    private void EditSelectedTechnicianPhoto()
+    {
+        if (SelectedTechnicianPhoto is null)
+        {
+            _appState.SetStatus("Select a technician photo first.");
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(SelectedTechnicianPhoto.StoredPath) || !File.Exists(SelectedTechnicianPhoto.StoredPath))
+        {
+            _appState.SetStatus("Photo file was not found on disk.", true);
+            return;
+        }
+
+        try
+        {
+            var paintPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "mspaint.exe");
+            if (File.Exists(paintPath))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = paintPath,
+                    Arguments = $"\"{SelectedTechnicianPhoto.StoredPath}\"",
+                    UseShellExecute = true
+                });
+                return;
+            }
+
+            new AttachmentStorageService().OpenAttachment(SelectedTechnicianPhoto.StoredPath);
+        }
+        catch (Exception ex)
+        {
+            _appState.SetStatus($"Could not open photo editor: {ex.Message}", true);
+        }
     }
 
     [RelayCommand]
@@ -663,6 +882,7 @@ public partial class JobCardEditViewModel : ViewModelBase
 
         job.Company = NormalizeUpperText(Company, emptyAsNull: false) ?? string.Empty;
         job.Registration = NormalizeUpperText(Registration, emptyAsNull: false) ?? string.Empty;
+        job.InstallationTechnician = NormalizeSingleLine(InstallationTechnician);
         job.FleetNumber = NormalizeUpperText(FleetNumber);
         job.Make = NormalizeUpperText(Make);
         job.Model = NormalizeUpperText(Model);

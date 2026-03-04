@@ -618,7 +618,7 @@ namespace StingListManager.ViewModels
             existing.Quantity = quantity;
             existing.UnitPriceExVat = unitPrice;
             existing.IsVatExempt = false;
-            existing.Description = "Auto-added monthly fee";
+            existing.Description = "Monthly fee";
             existing.LineTotalExVat = existing.UnitPriceExVat * existing.Quantity;
         }
 

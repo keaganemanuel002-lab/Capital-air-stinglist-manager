@@ -13,6 +13,7 @@ public class JobCard
     public int JobCardNumber { get; set; }
     public JobType Type { get; set; }
     public JobStatus Status { get; set; } = JobStatus.Open;
+    public string? InstallationTechnician { get; set; }
 
     // Linked quote (optional but useful)
     public int? QuoteId { get; set; }

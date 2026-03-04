@@ -35,6 +35,7 @@ public partial class StingListRow : ObservableObject
     public string? Notes { get; set; }
     public string Status { get; set; } = "Active";
     public string Warranty { get; set; } = "";
+    public bool IsOutOfWarranty { get; set; }
     public bool IsArchived { get; set; }
     public DateTime ActiveFrom { get; set; }
     public bool HasLocalBillingEntry => LocalBillingEntryId is > 0;
@@ -58,6 +59,7 @@ public partial class StingListViewModel : PagedViewModelBase
     public List<string> StatusOptions { get; } = new();
 
     [ObservableProperty] private StingListRow? selectedRow;
+    [ObservableProperty] private List<StingListRow>? selectedRows;
     [ObservableProperty] private bool showArchived;
     [ObservableProperty] private string? searchText;
     [ObservableProperty] private FilterPreset? selectedPreset;
@@ -94,18 +96,30 @@ public partial class StingListViewModel : PagedViewModelBase
 
     public bool CanArchive => _appState.CanArchive;
 
-    public bool CanStartRemoval =>
-        SelectedRow != null
-        && !string.Equals(SelectedRow.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase)
-        && !SelectedRow.IsArchived;
+    public bool CanStartRemoval
+    {
+        get
+        {
+            var row = ResolvePrimarySelectedRow();
+            return row != null
+                   && !string.Equals(row.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase)
+                   && !row.IsArchived;
+        }
+    }
 
-    public bool CanStartTransfer =>
-        SelectedRow != null
-        && SelectedRow.HasLocalBillingEntry
-        && !string.Equals(SelectedRow.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase)
-        && !SelectedRow.IsArchived;
+    public bool CanStartTransfer
+    {
+        get
+        {
+            var row = ResolvePrimarySelectedRow();
+            return row != null
+                   && row.HasLocalBillingEntry
+                   && !string.Equals(row.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase)
+                   && !row.IsArchived;
+        }
+    }
 
-    public bool CanModifySelectedRow => CanArchive && SelectedRow?.HasLocalBillingEntry == true;
+    public bool CanModifySelectedRow => CanArchive && ResolvePrimarySelectedRow()?.HasLocalBillingEntry == true;
     public bool CanEditSelectedRow => CanModifySelectedRow;
     public bool CanDeleteSelectedRow => CanModifySelectedRow;
     public bool CanAddEntry => CanArchive;
@@ -115,12 +129,12 @@ public partial class StingListViewModel : PagedViewModelBase
 
     partial void OnSelectedRowChanged(StingListRow? value)
     {
-        OnPropertyChanged(nameof(CanStartRemoval));
-        OnPropertyChanged(nameof(CanStartTransfer));
-        OnPropertyChanged(nameof(CanModifySelectedRow));
-        OnPropertyChanged(nameof(CanEditSelectedRow));
-        OnPropertyChanged(nameof(CanDeleteSelectedRow));
-        OnPropertyChanged(nameof(CanAddEntry));
+        NotifySelectionStateChanged();
+    }
+
+    partial void OnSelectedRowsChanged(List<StingListRow>? value)
+    {
+        NotifySelectionStateChanged();
     }
 
     partial void OnSelectedStatusChanged(string value) => FirstPageCommand.Execute(null);
@@ -152,7 +166,8 @@ public partial class StingListViewModel : PagedViewModelBase
 
     protected override void LoadPage()
     {
-        var selectedKey = (SelectedRow?.Id, SelectedRow?.LocalBillingEntryId);
+        var selected = ResolvePrimarySelectedRow();
+        var selectedKey = (selected?.Id, selected?.LocalBillingEntryId);
 
         var filteredRows = BuildFilteredRows(applyPaging: false);
         var pageRows = filteredRows.Skip(Skip).Take(PageSize).ToList();
@@ -168,15 +183,17 @@ public partial class StingListViewModel : PagedViewModelBase
             SelectedRow = Rows.FirstOrDefault(r =>
                 r.Id == selectedKey.Id &&
                 r.LocalBillingEntryId == selectedKey.LocalBillingEntryId);
+            SelectedRows = SelectedRow is null
+                ? null
+                : new List<StingListRow> { SelectedRow };
+        }
+        else
+        {
+            SelectedRows = null;
         }
 
         _appState.SetStatus($"Loaded STING entries: page {PageNumber} ({Rows.Count} of {filteredRows.Count})");
-        OnPropertyChanged(nameof(CanStartRemoval));
-        OnPropertyChanged(nameof(CanStartTransfer));
-        OnPropertyChanged(nameof(CanModifySelectedRow));
-        OnPropertyChanged(nameof(CanEditSelectedRow));
-        OnPropertyChanged(nameof(CanDeleteSelectedRow));
-        OnPropertyChanged(nameof(CanAddEntry));
+        NotifySelectionStateChanged();
     }
 
     private List<StingListRow> BuildFilteredRows(bool applyPaging)
@@ -321,7 +338,7 @@ public partial class StingListViewModel : PagedViewModelBase
         if (_isLoadingFromWialon)
             return;
 
-        var selectedRowBeforeReload = SelectedRow;
+        var selectedRowBeforeReload = ResolvePrimarySelectedRow();
         var selectedRowIndexBeforeReload = selectedRowBeforeReload is null
             ? -1
             : Rows.IndexOf(selectedRowBeforeReload);
@@ -468,6 +485,7 @@ public partial class StingListViewModel : PagedViewModelBase
                 matchedLocalEntryIds.Add(localMatch.Id);
 
             var activeFrom = localMatch?.ActiveFrom ?? (report.CreatedAt == default ? DateTime.UtcNow : report.CreatedAt);
+            var isOutOfWarranty = !WarrantyService.IsWithinWarranty(activeFrom);
             var warrantyDisplay = WarrantyService.GetDisplayText(activeFrom);
             var status = !string.IsNullOrWhiteSpace(report.Status)
                 ? report.Status
@@ -496,6 +514,7 @@ public partial class StingListViewModel : PagedViewModelBase
                 Notes = FirstNonEmpty(report.Notes, localMatch?.Notes),
                 Status = status,
                 Warranty = warrantyDisplay,
+                IsOutOfWarranty = isOutOfWarranty,
                 IsArchived = localMatch?.ArchivedAt != null,
                 ActiveFrom = activeFrom
             });
@@ -542,11 +561,12 @@ public partial class StingListViewModel : PagedViewModelBase
 
     private void RestoreSelectionFallback(int preferredIndex)
     {
-        if (SelectedRow is not null || preferredIndex < 0 || Rows.Count == 0)
+        if (ResolvePrimarySelectedRow() is not null || preferredIndex < 0 || Rows.Count == 0)
             return;
 
         var clampedIndex = Math.Clamp(preferredIndex, 0, Rows.Count - 1);
         SelectedRow = Rows[clampedIndex];
+        SelectedRows = new List<StingListRow> { SelectedRow };
     }
 
     private void MapLocalBillingEntriesToRows(
@@ -566,6 +586,8 @@ public partial class StingListViewModel : PagedViewModelBase
 
     private static StingListRow CreateRowFromLocalBillingEntry(BillingEntry entry, string? installationJobCard = null)
     {
+        var activeFrom = entry.ActiveFrom == default ? DateTime.UtcNow : entry.ActiveFrom;
+
         return new StingListRow
         {
             Id = -Math.Max(1, entry.Id),
@@ -585,9 +607,10 @@ public partial class StingListViewModel : PagedViewModelBase
             SimNumber = entry.SimNumber,
             Notes = entry.Notes,
             Status = entry.Status == BillingStatus.Removed ? BillingStatus.Removed.ToString() : InactiveStatus,
-            Warranty = WarrantyService.GetDisplayText(entry.ActiveFrom == default ? DateTime.UtcNow : entry.ActiveFrom),
+            Warranty = WarrantyService.GetDisplayText(activeFrom),
+            IsOutOfWarranty = !WarrantyService.IsWithinWarranty(activeFrom),
             IsArchived = entry.ArchivedAt != null,
-            ActiveFrom = entry.ActiveFrom == default ? DateTime.UtcNow : entry.ActiveFrom
+            ActiveFrom = activeFrom
         };
     }
 
@@ -740,12 +763,13 @@ public partial class StingListViewModel : PagedViewModelBase
     [RelayCommand]
     private async Task EditSelected()
     {
-        if (!CanEditSelectedRow || SelectedRow?.LocalBillingEntryId is not > 0)
+        var row = ResolvePrimarySelectedRow();
+        if (!CanEditSelectedRow || row?.LocalBillingEntryId is not > 0)
             return;
 
         var dlg = new StingListManager.Views.BillingEntryEditWindow();
         dlg.DataContext = new BillingEntryEditViewModel(
-            SelectedRow.LocalBillingEntryId.Value,
+            row.LocalBillingEntryId.Value,
             () => dlg.Close(),
             () => { },
             _appState);
@@ -788,10 +812,11 @@ public partial class StingListViewModel : PagedViewModelBase
             return;
         }
 
-        if (SelectedRow is null)
+        var row = ResolvePrimarySelectedRow();
+        if (row is null)
             return;
 
-        if (SelectedRow.LocalBillingEntryId is null)
+        if (row.LocalBillingEntryId is null)
         {
             _appState.SetStatus("This Wialon entry is not linked to a local billing record.");
             return;
@@ -800,12 +825,12 @@ public partial class StingListViewModel : PagedViewModelBase
         var ok = await DialogService.Confirm(
             _window,
             "Mark Removed",
-            $"Mark this unit as REMOVED?\n\n{SelectedRow.Registration}\n\nThis will stop billing and set a removal date.");
+            $"Mark this unit as REMOVED?\n\n{row.Registration}\n\nThis will stop billing and set a removal date.");
 
         if (!ok) return;
 
         using var db = new AppDbContext();
-        var entry = db.BillingEntries.FirstOrDefault(x => x.Id == SelectedRow.LocalBillingEntryId.Value);
+        var entry = db.BillingEntries.FirstOrDefault(x => x.Id == row.LocalBillingEntryId.Value);
         if (entry is null)
         {
             _appState.SetStatus("Linked billing entry was not found.");
@@ -829,10 +854,11 @@ public partial class StingListViewModel : PagedViewModelBase
             return;
         }
 
-        if (SelectedRow is null)
+        var row = ResolvePrimarySelectedRow();
+        if (row is null)
             return;
 
-        if (SelectedRow.LocalBillingEntryId is null)
+        if (row.LocalBillingEntryId is null)
         {
             _appState.SetStatus("This Wialon entry is not linked to a local billing record.");
             return;
@@ -841,12 +867,12 @@ public partial class StingListViewModel : PagedViewModelBase
         var ok = await DialogService.Confirm(
             _window,
             "Archive Entry",
-            $"Archive this entry?\n\n{SelectedRow.Registration}\n\nIt will be hidden from the active billing list.");
+            $"Archive this entry?\n\n{row.Registration}\n\nIt will be hidden from the active billing list.");
 
         if (!ok) return;
 
         using var db = new AppDbContext();
-        var entry = db.BillingEntries.FirstOrDefault(x => x.Id == SelectedRow.LocalBillingEntryId.Value);
+        var entry = db.BillingEntries.FirstOrDefault(x => x.Id == row.LocalBillingEntryId.Value);
         if (entry is null)
         {
             _appState.SetStatus("Linked billing entry was not found.");
@@ -863,7 +889,8 @@ public partial class StingListViewModel : PagedViewModelBase
     [RelayCommand]
     private async Task DeleteSelected()
     {
-        if (!CanDeleteSelectedRow || SelectedRow is null)
+        var row = ResolvePrimarySelectedRow();
+        if (!CanDeleteSelectedRow || row is null)
             return;
 
         if (!CanArchive)
@@ -872,7 +899,7 @@ public partial class StingListViewModel : PagedViewModelBase
             return;
         }
 
-        if (SelectedRow.LocalBillingEntryId is null)
+        if (row.LocalBillingEntryId is null)
         {
             _appState.SetStatus("This Wialon entry is not linked to a local billing record.");
             return;
@@ -881,13 +908,13 @@ public partial class StingListViewModel : PagedViewModelBase
         var ok = await DialogService.Confirm(
             _window,
             "Delete STING Entry",
-            $"Delete this STING entry permanently?\n\n{SelectedRow.Company}\n{SelectedRow.Registration}\n\nThis action cannot be undone.");
+            $"Delete this STING entry permanently?\n\n{row.Company}\n{row.Registration}\n\nThis action cannot be undone.");
 
         if (!ok)
             return;
 
         using var db = new AppDbContext();
-        var entry = await db.BillingEntries.FirstOrDefaultAsync(x => x.Id == SelectedRow.LocalBillingEntryId.Value);
+        var entry = await db.BillingEntries.FirstOrDefaultAsync(x => x.Id == row.LocalBillingEntryId.Value);
         if (entry is null)
         {
             _appState.SetStatus("Linked billing entry was not found.");
@@ -913,26 +940,27 @@ public partial class StingListViewModel : PagedViewModelBase
     [RelayCommand]
     private async Task StartTransfer()
     {
-        if (SelectedRow is null)
+        var row = ResolvePrimarySelectedRow();
+        if (row is null)
         {
             _appState.SetStatus("No STING entry selected.");
             return;
         }
 
-        if (SelectedRow.LocalBillingEntryId is null)
+        if (row.LocalBillingEntryId is null)
         {
             _appState.SetStatus("Cannot create transfer job card: selected row is not linked to a local billing entry.");
             return;
         }
 
-        if (SelectedRow.IsArchived || string.Equals(SelectedRow.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase))
+        if (row.IsArchived || string.Equals(row.Status, BillingStatus.Removed.ToString(), StringComparison.OrdinalIgnoreCase))
         {
             _appState.SetStatus("Cannot create transfer job card for removed/archived entries.");
             return;
         }
 
         using var db = new AppDbContext();
-        var sourceEntry = db.BillingEntries.FirstOrDefault(x => x.Id == SelectedRow.LocalBillingEntryId.Value);
+        var sourceEntry = db.BillingEntries.FirstOrDefault(x => x.Id == row.LocalBillingEntryId.Value);
         if (sourceEntry is null)
         {
             _appState.SetStatus("The selected billing entry no longer exists.");
@@ -1002,7 +1030,7 @@ public partial class StingListViewModel : PagedViewModelBase
             $"Transfer job card {transferReference} created from STING list");
 
         var dlg = new StingListManager.Views.JobCardEditWindow();
-        dlg.DataContext = new JobCardEditViewModel(transferJob.Id, () => dlg.Close(), _appState);
+        dlg.DataContext = new JobCardEditViewModel(dlg, transferJob.Id, () => dlg.Close(), _appState);
         await dlg.ShowDialog(_window);
 
         _appState.SetStatus(
@@ -1012,19 +1040,20 @@ public partial class StingListViewModel : PagedViewModelBase
     [RelayCommand]
     private async Task StartRemoval()
     {
-        if (SelectedRow is null)
+        var row = ResolvePrimarySelectedRow();
+        if (row is null)
         {
             _appState.SetStatus("No entry selected.");
             return;
         }
 
-        if (SelectedRow.Status == BillingStatus.Removed.ToString() || SelectedRow.IsArchived)
+        if (row.Status == BillingStatus.Removed.ToString() || row.IsArchived)
         {
             _appState.SetStatus("Cannot create removal request: This entry is already marked as removed or archived.");
             return;
         }
 
-        var isWithinWarranty = WarrantyService.IsWithinWarranty(SelectedRow.ActiveFrom);
+        var isWithinWarranty = WarrantyService.IsWithinWarranty(row.ActiveFrom);
         var createRemovalJobCard = true;
         if (!isWithinWarranty)
         {
@@ -1035,7 +1064,7 @@ public partial class StingListViewModel : PagedViewModelBase
         }
 
         using var db = new AppDbContext();
-        var removalNote = $"Removal for unit: {SelectedRow.Registration}";
+        var removalNote = $"Removal for unit: {row.Registration}";
         if (!createRemovalJobCard)
             removalNote = $"{removalNote} {WorkflowService.NoRemovalJobCardMarker}";
 
@@ -1044,18 +1073,18 @@ public partial class StingListViewModel : PagedViewModelBase
             QuoteNumber = QuoteNumberAllocator.GetNext(db),
             Type = QuoteType.Removal,
             Status = QuoteStatus.Draft,
-            Company = SelectedRow.Company,
-            Registration = SelectedRow.Registration,
-            FleetNumber = SelectedRow.FleetNumber,
-            Make = SelectedRow.Make,
-            Model = SelectedRow.Model,
-            Colour = SelectedRow.Colour,
-            VinNumber = SelectedRow.VinNumber,
-            TrackingUnitMake = SelectedRow.TrackingUnitMake,
-            Imei = SelectedRow.Imei,
-            SerialNumber = SelectedRow.SerialNumber,
-            Iccid = SelectedRow.Iccid,
-            SimNumber = SelectedRow.SimNumber,
+            Company = row.Company,
+            Registration = row.Registration,
+            FleetNumber = row.FleetNumber,
+            Make = row.Make,
+            Model = row.Model,
+            Colour = row.Colour,
+            VinNumber = row.VinNumber,
+            TrackingUnitMake = row.TrackingUnitMake,
+            Imei = row.Imei,
+            SerialNumber = row.SerialNumber,
+            Iccid = row.Iccid,
+            SimNumber = row.SimNumber,
             AmountExVat = _appState.Settings.DefaultRemovalFeeExVat,
             Notes = removalNote
         };
@@ -1078,13 +1107,13 @@ public partial class StingListViewModel : PagedViewModelBase
 
         var cancellation = new CancellationEntry
         {
-            Client = SelectedRow.Company,
-            Registration = SelectedRow.Registration,
-            FleetNumber = SelectedRow.FleetNumber,
-            MakeModel = string.IsNullOrWhiteSpace(SelectedRow.Make) || string.IsNullOrWhiteSpace(SelectedRow.Model)
+            Client = row.Company,
+            Registration = row.Registration,
+            FleetNumber = row.FleetNumber,
+            MakeModel = string.IsNullOrWhiteSpace(row.Make) || string.IsNullOrWhiteSpace(row.Model)
                 ? null
-                : $"{SelectedRow.Make} {SelectedRow.Model}",
-            UnitModel = SelectedRow.TrackingUnitMake,
+                : $"{row.Make} {row.Model}",
+            UnitModel = row.TrackingUnitMake,
             DateRequestReceived = DateTime.UtcNow,
             Status = CancellationStatus.Quoted,
             QuoteId = quote.Id,
@@ -1104,17 +1133,18 @@ public partial class StingListViewModel : PagedViewModelBase
     [RelayCommand]
     private async Task ViewDetails()
     {
-        if (SelectedRow is null)
+        var row = ResolvePrimarySelectedRow();
+        if (row is null)
             return;
 
-        if (SelectedRow.LocalBillingEntryId is null)
+        if (row.LocalBillingEntryId is null)
         {
             _appState.SetStatus("No local installation details exist for this Wialon-only entry.");
             return;
         }
 
         var dlg = new StingListManager.Views.InstallationDetailsWindow();
-        dlg.DataContext = new InstallationDetailsViewModel(() => dlg.Close(), SelectedRow.LocalBillingEntryId.Value, _appState);
+        dlg.DataContext = new InstallationDetailsViewModel(() => dlg.Close(), row.LocalBillingEntryId.Value, _appState);
         await dlg.ShowDialog(_window);
     }
 
@@ -1182,6 +1212,24 @@ public partial class StingListViewModel : PagedViewModelBase
             return string.Empty;
 
         return new string(value.Where(char.IsDigit).ToArray());
+    }
+
+    private void NotifySelectionStateChanged()
+    {
+        OnPropertyChanged(nameof(CanStartRemoval));
+        OnPropertyChanged(nameof(CanStartTransfer));
+        OnPropertyChanged(nameof(CanModifySelectedRow));
+        OnPropertyChanged(nameof(CanEditSelectedRow));
+        OnPropertyChanged(nameof(CanDeleteSelectedRow));
+        OnPropertyChanged(nameof(CanAddEntry));
+    }
+
+    private StingListRow? ResolvePrimarySelectedRow()
+    {
+        if (SelectedRow != null)
+            return SelectedRow;
+
+        return SelectedRows?.FirstOrDefault();
     }
 
     private static string BuildCompanyRegistrationKey(string? company, string? registration)

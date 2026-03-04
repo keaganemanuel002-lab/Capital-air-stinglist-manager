@@ -513,6 +513,9 @@ namespace StingListManager.Migrations
                     b.Property<string>("Imei")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("InstallationTechnician")
+                        .HasColumnType("TEXT");
+
                     b.Property<int>("InspectionOutcome")
                         .HasColumnType("INTEGER");
 

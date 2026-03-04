@@ -29,6 +29,7 @@ public partial class BillingListRow : ObservableObject
     public string PackageCharge { get; set; } = "";
     public string Notes { get; set; } = "";
     public string Reason { get; set; } = "";
+    public bool? LiveTrackingEnabled { get; set; }
     public bool IsClientSummaryRow { get; set; }
     public IBrush RowBackground { get; set; } = Brushes.White;
     public IBrush RowForeground { get; set; } = Brushes.Black;
@@ -48,13 +49,14 @@ public partial class BillingListViewModel : ViewModelBase
     public ObservableCollection<string> AvailableClients { get; } = new();
 
     [ObservableProperty] private BillingListRow? selectedRow;
+    [ObservableProperty] private List<BillingListRow>? selectedRows;
     [ObservableProperty] private string selectedClient = "All";
     [ObservableProperty] private string? registrationSearch;
 
     public bool CanEditSelectedRow =>
-        SelectedRow is { IsClientSummaryRow: false, Id: > 0 };
+        ResolvePrimarySelectedRow() is { IsClientSummaryRow: false, Id: > 0 };
     public bool CanDeleteSelectedRow =>
-        _appState.CanArchive && SelectedRow is { IsClientSummaryRow: false, Id: > 0 };
+        _appState.CanArchive && ResolvePrimarySelectedRow() is { IsClientSummaryRow: false, Id: > 0 };
 
     public BillingListViewModel(Window window, AppState appState)
     {
@@ -74,8 +76,12 @@ public partial class BillingListViewModel : ViewModelBase
 
     partial void OnSelectedRowChanged(BillingListRow? value)
     {
-        OnPropertyChanged(nameof(CanEditSelectedRow));
-        OnPropertyChanged(nameof(CanDeleteSelectedRow));
+        NotifySelectionStateChanged();
+    }
+
+    partial void OnSelectedRowsChanged(List<BillingListRow>? value)
+    {
+        NotifySelectionStateChanged();
     }
 
     partial void OnRegistrationSearchChanged(string? value)
@@ -89,12 +95,13 @@ public partial class BillingListViewModel : ViewModelBase
     [RelayCommand]
     private async Task Load()
     {
-        var selectedRowIdBeforeReload = SelectedRow is { IsClientSummaryRow: false, Id: > 0 }
-            ? SelectedRow.Id
+        var selectedBeforeReload = ResolvePrimarySelectedRow();
+        var selectedRowIdBeforeReload = selectedBeforeReload is { IsClientSummaryRow: false, Id: > 0 }
+            ? selectedBeforeReload.Id
             : (int?)null;
-        var selectedRowIndexBeforeReload = SelectedRow is null
+        var selectedRowIndexBeforeReload = selectedBeforeReload is null
             ? -1
-            : Rows.IndexOf(SelectedRow);
+            : Rows.IndexOf(selectedBeforeReload);
 
         List<BillingEntry> allEntries;
         try
@@ -133,6 +140,20 @@ public partial class BillingListViewModel : ViewModelBase
             .ThenBy(e => e.Registration)
             .ToList();
 
+        Dictionary<string, bool> liveTrackingByClient;
+        using (var db = new AppDbContext())
+        {
+            liveTrackingByClient = db.ClientQuoteSummaries
+                .AsNoTracking()
+                .Where(x => !string.IsNullOrWhiteSpace(x.Company))
+                .ToList()
+                .GroupBy(x => NormalizeClientDisplayName(x.Company), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(x => x.UpdatedAt).First().HasLiveTracking,
+                    StringComparer.OrdinalIgnoreCase);
+        }
+
         Rows.Clear();
 
         var grouped = entries.GroupBy(e => e.Company).OrderBy(g => g.Key);
@@ -168,11 +189,18 @@ public partial class BillingListViewModel : ViewModelBase
 
             var packageSummary = BuildPackageSummaryFromEntries(group.Key, clientEntries);
             var totalUnits = clientEntries.Count;
-            var liveTrackingUnits = totalUnits;
+            var clientKey = NormalizeClientDisplayName(group.Key);
+            var liveTrackingEnabled = liveTrackingByClient.TryGetValue(clientKey, out var configuredState)
+                ? configuredState
+                : totalUnits > 0;
+            var liveTrackingUnits = liveTrackingEnabled ? totalUnits : 0;
             var packageTotal = packageSummary.StingCount + packageSummary.StingPlusCount + packageSummary.StingFmCount;
             var packageSourceNote = packageTotal <= 0
                 ? "Package mix unavailable (set package type to STING/STING PLUS/STING FM)"
                 : "Package mix from active STING list entries";
+            var liveTrackingNote = liveTrackingEnabled
+                ? "Live tracking enabled."
+                : "Live tracking disabled.";
 
             Rows.Add(new BillingListRow
             {
@@ -186,8 +214,9 @@ public partial class BillingListViewModel : ViewModelBase
                     $"STING {packageSummary.StingCount} | STING PLUS {packageSummary.StingPlusCount} | STING FM {packageSummary.StingFmCount}",
                 Code = string.Empty,
                 PackageCharge = "CLIENT TOTAL",
-                Notes = packageSourceNote,
+                Notes = $"{liveTrackingNote} {packageSourceNote}",
                 Reason = "",
+                LiveTrackingEnabled = liveTrackingEnabled,
                 IsClientSummaryRow = true,
                 RowBackground = ClientSummaryRowBackground,
                 RowForeground = ClientSummaryRowForeground,
@@ -208,10 +237,12 @@ public partial class BillingListViewModel : ViewModelBase
         }
 
         SelectedRow = restoredSelection;
+        SelectedRows = restoredSelection is null
+            ? null
+            : new List<BillingListRow> { restoredSelection };
 
         _appState.SetStatus($"Loaded billing list: {entries.Count} entries across {grouped.Count()} clients ({Rows.Count} rows incl. totals).");
-        OnPropertyChanged(nameof(CanEditSelectedRow));
-        OnPropertyChanged(nameof(CanDeleteSelectedRow));
+        NotifySelectionStateChanged();
     }
 
     [RelayCommand]
@@ -264,7 +295,8 @@ public partial class BillingListViewModel : ViewModelBase
     [RelayCommand]
     private async Task DeleteSelected()
     {
-        if (!CanDeleteSelectedRow || SelectedRow is null)
+        var row = ResolvePrimarySelectedRow();
+        if (!CanDeleteSelectedRow || row is null)
             return;
 
         if (!_appState.CanArchive)
@@ -276,13 +308,13 @@ public partial class BillingListViewModel : ViewModelBase
         var ok = await DialogService.Confirm(
             _window,
             "Delete Billing Entry",
-            $"Delete this billing entry permanently?\n\n{SelectedRow.Company}\n{SelectedRow.Registration}\n\nThis action cannot be undone.");
+            $"Delete this billing entry permanently?\n\n{row.Company}\n{row.Registration}\n\nThis action cannot be undone.");
 
         if (!ok)
             return;
 
         using var db = new AppDbContext();
-        var entry = await db.BillingEntries.FirstOrDefaultAsync(x => x.Id == SelectedRow.Id);
+        var entry = await db.BillingEntries.FirstOrDefaultAsync(x => x.Id == row.Id);
         if (entry is null)
         {
             _appState.SetStatus("Billing entry no longer exists.");
@@ -302,6 +334,66 @@ public partial class BillingListViewModel : ViewModelBase
             "Deleted from Billing List");
 
         _appState.SetStatus($"Billing entry deleted: {entry.Company} / {entry.Registration}.");
+        await Load();
+    }
+
+    [RelayCommand]
+    private async Task ToggleClientLiveTracking(BillingListRow? row)
+    {
+        if (row is null || !row.IsClientSummaryRow)
+            return;
+
+        var companyName = NormalizeClientDisplayName(row.Company);
+        if (string.IsNullOrWhiteSpace(companyName))
+            return;
+
+        var currentlyEnabled = row.LiveTrackingEnabled ?? true;
+        var targetEnabled = !currentlyEnabled;
+        var actionText = targetEnabled ? "Enable" : "Disable";
+
+        var ok = await DialogService.Confirm(
+            _window,
+            "Live Tracking",
+            $"{actionText} live tracking for {row.Company}?\n\nThis updates the client TOTAL row.");
+
+        if (!ok)
+            return;
+
+        using var db = new AppDbContext();
+        var existingRows = await db.ClientQuoteSummaries
+            .Where(x => !string.IsNullOrWhiteSpace(x.Company))
+            .ToListAsync();
+
+        var matchingRows = existingRows
+            .Where(x => string.Equals(
+                NormalizeClientDisplayName(x.Company),
+                companyName,
+                StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matchingRows.Count == 0)
+        {
+            db.ClientQuoteSummaries.Add(new ClientQuoteSummary
+            {
+                Company = row.Company.Trim(),
+                HasLiveTracking = targetEnabled,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            foreach (var summary in matchingRows)
+            {
+                summary.HasLiveTracking = targetEnabled;
+                summary.UpdatedAt = DateTime.UtcNow;
+                if (string.IsNullOrWhiteSpace(summary.Company))
+                    summary.Company = row.Company.Trim();
+            }
+        }
+
+        await db.SaveChangesAsync();
+
+        _appState.SetStatus($"Live tracking {(targetEnabled ? "enabled" : "disabled")} for {row.Company}.");
         await Load();
     }
 
@@ -420,22 +512,24 @@ public partial class BillingListViewModel : ViewModelBase
     [RelayCommand]
     private async Task ViewDetails()
     {
-        if (SelectedRow is null || SelectedRow.IsClientSummaryRow || SelectedRow.Id <= 0) return;
+        var row = ResolvePrimarySelectedRow();
+        if (row is null || row.IsClientSummaryRow || row.Id <= 0) return;
 
         var dlg = new StingListManager.Views.InstallationDetailsWindow();
-        dlg.DataContext = new InstallationDetailsViewModel(() => dlg.Close(), SelectedRow.Id, _appState);
+        dlg.DataContext = new InstallationDetailsViewModel(() => dlg.Close(), row.Id, _appState);
         await dlg.ShowDialog(_window);
     }
 
     [RelayCommand]
     private async Task EditSelected()
     {
-        if (!CanEditSelectedRow || SelectedRow is null)
+        var row = ResolvePrimarySelectedRow();
+        if (!CanEditSelectedRow || row is null)
             return;
 
         var dlg = new StingListManager.Views.BillingEntryEditWindow();
         dlg.DataContext = new BillingEntryEditViewModel(
-            SelectedRow.Id,
+            row.Id,
             () => dlg.Close(),
             () => _ = Load(),
             _appState);
@@ -463,5 +557,19 @@ public partial class BillingListViewModel : ViewModelBase
         exporter.ExportBillingList(path);
 
         _appState.SetStatus($"Billing list exported: {Path.GetFileName(path)}");
+    }
+
+    private void NotifySelectionStateChanged()
+    {
+        OnPropertyChanged(nameof(CanEditSelectedRow));
+        OnPropertyChanged(nameof(CanDeleteSelectedRow));
+    }
+
+    private BillingListRow? ResolvePrimarySelectedRow()
+    {
+        if (SelectedRow != null)
+            return SelectedRow;
+
+        return SelectedRows?.FirstOrDefault();
     }
 }
